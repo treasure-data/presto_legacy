@@ -1,0 +1,12 @@
+machine:
+  java:
+    version: openjdk7
+
+dependencies:
+  override:
+    - echo skipping_dependencies
+
+test:
+  override:
+    - mvn package -DskipTests
+
