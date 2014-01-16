@@ -92,11 +92,9 @@ public class DriverFactory
     @Override
     public synchronized void close()
     {
-        if (!closed) {
-            closed = true;
-            for (OperatorFactory operatorFactory : operatorFactories) {
-                operatorFactory.close();
-            }
+        closed = true;
+        for (OperatorFactory operatorFactory : operatorFactories) {
+            operatorFactory.close();
         }
     }
 }

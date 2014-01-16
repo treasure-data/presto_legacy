@@ -17,7 +17,6 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
-import com.facebook.presto.spi.OutputTableHandle;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.TableHandle;
@@ -25,7 +24,6 @@ import com.facebook.presto.tpch.TpchColumnHandle;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -152,24 +150,6 @@ public class InMemoryMetadata
     public void dropTable(TableHandle tableHandle)
     {
         tables.remove(getTableName(tableHandle));
-    }
-
-    @Override
-    public boolean canHandle(OutputTableHandle tableHandle)
-    {
-        return false;
-    }
-
-    @Override
-    public OutputTableHandle beginCreateTable(ConnectorTableMetadata tableMetadata)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void commitCreateTable(OutputTableHandle tableHandle, Collection<String> fragments)
-    {
-        throw new UnsupportedOperationException();
     }
 
     private SchemaTableName getTableName(TableHandle tableHandle)

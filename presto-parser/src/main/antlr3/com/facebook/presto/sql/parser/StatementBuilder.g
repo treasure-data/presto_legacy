@@ -251,8 +251,8 @@ joinedTable returns [Relation value]
     ;
 
 joinRelation returns [Join value]
-    : ^(CROSS_JOIN a=relation b=relation)                               { $value = new Join(Join.Type.CROSS, $a.value, $b.value, Optional.<JoinCriteria>absent()); }
-    | ^(QUALIFIED_JOIN t=joinType c=joinCriteria a=relation b=relation) { $value = new Join($t.value, $a.value, $b.value, Optional.fromNullable($c.value)); }
+    : ^(CROSS_JOIN a=relation b=relation)                               { $value = new Join(Join.Type.CROSS, $a.value, $b.value, null); }
+    | ^(QUALIFIED_JOIN t=joinType c=joinCriteria a=relation b=relation) { $value = new Join($t.value, $a.value, $b.value, $c.value); }
     ;
 
 aliasedRelation returns [AliasedRelation value]
@@ -461,7 +461,7 @@ whenList returns [List<WhenClause> value = new ArrayList<>()]
     ;
 
 explain returns [Statement value]
-    : ^(EXPLAIN explainOptions? statement) { $value = new Explain($statement.value, $explainOptions.value); }
+    : ^(EXPLAIN explainOptions? query) { $value = new Explain($query.value, $explainOptions.value); }
     ;
 
 explainOptions returns [List<ExplainOption> value = new ArrayList<>()]
@@ -488,11 +488,7 @@ showTablesLike returns [String value]
     ;
 
 showSchemas returns [Statement value]
-    : ^(SHOW_SCHEMAS from=showSchemasFrom?) { $value = new ShowSchemas(Optional.fromNullable($from.value)); }
-    ;
-
-showSchemasFrom returns [String value]
-    : ^(FROM ident) { $value = $ident.value; }
+    : SHOW_SCHEMAS { $value = new ShowSchemas(); }
     ;
 
 showCatalogs returns [Statement value]

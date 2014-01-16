@@ -299,18 +299,10 @@ public final class TupleDomain
     @Override
     public String toString()
     {
-        StringBuilder builder = new StringBuilder()
-                .append("TupleDomain:");
-        if (isAll()) {
-            builder.append("ALL");
-        }
-        else if (isNone()) {
-            builder.append("NONE");
-        }
-        else {
-            builder.append(domains);
-        }
-        return builder.toString();
+        final StringBuilder sb = new StringBuilder("TupleDomain{");
+        sb.append("domains=").append(domains);
+        sb.append('}');
+        return sb.toString();
     }
 
     // Available for Jackson serialization only!

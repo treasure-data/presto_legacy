@@ -18,8 +18,7 @@ import com.facebook.presto.spi.ConnectorHandleResolver;
 import com.facebook.presto.spi.Split;
 import com.facebook.presto.spi.TableHandle;
 
-import static java.util.Objects.requireNonNull;
-
+@SuppressWarnings("UnusedDeclaration")
 public class ClassLoaderSafeConnectorHandleResolver
         implements ConnectorHandleResolver
 {
@@ -28,14 +27,14 @@ public class ClassLoaderSafeConnectorHandleResolver
 
     public ClassLoaderSafeConnectorHandleResolver(ConnectorHandleResolver delegate, ClassLoader classLoader)
     {
-        this.delegate = requireNonNull(delegate, "delegate is null");
-        this.classLoader = requireNonNull(classLoader, "classLoader is null");
+        this.delegate = delegate;
+        this.classLoader = classLoader;
     }
 
     @Override
     public boolean canHandle(TableHandle tableHandle)
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.canHandle(tableHandle);
         }
     }
@@ -43,7 +42,7 @@ public class ClassLoaderSafeConnectorHandleResolver
     @Override
     public boolean canHandle(ColumnHandle columnHandle)
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.canHandle(columnHandle);
         }
     }
@@ -51,7 +50,7 @@ public class ClassLoaderSafeConnectorHandleResolver
     @Override
     public boolean canHandle(Split split)
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.canHandle(split);
         }
     }
@@ -59,7 +58,7 @@ public class ClassLoaderSafeConnectorHandleResolver
     @Override
     public Class<? extends TableHandle> getTableHandleClass()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.getTableHandleClass();
         }
     }
@@ -67,7 +66,7 @@ public class ClassLoaderSafeConnectorHandleResolver
     @Override
     public Class<? extends ColumnHandle> getColumnHandleClass()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.getColumnHandleClass();
         }
     }
@@ -75,7 +74,7 @@ public class ClassLoaderSafeConnectorHandleResolver
     @Override
     public Class<? extends Split> getSplitClass()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.getSplitClass();
         }
     }
@@ -83,7 +82,7 @@ public class ClassLoaderSafeConnectorHandleResolver
     @Override
     public String toString()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.toString();
         }
     }

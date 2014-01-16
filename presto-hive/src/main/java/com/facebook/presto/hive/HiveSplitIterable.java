@@ -20,6 +20,7 @@ import com.facebook.presto.hive.util.SuspendingExecutor;
 import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Split;
 import com.google.common.base.Optional;
+import com.google.common.base.Splitter;
 import com.google.common.base.Throwables;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
@@ -47,29 +48,24 @@ import org.apache.hadoop.mapred.JobConf;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executor;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.facebook.presto.hive.HiveBucketing.HiveBucket;
 import static com.facebook.presto.hive.HiveSplit.markAsLastSplit;
 import static com.facebook.presto.hive.HiveType.getSupportedHiveType;
 import static com.facebook.presto.hive.HiveUtil.convertNativeHiveType;
 import static com.facebook.presto.hive.HiveUtil.getInputFormat;
 import static com.facebook.presto.hive.HiveUtil.isSplittable;
 import static com.facebook.presto.hive.UnpartitionedPartition.isUnpartitioned;
-import static com.facebook.presto.hive.util.FileStatusUtil.isFile;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
@@ -108,11 +104,11 @@ class HiveSplitIterable
     private final Table table;
     private final Iterable<String> partitionNames;
     private final Iterable<Partition> partitions;
-    private final Optional<HiveBucket> bucket;
+    private final Optional<Integer> bucket;
     private final int maxOutstandingSplits;
     private final int maxThreads;
     private final HdfsEnvironment hdfsEnvironment;
-    private final Executor executor;
+    private final ExecutorService executor;
     private final ClassLoader classLoader;
     private final DataSize maxSplitSize;
     private final int maxPartitionBatchSize;
@@ -121,12 +117,12 @@ class HiveSplitIterable
             Table table,
             Iterable<String> partitionNames,
             Iterable<Partition> partitions,
-            Optional<HiveBucket> bucket,
+            Optional<Integer> bucket,
             DataSize maxSplitSize,
             int maxOutstandingSplits,
             int maxThreads,
             HdfsEnvironment hdfsEnvironment,
-            Executor executor,
+            ExecutorService executor,
             int maxPartitionBatchSize)
     {
         this.clientId = clientId;
@@ -149,17 +145,14 @@ class HiveSplitIterable
         // Each iterator has its own bounded executor and can be independently suspended
         final SuspendingExecutor suspendingExecutor = new SuspendingExecutor(new BoundedExecutor(executor, maxThreads));
         final HiveSplitQueue hiveSplitQueue = new HiveSplitQueue(maxOutstandingSplits, suspendingExecutor);
-        executor.execute(new Runnable()
+        executor.submit(new Callable<Void>()
         {
             @Override
-            public void run()
+            public Void call()
+                    throws Exception
             {
-                try {
-                    loadPartitionSplits(hiveSplitQueue, suspendingExecutor);
-                }
-                catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                loadPartitionSplits(hiveSplitQueue, suspendingExecutor);
+                return null;
             }
         });
         return hiveSplitQueue;
@@ -212,25 +205,15 @@ class HiveSplitIterable
                     continue;
                 }
 
-                // TODO: this is currently serial across all partitions and should be done in suspendingExecutor
-                if (bucket.isPresent()) {
-                    Optional<FileStatus> bucketFile = getBucketFile(bucket.get(), fs, path);
-                    if (bucketFile.isPresent()) {
-                        FileStatus file = bucketFile.get();
-                        BlockLocation[] blockLocations = fs.getFileBlockLocations(file, 0, file.getLen());
-                        boolean splittable = isSplittable(inputFormat, fs, file.getPath());
-
-                        markerQueue.addToQueue(createHiveSplits(partitionName, file, blockLocations, 0, file.getLen(), schema, partitionKeys, splittable));
-                        markerQueue.finish();
-                        continue;
-                    }
-                }
-
                 ListenableFuture<Void> partitionFuture = new AsyncRecursiveWalker(fs, suspendingExecutor).beginWalk(partitionPath, new FileStatusCallback()
                 {
                     @Override
                     public void process(FileStatus file, BlockLocation[] blockLocations)
                     {
+                        if (bucket.isPresent() && !fileMatchesBucket(file.getPath().getName(), bucket.get())) {
+                            return;
+                        }
+
                         try {
                             boolean splittable = isSplittable(inputFormat, file.getPath().getFileSystem(configuration), file.getPath());
 
@@ -248,15 +231,15 @@ class HiveSplitIterable
                     @Override
                     public void onSuccess(Void result)
                     {
-                        semaphore.release();
                         markerQueue.finish();
+                        semaphore.release();
                     }
 
                     @Override
                     public void onFailure(Throwable t)
                     {
-                        semaphore.release();
                         markerQueue.finish();
+                        semaphore.release();
                     }
                 });
                 futureBuilder.add(partitionFuture);
@@ -284,39 +267,14 @@ class HiveSplitIterable
         }
     }
 
-    private static Optional<FileStatus> getBucketFile(HiveBucket bucket, FileSystem fs, Path path)
+    private static boolean fileMatchesBucket(String fileName, int bucketNumber)
     {
-        FileStatus[] statuses = listStatus(fs, path);
-
-        if (statuses.length != bucket.getBucketCount()) {
-            return Optional.absent();
-        }
-
-        Map<String, FileStatus> map = new HashMap<>();
-        List<String> paths = new ArrayList<>();
-        for (FileStatus status : statuses) {
-            if (!isFile(status)) {
-                return Optional.absent();
-            }
-            String pathString = status.getPath().toString();
-            map.put(pathString, status);
-            paths.add(pathString);
-        }
-
-        // Hive sorts the paths as strings lexicographically
-        Collections.sort(paths);
-
-        String pathString = paths.get(bucket.getBucketNumber());
-        return Optional.of(map.get(pathString));
-    }
-
-    private static FileStatus[] listStatus(FileSystem fs, Path path)
-    {
+        String currentBucket = Splitter.on('_').split(fileName).iterator().next();
         try {
-            return fs.listStatus(path);
+            return Integer.parseInt(currentBucket) == bucketNumber;
         }
-        catch (IOException e) {
-            throw Throwables.propagate(e);
+        catch (NumberFormatException ignored) {
+            return false;
         }
     }
 

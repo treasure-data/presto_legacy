@@ -30,6 +30,7 @@ import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.PlanOptimizersFactory;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
 import com.facebook.presto.sql.tree.ExplainType;
+import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.storage.MockStorageManager;
 import com.facebook.presto.tpch.TpchMetadata;
 import com.facebook.presto.tuple.Tuple;
@@ -52,8 +53,6 @@ import io.airlift.slice.Slices;
 import io.airlift.units.Duration;
 import org.apache.commons.math.stat.descriptive.DescriptiveStatistics;
 import org.intellij.lang.annotations.Language;
-import org.joda.time.DateTime;
-import org.joda.time.DateTimeZone;
 import org.skife.jdbi.v2.DBI;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.PreparedBatch;
@@ -68,7 +67,6 @@ import org.testng.annotations.Test;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.INFORMATION_SCHEMA;
 import static com.facebook.presto.sql.analyzer.Session.DEFAULT_CATALOG;
@@ -91,7 +89,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.transform;
 import static java.lang.String.format;
 import static java.util.Collections.nCopies;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
@@ -301,25 +298,12 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT DISTINCT custkey FROM orders");
     }
 
-    @Test(expectedExceptions = Exception.class, expectedExceptionsMessageRegExp = "All DISTINCT argument lists used in aggregations must match")
-    public void testCountMultipleDifferentDistinct()
-            throws Exception
-    {
-        assertQuery("SELECT COUNT(DISTINCT orderstatus), SUM(DISTINCT custkey) FROM orders");
-    }
-
-    @Test
-    public void testCountMultipleDistinct()
-            throws Exception
-    {
-        assertQuery("SELECT COUNT(DISTINCT custkey), SUM(DISTINCT custkey) FROM orders", "SELECT COUNT(*), SUM(custkey) FROM (SELECT DISTINCT custkey FROM orders) t");
-    }
-
-    @Test
+    // TODO: we need to properly propagate exceptions with their actual classes
+    @Test(expectedExceptions = Exception.class, expectedExceptionsMessageRegExp = "DISTINCT in aggregation parameters not yet supported")
     public void testCountDistinct()
             throws Exception
     {
-        assertQuery("SELECT COUNT(DISTINCT custkey + 1) FROM orders", "SELECT COUNT(*) FROM (SELECT DISTINCT custkey + 1 FROM orders) t");
+        assertQuery("SELECT COUNT(DISTINCT custkey) FROM orders");
     }
 
     @Test
@@ -808,6 +792,13 @@ public abstract class AbstractTestQueries
             throws Exception
     {
         assertQuery("SELECT COUNT(*) FROM lineitem JOIN orders ON lineitem.orderkey = orders.orderkey AND 123 = 123");
+    }
+
+    @Test(expectedExceptions = Exception.class, expectedExceptionsMessageRegExp = ".*not supported.*")
+    public void testJoinOnConstantExpression()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM lineitem JOIN orders ON 123 = 123");
     }
 
     @Test
@@ -1491,26 +1482,6 @@ public abstract class AbstractTestQueries
     }
 
     @Test
-    public void testGroupByAsJoinProbe()
-            throws Exception
-    {
-        // we join on customer key instead of order key because
-        // orders is effectively distributed on order key due the
-        // generated data being sorted
-        assertQuery("SELECT " +
-                "  b.orderkey, " +
-                "  b.custkey, " +
-                "  a.custkey " +
-                "FROM ( " +
-                "  SELECT custkey" +
-                "  FROM orders " +
-                "  GROUP BY custkey" +
-                ") a " +
-                "JOIN orders b " +
-                "  ON a.custkey = b.custkey ");
-    }
-
-    @Test
     public void testColumnAliases()
             throws Exception
     {
@@ -1986,28 +1957,10 @@ public abstract class AbstractTestQueries
     }
 
     @Test
-    public void testExplainOfExplain()
-    {
-        String query = "EXPLAIN SELECT 123 FROM dual";
-        MaterializedResult result = computeActual("EXPLAIN " + query);
-        String actual = Iterables.getOnlyElement(transform(result.getMaterializedTuples(), onlyColumnGetter()));
-        assertEquals(actual, getExplainPlan(query, LOGICAL));
-    }
-
-    @Test
     public void testShowSchemas()
             throws Exception
     {
         MaterializedResult result = computeActual("SHOW SCHEMAS");
-        ImmutableSet<String> schemaNames = ImmutableSet.copyOf(transform(result.getMaterializedTuples(), onlyColumnGetter()));
-        assertEquals(schemaNames, ImmutableSet.of(TPCH_SCHEMA_NAME, INFORMATION_SCHEMA, "sys"));
-    }
-
-    @Test
-    public void testShowSchemasFrom()
-            throws Exception
-    {
-        MaterializedResult result = computeActual(String.format("SHOW SCHEMAS FROM %s", TpchMetadata.TPCH_CATALOG_NAME));
         ImmutableSet<String> schemaNames = ImmutableSet.copyOf(transform(result.getMaterializedTuples(), onlyColumnGetter()));
         assertEquals(schemaNames, ImmutableSet.of(TPCH_SCHEMA_NAME, INFORMATION_SCHEMA, "sys"));
     }
@@ -2245,36 +2198,6 @@ public abstract class AbstractTestQueries
             throws Exception
     {
         assertQuery("SELECT 1, 1, 'a', 'a' UNION ALL SELECT 1, 2, 'a', 'b'");
-    }
-
-    @Test
-    public void testCrossJoins()
-            throws Exception
-    {
-        assertQuery("" +
-                "SELECT a.custkey, b.orderkey " +
-                "FROM (SELECT * FROM orders ORDER BY orderkey LIMIT 5) a " +
-                "CROSS JOIN (SELECT * FROM lineitem ORDER BY orderkey LIMIT 5) b");
-    }
-
-    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "Implicit cross joins are not yet supported; use CROSS JOIN")
-    public void testImplicitCrossJoin()
-            throws Exception
-    {
-        assertQuery("" +
-                "SELECT * FROM (SELECT * FROM orders ORDER BY orderkey LIMIT 5) a, " +
-                "(SELECT * FROM orders ORDER BY orderkey LIMIT 5) b, " +
-                "(SELECT * FROM orders ORDER BY orderkey LIMIT 5) c ");
-    }
-
-    @Test
-    public void testJoinOnConstantExpression()
-            throws Exception
-    {
-        assertQuery("" +
-                "SELECT * FROM (SELECT * FROM orders ORDER BY orderkey LIMIT 5) a " +
-                "   JOIN (SELECT * FROM orders ORDER BY orderkey LIMIT 5) b " +
-                "   ON 123 = 123");
     }
 
     @Test
@@ -2694,28 +2617,6 @@ public abstract class AbstractTestQueries
         computeActual("SELECT 1 <> 'x'");
     }
 
-    @Test
-    public void testTimeLiterals()
-            throws Exception
-    {
-        assertQuery(
-                "SELECT TIME '3:04', TIMESTAMP '1960-01-22 3:04', DATE '2013-03-22', INTERVAL '123' DAY\n",
-                "SELECT " +
-                        MILLISECONDS.toSeconds(new DateTime(1970, 1, 1, 3, 4, 0, 0, DateTimeZone.UTC).getMillis()) + ",  " +
-                        MILLISECONDS.toSeconds(new DateTime(1960, 1, 22, 3, 4, 0, 0, DateTimeZone.UTC).getMillis()) + ",  " +
-                        MILLISECONDS.toSeconds(new DateTime(2013, 3, 22, 0, 0, 0, 0, DateTimeZone.UTC).getMillis()) + ",  " +
-                        String.valueOf(TimeUnit.DAYS.toSeconds(123)));
-    }
-
-    @Test
-    public void testNonReservedTimeWords()
-            throws Exception
-    {
-        assertQuery("" +
-                "SELECT TIME, TIMESTAMP, DATE, INTERVAL\n" +
-                "FROM (SELECT 1 TIME, 2 TIMESTAMP, 3 DATE, 4 INTERVAL)");
-    }
-
     @BeforeClass(alwaysRun = true)
     public void setupDatabase()
             throws Exception
@@ -2959,13 +2860,13 @@ public abstract class AbstractTestQueries
     private static String getExplainPlan(String query, ExplainType.Type planType)
     {
         QueryExplainer explainer = getQueryExplainer();
-        return explainer.getPlan(SqlParser.createStatement(query), planType);
+        return explainer.getPlan((Query) SqlParser.createStatement(query), planType);
     }
 
     private static String getGraphvizExplainPlan(String query, ExplainType.Type planType)
     {
         QueryExplainer explainer = getQueryExplainer();
-        return explainer.getGraphvizPlan(SqlParser.createStatement(query), planType);
+        return explainer.getGraphvizPlan((Query) SqlParser.createStatement(query), planType);
     }
 
     private static QueryExplainer getQueryExplainer()

@@ -10,7 +10,7 @@
 
     <groupId>com.facebook.presto</groupId>
     <artifactId>presto-root</artifactId>
-    <version>0.57-SNAPSHOT</version>
+    <version>0.55-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -48,6 +48,7 @@
     </properties>
 
     <modules>
+        <module>presto-docs</module>
         <module>presto-spi</module>
         <module>presto-hive</module>
         <module>presto-hive-hadoop1</module>
@@ -59,7 +60,6 @@
         <module>presto-jdbc</module>
         <module>presto-cli</module>
         <module>presto-server</module>
-        <module>presto-docs</module>
     </modules>
 
     <dependencyManagement>
@@ -163,7 +163,7 @@
             <dependency>
                 <groupId>com.facebook.presto.hive</groupId>
                 <artifactId>hive-apache</artifactId>
-                <version>0.4</version>
+                <version>0.3</version>
             </dependency>
 
             <dependency>
@@ -398,12 +398,6 @@
                 <groupId>commons-lang</groupId>
                 <artifactId>commons-lang</artifactId>
                 <version>2.6</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>3.1</version>
             </dependency>
 
             <dependency>

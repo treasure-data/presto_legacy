@@ -122,16 +122,11 @@ public final class PagesSerde
         {
             this.sliceInput = sliceInput;
 
-            if (!sliceInput.isReadable()) {
-                endOfData();
-                blockEncodings = new BlockEncoding[0];
-            } else {
-                int channelCount = sliceInput.readInt();
+            int channelCount = sliceInput.readInt();
 
-                blockEncodings = new BlockEncoding[channelCount];
-                for (int i = 0; i < blockEncodings.length; i++) {
-                    blockEncodings[i] = BlockEncodings.readBlockEncoding(sliceInput);
-                }
+            blockEncodings = new BlockEncoding[channelCount];
+            for (int i = 0; i < blockEncodings.length; i++) {
+                blockEncodings[i] = BlockEncodings.readBlockEncoding(sliceInput);
             }
         }
 

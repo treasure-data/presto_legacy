@@ -124,13 +124,8 @@ public class MockTaskManager
 
         MockTask task = tasks.get(taskId);
         if (task == null) {
-            task = new MockTask(session,
-                    taskId,
-                    uriBuilderFrom(httpServerInfo.getHttpUri()).appendPath("v1/task").appendPath(taskId.toString()).build(),
-                    outputBuffers,
-                    maxBufferSize,
-                    initialPages,
-                    executor
+            task = new MockTask(session, taskId,
+                    uriBuilderFrom(httpServerInfo.getHttpUri()).appendPath("v1/task").appendPath(taskId.toString()).build(), maxBufferSize, initialPages, executor
             );
             tasks.put(taskId, task);
         }
@@ -197,7 +192,6 @@ public class MockTaskManager
         public MockTask(Session session,
                 TaskId taskId,
                 URI location,
-                OutputBuffers outputBuffers,
                 DataSize maxBufferSize,
                 int initialPages,
                 Executor executor)
@@ -207,7 +201,7 @@ public class MockTaskManager
 
             this.location = checkNotNull(location, "location is null");
 
-            this.sharedBuffer = new SharedBuffer(checkNotNull(maxBufferSize, "maxBufferSize is null"), outputBuffers);
+            this.sharedBuffer = new SharedBuffer(checkNotNull(maxBufferSize, "maxBufferSize is null"));
 
             List<String> data = ImmutableList.of("apple", "banana", "cherry", "date");
 
@@ -225,7 +219,12 @@ public class MockTaskManager
 
         public void addOutputBuffers(OutputBuffers outputBuffers)
         {
-            sharedBuffer.setOutputBuffers(outputBuffers);
+            for (String outputId : outputBuffers.getBufferIds()) {
+                sharedBuffer.addQueue(outputId);
+            }
+            if (outputBuffers.isNoMoreBufferIds()) {
+                sharedBuffer.noMoreQueues();
+            }
         }
 
         public void cancel()

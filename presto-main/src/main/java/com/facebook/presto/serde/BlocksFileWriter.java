@@ -15,6 +15,7 @@ package com.facebook.presto.serde;
 
 import com.facebook.presto.block.Block;
 import com.facebook.presto.tuple.Tuple;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -74,7 +75,7 @@ public class BlocksFileWriter
 
     public BlocksFileWriter append(Iterable<Tuple> tuples)
     {
-        checkNotNull(tuples, "tuples is null");
+        Preconditions.checkNotNull(tuples, "tuples is null");
         if (!Iterables.isEmpty(tuples)) {
             if (encoder == null) {
                 open();
@@ -102,52 +103,32 @@ public class BlocksFileWriter
         }
     }
 
-    @Override
     public void close()
     {
-        if (closed) {
-            return;
-        }
-        closed = true;
+        if (!closed && encoder != null) {
+            BlockEncoding blockEncoding = encoder.finish();
 
-        if (encoder == null) {
-            // No rows were written, so create an empty file. We need to keep
-            // the empty files in order to tell the difference between a
-            // missing file and a file that legitimately has no rows.
-            createEmptyFile();
-            return;
-        }
+            int startingIndex = sliceOutput.size();
 
-        BlockEncoding blockEncoding = encoder.finish();
+            // write file encoding
+            BlockEncodings.writeBlockEncoding(sliceOutput, blockEncoding);
 
-        int startingIndex = sliceOutput.size();
+            // write stats
+            BlocksFileStats.serialize(statsBuilder.build(), sliceOutput);
 
-        // write file encoding
-        BlockEncodings.writeBlockEncoding(sliceOutput, blockEncoding);
+            // write footer size
+            int footerSize = sliceOutput.size() - startingIndex;
+            checkState(footerSize > 0);
+            sliceOutput.writeInt(footerSize);
 
-        // write stats
-        BlocksFileStats.serialize(statsBuilder.build(), sliceOutput);
+            try {
+                sliceOutput.close();
+            }
+            catch (IOException e) {
+                throw Throwables.propagate(e);
+            }
 
-        // write footer size
-        int footerSize = sliceOutput.size() - startingIndex;
-        checkState(footerSize > 0);
-        sliceOutput.writeInt(footerSize);
-
-        try {
-            sliceOutput.close();
-        }
-        catch (IOException e) {
-            throw Throwables.propagate(e);
-        }
-    }
-
-    private void createEmptyFile()
-    {
-        try {
-            outputSupplier.getOutput().close();
-        }
-        catch (IOException e) {
-            throw Throwables.propagate(e);
+            closed = true;
         }
     }
 
@@ -162,7 +143,7 @@ public class BlocksFileWriter
 
         public void process(Iterable<Tuple> tuples)
         {
-            checkNotNull(tuples, "tuples is null");
+            Preconditions.checkNotNull(tuples, "tuples is null");
 
             for (Tuple tuple : tuples) {
                 if (lastTuple == null) {

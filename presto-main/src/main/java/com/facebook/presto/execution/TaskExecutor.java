@@ -96,7 +96,7 @@ public class TaskExecutor
     private final DistributionStat queuedTime = new DistributionStat();
     private final DistributionStat wallTime = new DistributionStat();
 
-    private volatile boolean closed;
+    private boolean closed;
 
     @Inject
     public TaskExecutor(TaskManagerConfig config)

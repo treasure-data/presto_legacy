@@ -6,12 +6,10 @@ SQL Statement Syntax
     :maxdepth: 1
 
     sql/select
-    sql/create-table
     sql/explain
     sql/describe
     sql/show-columns
     sql/show-partitions
     sql/show-tables
     sql/show-schemas
-    sql/show-catalogs
     sql/show-functions

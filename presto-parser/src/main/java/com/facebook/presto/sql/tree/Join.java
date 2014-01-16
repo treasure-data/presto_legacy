@@ -14,24 +14,15 @@
 package com.facebook.presto.sql.tree;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
-
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Preconditions;
 
 public class Join
         extends Relation
 {
-    public Join(Type type, Relation left, Relation right, Optional<JoinCriteria> criteria)
+    public Join(Type type, Relation left, Relation right, JoinCriteria criteria)
     {
-        checkNotNull(left, "left is null");
-        checkNotNull(right, "right is null");
-        if (type.equals(Type.CROSS)) {
-            checkArgument(!criteria.isPresent(), "Cross join cannot have join criteria");
-        }
-        else {
-            checkArgument(criteria.isPresent(), "No join criteria specified");
-        }
+        Preconditions.checkNotNull(left, "left is null");
+        Preconditions.checkNotNull(right, "right is null");
 
         this.type = type;
         this.left = left;
@@ -47,7 +38,7 @@ public class Join
     private final Type type;
     private final Relation left;
     private final Relation right;
-    private final Optional<JoinCriteria> criteria;
+    private final JoinCriteria criteria;
 
     public Type getType()
     {
@@ -64,7 +55,7 @@ public class Join
         return right;
     }
 
-    public Optional<JoinCriteria> getCriteria()
+    public JoinCriteria getCriteria()
     {
         return criteria;
     }

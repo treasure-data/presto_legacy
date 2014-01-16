@@ -108,7 +108,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 
@@ -285,7 +284,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>absent());
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node);
         Assert.assertEquals(effectivePredicate, BooleanLiteral.TRUE_LITERAL);
@@ -296,7 +294,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>of(scanAssignments.get(A), Domain.singleValue(1L))),
                         ImmutableList.<Partition>of())));
@@ -309,7 +306,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>of(scanAssignments.get(A), Domain.singleValue(1L))),
                         ImmutableList.<Partition>of(new DualPartition()))));
@@ -322,7 +318,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>of(scanAssignments.get(A), Domain.singleValue(1L))),
                         ImmutableList.<Partition>of(tupleDomainPartition(TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>of(
@@ -337,7 +332,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.all(),
                         ImmutableList.<Partition>of())));
@@ -350,7 +344,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.all(),
                         ImmutableList.<Partition>of(new DualPartition()))));
@@ -363,7 +356,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(assignments.keySet()),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.all(),
                         ImmutableList.<Partition>of(tupleDomainPartition(TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>of(
@@ -378,7 +370,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.of(A),
                 assignments,
-                null,
                 Optional.<GeneratedPartitions>of(new GeneratedPartitions(
                         TupleDomain.withColumnDomains(ImmutableMap.<ColumnHandle, Domain>of(
                                 scanAssignments.get(A), Domain.singleValue(1L),
@@ -443,7 +434,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(leftAssignments.keySet()),
                 leftAssignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 
@@ -453,7 +443,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(rightAssignments.keySet()),
                 rightAssignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 
@@ -496,7 +485,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(leftAssignments.keySet()),
                 leftAssignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 
@@ -506,7 +494,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(rightAssignments.keySet()),
                 rightAssignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 
@@ -549,7 +536,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(leftAssignments.keySet()),
                 leftAssignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 
@@ -559,7 +545,6 @@ public class TestEffectivePredicateExtractor
                 new DualTableHandle("default"),
                 ImmutableList.copyOf(rightAssignments.keySet()),
                 rightAssignments,
-                null,
                 Optional.<GeneratedPartitions>absent()
         );
 

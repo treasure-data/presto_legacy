@@ -19,8 +19,6 @@ import com.facebook.presto.spi.RecordSet;
 
 import java.util.List;
 
-import static java.util.Objects.requireNonNull;
-
 public class ClassLoaderSafeRecordSet
         implements RecordSet
 {
@@ -29,14 +27,14 @@ public class ClassLoaderSafeRecordSet
 
     public ClassLoaderSafeRecordSet(RecordSet delegate, ClassLoader classLoader)
     {
-        this.delegate = requireNonNull(delegate, "delegate is null");
-        this.classLoader = requireNonNull(classLoader, "classLoader is null");
+        this.delegate = delegate;
+        this.classLoader = classLoader;
     }
 
     @Override
     public List<ColumnType> getColumnTypes()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.getColumnTypes();
         }
     }
@@ -44,7 +42,7 @@ public class ClassLoaderSafeRecordSet
     @Override
     public RecordCursor cursor()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.cursor();
         }
     }
@@ -52,7 +50,7 @@ public class ClassLoaderSafeRecordSet
     @Override
     public String toString()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.toString();
         }
     }

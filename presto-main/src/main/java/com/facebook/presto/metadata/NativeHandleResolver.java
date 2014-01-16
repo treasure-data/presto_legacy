@@ -15,14 +15,12 @@ package com.facebook.presto.metadata;
 
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorHandleResolver;
-import com.facebook.presto.spi.ConnectorOutputHandleResolver;
-import com.facebook.presto.spi.OutputTableHandle;
 import com.facebook.presto.spi.Split;
 import com.facebook.presto.spi.TableHandle;
 import com.facebook.presto.split.NativeSplit;
 
 public class NativeHandleResolver
-        implements ConnectorHandleResolver, ConnectorOutputHandleResolver
+        implements ConnectorHandleResolver
 {
     @Override
     public boolean canHandle(TableHandle tableHandle)
@@ -43,12 +41,6 @@ public class NativeHandleResolver
     }
 
     @Override
-    public boolean canHandle(OutputTableHandle tableHandle)
-    {
-        return tableHandle instanceof NativeOutputTableHandle;
-    }
-
-    @Override
     public Class<? extends TableHandle> getTableHandleClass()
     {
         return NativeTableHandle.class;
@@ -64,11 +56,5 @@ public class NativeHandleResolver
     public Class<? extends Split> getSplitClass()
     {
         return NativeSplit.class;
-    }
-
-    @Override
-    public Class<? extends OutputTableHandle> getOutputTableHandleClass()
-    {
-        return NativeOutputTableHandle.class;
     }
 }

@@ -20,8 +20,7 @@ import com.facebook.presto.spi.Split;
 
 import java.util.List;
 
-import static java.util.Objects.requireNonNull;
-
+@SuppressWarnings("UnusedDeclaration")
 public class ClassLoaderSafeConnectorRecordSetProvider
         implements ConnectorRecordSetProvider
 {
@@ -30,14 +29,14 @@ public class ClassLoaderSafeConnectorRecordSetProvider
 
     public ClassLoaderSafeConnectorRecordSetProvider(ConnectorRecordSetProvider delegate, ClassLoader classLoader)
     {
-        this.delegate = requireNonNull(delegate, "delegate is null");
-        this.classLoader = requireNonNull(classLoader, "classLoader is null");
+        this.delegate = delegate;
+        this.classLoader = classLoader;
     }
 
     @Override
     public boolean canHandle(Split split)
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.canHandle(split);
         }
     }
@@ -45,7 +44,7 @@ public class ClassLoaderSafeConnectorRecordSetProvider
     @Override
     public RecordSet getRecordSet(Split split, List<? extends ColumnHandle> columns)
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return new ClassLoaderSafeRecordSet(delegate.getRecordSet(split, columns), classLoader);
         }
     }
@@ -53,7 +52,7 @@ public class ClassLoaderSafeConnectorRecordSetProvider
     @Override
     public String toString()
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+        try (ThreadContextClassLoader threadContextClassLoader = new ThreadContextClassLoader(classLoader)) {
             return delegate.toString();
         }
     }

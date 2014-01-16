@@ -54,6 +54,7 @@ public class PlanOptimizersFactory
 
         builder.add(new ImplementSampleAsFilter(),
                 new SimplifyExpressions(metadata),
+                new PruneUnreferencedOutputs(),
                 new UnaliasSymbolReferences(),
                 new PruneRedundantProjections(),
                 new SetFlatteningOptimizer(),
@@ -63,9 +64,8 @@ public class PlanOptimizersFactory
                 new MergeProjections(),
                 new SimplifyExpressions(metadata), // Re-run the SimplifyExpressions to simplify any recomposed expressions from other optimizations
                 new UnaliasSymbolReferences(), // Run again because predicate pushdown might add more projections
-                new PruneRedundantProjections(), // Run again because predicate pushdown might add more projections
-                new PruneUnreferencedOutputs()); // Make sure to run this last to help clean the plan for logging/execution and not remove info that other optimizers might need at an earlier point
-        // TODO: consider adding a formal final plan sanitization optimizer that prepares the plan for transmission/execution/logging
+                new PruneUnreferencedOutputs(), // Prune outputs again in case predicate pushdown move predicates all the way into the table scan
+                new PruneRedundantProjections()); // Run again because predicate pushdown might add more projections
         // TODO: figure out how to improve the set flattening optimizer so that it can run at any point
 
         this.optimizers = builder.build();

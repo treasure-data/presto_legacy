@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.facebook.presto</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.57-SNAPSHOT</version>
+        <version>0.55-SNAPSHOT</version>
     </parent>
 
     <artifactId>presto-jdbc</artifactId>
@@ -174,14 +174,11 @@
                                     <exclude>com.google.code.findbugs:annotations</exclude>
                                     <!-- TODO: remove aopalliance and guice excludes here when excluded above -->
                                     <exclude>aopalliance:aopalliance</exclude>
+                                    <exclude>com.google.inject:guice</exclude>
                                     <exclude>javax.validation:validation-api</exclude>
                                 </excludes>
                             </artifactSet>
                             <relocations>
-                                <reloation>
-                                    <pattern>com.google.inject</pattern>
-                                    <shadedPattern>${shadeBase}.guice</shadedPattern>
-                                </reloation>
                                 <relocation>
                                     <pattern>com.facebook.presto.client</pattern>
                                     <shadedPattern>${shadeBase}.client</shadedPattern>

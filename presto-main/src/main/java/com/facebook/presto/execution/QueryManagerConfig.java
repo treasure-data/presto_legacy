@@ -25,8 +25,6 @@ import java.util.concurrent.TimeUnit;
 public class QueryManagerConfig
 {
     private int maxPendingSplitsPerNode = 100;
-
-    private int initialHashPartitions = 8;
     private Duration maxQueryAge = new Duration(15, TimeUnit.MINUTES);
     private int maxQueryHistory = 100;
     private Duration clientTimeout = new Duration(5, TimeUnit.MINUTES);
@@ -46,19 +44,6 @@ public class QueryManagerConfig
     public QueryManagerConfig setMaxPendingSplitsPerNode(int maxPendingSplitsPerNode)
     {
         this.maxPendingSplitsPerNode = maxPendingSplitsPerNode;
-        return this;
-    }
-
-    @Min(1)
-    public int getInitialHashPartitions()
-    {
-        return initialHashPartitions;
-    }
-
-    @Config("query.initial-hash-partitions")
-    public QueryManagerConfig setInitialHashPartitions(int initialHashPartitions)
-    {
-        this.initialHashPartitions = initialHashPartitions;
         return this;
     }
 

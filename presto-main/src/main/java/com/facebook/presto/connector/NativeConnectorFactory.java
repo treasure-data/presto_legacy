@@ -16,14 +16,10 @@ package com.facebook.presto.connector;
 import com.facebook.presto.metadata.ForMetadata;
 import com.facebook.presto.metadata.NativeHandleResolver;
 import com.facebook.presto.metadata.NativeMetadata;
-import com.facebook.presto.metadata.NativeRecordSinkProvider;
-import com.facebook.presto.metadata.ShardManager;
 import com.facebook.presto.spi.Connector;
 import com.facebook.presto.spi.ConnectorFactory;
 import com.facebook.presto.spi.ConnectorHandleResolver;
 import com.facebook.presto.spi.ConnectorMetadata;
-import com.facebook.presto.spi.ConnectorOutputHandleResolver;
-import com.facebook.presto.spi.ConnectorRecordSinkProvider;
 import com.facebook.presto.spi.ConnectorSplitManager;
 import com.facebook.presto.split.ConnectorDataStreamProvider;
 import com.facebook.presto.split.NativeDataStreamProvider;
@@ -37,7 +33,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 
 public class NativeConnectorFactory
         implements ConnectorFactory
@@ -45,28 +40,19 @@ public class NativeConnectorFactory
     private static final NativeHandleResolver HANDLE_RESOLVER = new NativeHandleResolver();
 
     private final AtomicReference<IDBI> dbi = new AtomicReference<>();
-    private final AtomicReference<ShardManager> shardManager = new AtomicReference<>();
     private final AtomicReference<NativeSplitManager> splitManager = new AtomicReference<>();
     private final NativeDataStreamProvider dataStreamProvider;
-    private final NativeRecordSinkProvider recordSinkProvider;
 
     @Inject
-    public NativeConnectorFactory(NativeDataStreamProvider dataStreamProvider, NativeRecordSinkProvider recordSinkProvider)
+    public NativeConnectorFactory(NativeDataStreamProvider dataStreamProvider)
     {
         this.dataStreamProvider = checkNotNull(dataStreamProvider, "dataStreamProvider is null");
-        this.recordSinkProvider = checkNotNull(recordSinkProvider, "recordSinkProvider is null");
     }
 
     @Inject
     public void setDbi(@ForMetadata IDBI dbi)
     {
         this.dbi.set(checkNotNull(dbi, "dbi is null"));
-    }
-
-    @Inject
-    public void setShardManager(ShardManager shardManager)
-    {
-        this.shardManager.set(checkNotNull(shardManager, "shardManager is null"));
     }
 
     @Inject
@@ -88,8 +74,7 @@ public class NativeConnectorFactory
 
         IDBI dbi = this.dbi.get();
         if (dbi != null) {
-            checkState(shardManager.get() != null, "shardManager was not set");
-            builder.put(ConnectorMetadata.class, new NativeMetadata(connectorId, dbi, shardManager.get()));
+            builder.put(ConnectorMetadata.class, new NativeMetadata(connectorId, dbi));
         }
 
         NativeSplitManager splitManager = this.splitManager.get();
@@ -99,9 +84,6 @@ public class NativeConnectorFactory
 
         builder.put(ConnectorDataStreamProvider.class, dataStreamProvider);
         builder.put(ConnectorHandleResolver.class, HANDLE_RESOLVER);
-
-        builder.put(ConnectorRecordSinkProvider.class, recordSinkProvider);
-        builder.put(ConnectorOutputHandleResolver.class, HANDLE_RESOLVER);
 
         return new StaticConnector(builder.build());
     }

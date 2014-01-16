@@ -13,9 +13,9 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.presto.OutputBuffers;
 import com.facebook.presto.ScheduledSplit;
 import com.facebook.presto.TaskSource;
-import com.facebook.presto.UnpartitionedPagePartitionFunction;
 import com.facebook.presto.connector.dual.DualDataStreamProvider;
 import com.facebook.presto.connector.dual.DualMetadata;
 import com.facebook.presto.connector.dual.DualSplitManager;
@@ -25,8 +25,8 @@ import com.facebook.presto.metadata.MetadataManager;
 import com.facebook.presto.metadata.MockLocalStorageManager;
 import com.facebook.presto.metadata.Node;
 import com.facebook.presto.operator.ExchangeClient;
-import com.facebook.presto.operator.RecordSinkManager;
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.Domain;
 import com.facebook.presto.spi.PartitionResult;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.Split;
@@ -38,8 +38,6 @@ import com.facebook.presto.sql.analyzer.Type;
 import com.facebook.presto.sql.gen.ExpressionCompiler;
 import com.facebook.presto.sql.planner.LocalExecutionPlanner;
 import com.facebook.presto.sql.planner.PlanFragment;
-import com.facebook.presto.sql.planner.PlanFragment.PlanDistribution;
-import com.facebook.presto.sql.planner.PlanFragment.OutputPartitioning;
 import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.plan.PlanFragmentId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
@@ -65,7 +63,6 @@ import java.net.URI;
 import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 
-import static com.facebook.presto.OutputBuffers.INITIAL_EMPTY_OUTPUT_BUFFERS;
 import static com.facebook.presto.sql.planner.plan.TableScanNode.GeneratedPartitions;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -93,7 +90,7 @@ public class TestSqlTaskManager
         DualMetadata dualMetadata = new DualMetadata();
         tableHandle = dualMetadata.getTableHandle(new SchemaTableName("default", DualMetadata.NAME));
         assertNotNull(tableHandle, "tableHandle is null");
-
+        ;
         columnHandle = dualMetadata.getColumnHandle(tableHandle, DualMetadata.COLUMN_NAME);
         assertNotNull(columnHandle, "columnHandle is null");
         symbol = new Symbol(DualMetadata.COLUMN_NAME);
@@ -110,7 +107,6 @@ public class TestSqlTaskManager
                 metadata,
                 new DataStreamManager(new DualDataStreamProvider()),
                 new MockLocalStorageManager(new File("target/temp")),
-                new RecordSinkManager(),
                 new MockExchangeClientSupplier(),
                 new ExpressionCompiler(metadata));
 
@@ -125,19 +121,10 @@ public class TestSqlTaskManager
                 new TaskManagerConfig());
 
         tableScanNodeId = new PlanNodeId("tableScan");
-        testFragment = new PlanFragment(
-                new PlanFragmentId("fragment"),
-                new TableScanNode(
-                        tableScanNodeId,
-                        tableHandle,
-                        ImmutableList.of(symbol),
-                        ImmutableMap.of(symbol, columnHandle),
-                        null,
-                        Optional.<GeneratedPartitions>absent()),
-                ImmutableMap.<Symbol, Type>of(symbol, Type.VARCHAR),
-                PlanDistribution.SOURCE,
+        testFragment = new PlanFragment(new PlanFragmentId("fragment"),
                 tableScanNodeId,
-                OutputPartitioning.NONE);
+                ImmutableMap.<Symbol, Type>of(symbol, Type.VARCHAR),
+                new TableScanNode(tableScanNodeId, tableHandle, ImmutableList.of(symbol), ImmutableMap.of(symbol, columnHandle), Optional.<GeneratedPartitions>absent()));
 
         taskId = new TaskId("query", "stage", "task");
         session = new Session("user", "test", "default", "default", "test", "test");
@@ -159,7 +146,7 @@ public class TestSqlTaskManager
                 taskId,
                 testFragment,
                 ImmutableList.<TaskSource>of(),
-                INITIAL_EMPTY_OUTPUT_BUFFERS);
+                new OutputBuffers(ImmutableSet.<String>of(), false));
         assertEquals(taskInfo.getState(), TaskState.RUNNING);
 
         taskInfo = sqlTaskManager.getTaskInfo(taskInfo.getTaskId(), false);
@@ -169,7 +156,7 @@ public class TestSqlTaskManager
                 taskId,
                 testFragment,
                 ImmutableList.<TaskSource>of(new TaskSource(tableScanNodeId, ImmutableSet.<ScheduledSplit>of(), true)),
-                INITIAL_EMPTY_OUTPUT_BUFFERS.withNoMoreBufferIds());
+                new OutputBuffers(ImmutableSet.<String>of(), true));
         assertEquals(taskInfo.getState(), TaskState.FINISHED);
 
         taskInfo = sqlTaskManager.getTaskInfo(taskInfo.getTaskId(), false);
@@ -184,7 +171,7 @@ public class TestSqlTaskManager
                 taskId,
                 testFragment,
                 ImmutableList.<TaskSource>of(new TaskSource(tableScanNodeId, ImmutableSet.of(new ScheduledSplit(0, split)), true)),
-                INITIAL_EMPTY_OUTPUT_BUFFERS.withBuffer("out", new UnpartitionedPagePartitionFunction()).withNoMoreBufferIds());
+                new OutputBuffers(ImmutableSet.of("out"), true));
         assertEquals(taskInfo.getState(), TaskState.RUNNING);
 
         taskInfo = sqlTaskManager.getTaskInfo(taskInfo.getTaskId(), false);
@@ -192,13 +179,13 @@ public class TestSqlTaskManager
 
         BufferResult results = sqlTaskManager.getTaskResults(taskId, "out", 0, new DataSize(1, Unit.MEGABYTE), new Duration(1, TimeUnit.SECONDS));
         assertEquals(results.isBufferClosed(), false);
-        assertEquals(results.getPages().size(), 1);
-        assertEquals(results.getPages().get(0).getPositionCount(), 1);
+        assertEquals(results.getElements().size(), 1);
+        assertEquals(results.getElements().get(0).getPositionCount(), 1);
 
-        results = sqlTaskManager.getTaskResults(taskId, "out", results.getToken() + results.getPages().size(), new DataSize(1, Unit.MEGABYTE), new Duration(1, TimeUnit.SECONDS));
+        results = sqlTaskManager.getTaskResults(taskId, "out", results.getStartingSequenceId() + results.getElements().size(), new DataSize(1, Unit.MEGABYTE), new Duration(1, TimeUnit.SECONDS));
         // todo this should be true
         assertEquals(results.isBufferClosed(), false);
-        assertEquals(results.getPages().size(), 0);
+        assertEquals(results.getElements().size(), 0);
 
         sqlTaskManager.waitForStateChange(taskInfo.getTaskId(), taskInfo.getState(), new Duration(1, TimeUnit.SECONDS));
         taskInfo = sqlTaskManager.getTaskInfo(taskInfo.getTaskId(), false);
@@ -215,7 +202,7 @@ public class TestSqlTaskManager
                 taskId,
                 testFragment,
                 ImmutableList.<TaskSource>of(),
-                INITIAL_EMPTY_OUTPUT_BUFFERS);
+                new OutputBuffers(ImmutableSet.<String>of(), false));
         assertEquals(taskInfo.getState(), TaskState.RUNNING);
         assertNull(taskInfo.getStats().getEndTime());
 
@@ -240,7 +227,7 @@ public class TestSqlTaskManager
                 taskId,
                 testFragment,
                 ImmutableList.<TaskSource>of(new TaskSource(tableScanNodeId, ImmutableSet.of(new ScheduledSplit(0, split)), true)),
-                INITIAL_EMPTY_OUTPUT_BUFFERS.withBuffer("out", new UnpartitionedPagePartitionFunction()).withNoMoreBufferIds());
+                new OutputBuffers(ImmutableSet.of("out"), true));
         assertEquals(taskInfo.getState(), TaskState.RUNNING);
 
         taskInfo = sqlTaskManager.getTaskInfo(taskInfo.getTaskId(), false);
@@ -271,7 +258,7 @@ public class TestSqlTaskManager
                 taskId,
                 testFragment,
                 ImmutableList.<TaskSource>of(),
-                INITIAL_EMPTY_OUTPUT_BUFFERS);
+                new OutputBuffers(ImmutableSet.<String>of(), false));
         assertEquals(taskInfo.getState(), TaskState.RUNNING);
 
         taskInfo = sqlTaskManager.cancelTask(taskId);

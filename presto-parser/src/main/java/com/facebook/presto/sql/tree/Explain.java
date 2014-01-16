@@ -23,12 +23,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 public class Explain
         extends Statement
 {
-    private final Statement statement;
+    private final Query query;
     private final List<ExplainOption> options;
 
-    public Explain(Statement statement, List<ExplainOption> options)
+    public Explain(Query query, List<ExplainOption> options)
     {
-        this.statement = checkNotNull(statement, "statement is null");
+        this.query = checkNotNull(query, "query is null");
         if (options == null) {
             this.options = ImmutableList.of();
         }
@@ -37,9 +37,9 @@ public class Explain
         }
     }
 
-    public Statement getStatement()
+    public Query getQuery()
     {
-        return statement;
+        return query;
     }
 
     public List<ExplainOption> getOptions()
@@ -56,7 +56,7 @@ public class Explain
     @Override
     public int hashCode()
     {
-        return Objects.hashCode(statement, options);
+        return Objects.hashCode(query, options);
     }
 
     @Override
@@ -69,7 +69,7 @@ public class Explain
             return false;
         }
         Explain o = (Explain) obj;
-        return Objects.equal(statement, o.statement) &&
+        return Objects.equal(query, o.query) &&
                 Objects.equal(options, o.options);
     }
 
@@ -77,7 +77,7 @@ public class Explain
     public String toString()
     {
         return Objects.toStringHelper(this)
-                .add("statement", statement)
+                .add("query", query)
                 .add("options", options)
                 .toString();
     }

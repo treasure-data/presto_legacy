@@ -60,8 +60,7 @@ public class JoinNode
     {
         INNER("InnerJoin"),
         LEFT("LeftJoin"),
-        RIGHT("RightJoin"),
-        CROSS("CrossJoin");
+        RIGHT("RightJoin");
 
         private final String joinLabel;
 
@@ -85,8 +84,6 @@ public class JoinNode
                     return Type.LEFT;
                 case RIGHT:
                     return Type.RIGHT;
-                case CROSS:
-                    return Type.CROSS;
                 default:
                     throw new UnsupportedOperationException("Unsupported join type: " + joinType);
             }

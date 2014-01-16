@@ -17,8 +17,6 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -200,13 +198,10 @@ public final class Domain
     @Override
     public String toString()
     {
-        List<Object> values = new ArrayList<>();
-        if (nullAllowed) {
-            values.add("NULL");
-        }
-        for (Range range : ranges) {
-            values.add(range);
-        }
-        return values.toString();
+        final StringBuilder sb = new StringBuilder("Domain{");
+        sb.append("ranges=").append(ranges);
+        sb.append(", nullAllowed=").append(nullAllowed);
+        sb.append('}');
+        return sb.toString();
     }
 }
