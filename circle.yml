@@ -8,4 +8,4 @@ dependencies:
 
 test:
   override:
-    - mvn package -DskipTests
+    - mvn package -DXmx=2048M -DskipTests
