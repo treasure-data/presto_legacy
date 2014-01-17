@@ -8,4 +8,4 @@ dependencies:
 
 test:
   override:
-    - mvn package -DskipTests
+    - MAVEN_OPTS="-Xmx1024m" mvn package -DskipTests
