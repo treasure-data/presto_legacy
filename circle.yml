@@ -1,6 +1,8 @@
 machine:
   java:
     version: openjdk7
+  environment:
+    MAVEN_OPTS: -Xmx1024m
 
 dependencies:
   override:
@@ -8,5 +10,4 @@ dependencies:
 
 test:
   override:
-    - export MAVEN_OPTS="-Xmx1024m"
     - mvn package -DskipTests
