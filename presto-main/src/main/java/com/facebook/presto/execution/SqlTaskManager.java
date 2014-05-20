@@ -281,8 +281,6 @@ public class SqlTaskManager
     @Override
     public TaskInfo updateTask(ConnectorSession session, TaskId taskId, PlanFragment fragment, List<TaskSource> sources, OutputBuffers outputBuffers)
     {
-        URI location = locationFactory.createLocalTaskLocation(taskId);
-
         TaskExecution taskExecution;
         synchronized (this) {
             taskExecution = tasks.get(taskId);
@@ -293,21 +291,7 @@ public class SqlTaskManager
                     return taskInfo;
                 }
 
-                taskExecution = SqlTaskExecution.createSqlTaskExecution(session,
-                        taskId,
-                        location,
-                        fragment,
-                        sources,
-                        outputBuffers,
-                        planner,
-                        maxBufferSize,
-                        taskExecutor,
-                        taskNotificationExecutor,
-                        maxTaskMemoryUsage,
-                        operatorPreAllocatedMemory,
-                        queryMonitor,
-                        cpuTimerEnabled
-                );
+                taskExecution = createTask(session, taskId, fragment, sources, outputBuffers);
                 tasks.put(taskId, taskExecution);
             }
         }
@@ -317,6 +301,27 @@ public class SqlTaskManager
         taskExecution.addResultQueue(outputBuffers);
 
         return getTaskInfo(taskExecution, false);
+    }
+
+    protected TaskExecution createTask(ConnectorSession session, TaskId taskId, PlanFragment fragment, List<TaskSource> sources, OutputBuffers outputBuffers)
+    {
+        URI location = locationFactory.createLocalTaskLocation(taskId);
+
+        return SqlTaskExecution.createSqlTaskExecution(session,
+                taskId,
+                location,
+                fragment,
+                sources,
+                outputBuffers,
+                planner,
+                maxBufferSize,
+                taskExecutor,
+                taskNotificationExecutor,
+                maxTaskMemoryUsage,
+                operatorPreAllocatedMemory,
+                queryMonitor,
+                cpuTimerEnabled
+        );
     }
 
     @Override
