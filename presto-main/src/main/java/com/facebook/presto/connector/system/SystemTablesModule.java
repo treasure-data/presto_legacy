@@ -30,7 +30,7 @@ public class SystemTablesModule
         binder.bind(SystemSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(SystemRecordSetProvider.class).in(Scopes.SINGLETON);
 
-        //Multibinder<SystemTable> globalTableBinder = Multibinder.newSetBinder(binder, SystemTable.class);
+        Multibinder<SystemTable> globalTableBinder = Multibinder.newSetBinder(binder, SystemTable.class);
         //globalTableBinder.addBinding().to(NodesSystemTable.class).in(Scopes.SINGLETON);
         //globalTableBinder.addBinding().to(QuerySystemTable.class).in(Scopes.SINGLETON);
         //globalTableBinder.addBinding().to(TaskSystemTable.class).in(Scopes.SINGLETON);
