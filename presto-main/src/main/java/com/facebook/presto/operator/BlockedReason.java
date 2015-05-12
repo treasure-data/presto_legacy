@@ -13,11 +13,7 @@
  */
 package com.facebook.presto.operator;
 
-import com.facebook.presto.spi.type.Type;
-
-import java.util.List;
-
-public interface OutputFactory
+public enum BlockedReason
 {
-    OperatorFactory createOutputOperator(int operatorId, List<Type> sourceTypes);
+    WAITING_FOR_MEMORY
 }

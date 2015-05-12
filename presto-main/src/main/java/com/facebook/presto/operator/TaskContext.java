@@ -20,6 +20,7 @@ import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskState;
 import com.facebook.presto.execution.TaskStateMachine;
 import com.facebook.presto.memory.QueryContext;
+import com.facebook.presto.util.ImmutableCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.stats.CounterStat;
@@ -93,7 +94,6 @@ public class TaskContext
                 if (newValue.isDone()) {
                     executionEndTime.set(DateTime.now());
                     endNanos.set(System.nanoTime());
-                    freeMemory(memoryReservation.get());
                 }
             }
         });
@@ -186,6 +186,11 @@ public class TaskContext
         checkArgument(bytes <= memoryReservation.get(), "tried to free more memory than is reserved");
         memoryReservation.getAndAdd(-bytes);
         queryContext.freeMemory(bytes);
+    }
+
+    public void moreMemoryAvailable()
+    {
+        pipelineContexts.stream().forEach(PipelineContext::moreMemoryAvailable);
     }
 
     public boolean isVerboseStats()
@@ -336,6 +341,8 @@ public class TaskContext
                 new Duration(totalCpuTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(totalUserTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(totalBlockedTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
+                pipelineStats.stream().allMatch(PipelineStats::isFullyBlocked),
+                pipelineStats.stream().flatMap(pipeline -> pipeline.getBlockedReasons().stream()).collect(ImmutableCollectors.toImmutableSet()),
                 new DataSize(rawInputDataSize, BYTE).convertToMostSuccinctDataSize(),
                 rawInputPositions,
                 new DataSize(processedInputDataSize, BYTE).convertToMostSuccinctDataSize(),

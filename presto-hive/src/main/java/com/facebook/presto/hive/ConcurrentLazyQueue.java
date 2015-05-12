@@ -11,13 +11,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.operator;
+package com.facebook.presto.hive;
 
-import com.facebook.presto.spi.type.Type;
+import javax.annotation.concurrent.GuardedBy;
 
-import java.util.List;
+import java.util.Iterator;
 
-public interface OutputFactory
+public class ConcurrentLazyQueue<E>
 {
-    OperatorFactory createOutputOperator(int operatorId, List<Type> sourceTypes);
+    @GuardedBy("this")
+    private final Iterator<E> iterator;
+
+    public ConcurrentLazyQueue(Iterable<E> iterable)
+    {
+        this.iterator = iterable.iterator();
+    }
+
+    public synchronized boolean isEmpty()
+    {
+        return !iterator.hasNext();
+    }
+
+    public synchronized E poll()
+    {
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        return iterator.next();
+    }
 }

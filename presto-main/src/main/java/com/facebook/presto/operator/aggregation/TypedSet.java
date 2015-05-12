@@ -11,13 +11,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.operator;
+package com.facebook.presto.operator.aggregation;
 
-import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.block.Block;
 
-import java.util.List;
-
-public interface OutputFactory
+/**
+ * Set of {@code Type} elements
+ */
+public interface TypedSet
 {
-    OperatorFactory createOutputOperator(int operatorId, List<Type> sourceTypes);
+    // Check if contains element at {@code position} of {@code block}
+    boolean contains(Block block, int position);
+
+    // Add element at {@code position} of {@code block}
+    void add(Block block, int position);
+
+    // Number of elements
+    int size();
+
+    // Estimated memory size in bytes
+    long getEstimatedSize();
 }
