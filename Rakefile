@@ -37,7 +37,7 @@ end
 
 desc "run tests"
 task "test" do
-  sh "mvn -pl #{active_modules.join(",")} test"
+  sh "mvn -P td -pl #{active_modules.join(",")} test"
 end
 
 desc "set a unique version and td-specific settings"

@@ -21,6 +21,7 @@ import com.facebook.presto.UnpartitionedPagePartitionFunction;
 import com.facebook.presto.execution.NodeScheduler.NodeSelector;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
 import com.facebook.presto.metadata.Split;
+import com.facebook.presto.operator.BlockedReason;
 import com.facebook.presto.operator.TaskStats;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.PrestoException;
@@ -91,6 +92,7 @@ import static com.google.common.collect.Iterables.all;
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.collect.Iterables.transform;
 import static com.google.common.collect.Sets.newConcurrentHashSet;
+import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.http.client.HttpUriBuilder.uriBuilderFrom;
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -331,6 +333,9 @@ public final class SqlStageExecution
             long outputDataSize = 0;
             long outputPositions = 0;
 
+            boolean fullyBlocked = true;
+            Set<BlockedReason> blockedReasons = new HashSet<>();
+
             for (TaskInfo taskInfo : taskInfos) {
                 if (taskInfo.getState().isDone()) {
                     completedTasks++;
@@ -352,6 +357,10 @@ public final class SqlStageExecution
                 totalCpuTime += taskStats.getTotalCpuTime().roundTo(NANOSECONDS);
                 totalUserTime += taskStats.getTotalUserTime().roundTo(NANOSECONDS);
                 totalBlockedTime += taskStats.getTotalBlockedTime().roundTo(NANOSECONDS);
+                if (!taskInfo.getState().isDone()) {
+                    fullyBlocked &= taskStats.isFullyBlocked();
+                    blockedReasons.addAll(taskStats.getBlockedReasons());
+                }
 
                 rawInputDataSize += taskStats.getRawInputDataSize().toBytes();
                 rawInputPositions += taskStats.getRawInputPositions();
@@ -383,6 +392,9 @@ public final class SqlStageExecution
                     new Duration(totalCpuTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                     new Duration(totalUserTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                     new Duration(totalBlockedTime, NANOSECONDS).convertToMostSuccinctTimeUnit(),
+                    fullyBlocked && runningTasks > 0,
+                    blockedReasons,
+
                     new DataSize(rawInputDataSize, BYTE).convertToMostSuccinctDataSize(),
                     rawInputPositions,
                     new DataSize(processedInputDataSize, BYTE).convertToMostSuccinctDataSize(),
@@ -640,7 +652,7 @@ public final class SqlStageExecution
                 }
 
                 long start = System.nanoTime();
-                Set<Split> pendingSplits = ImmutableSet.copyOf(splitSource.getNextBatch(splitBatchSize));
+                Set<Split> pendingSplits = ImmutableSet.copyOf(getFutureValue(splitSource.getNextBatch(splitBatchSize)));
                 getSplitDistribution.add(System.nanoTime() - start);
 
                 while (!pendingSplits.isEmpty() && !getState().isDone()) {
