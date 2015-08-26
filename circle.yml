@@ -1,0 +1,35 @@
+#
+# see Rakefile
+#
+machine:
+  java:
+    version: oraclejdk8
+  environment:
+    MAVEN_OPTS: -Xmx7g
+    M2_HOME: $HOME/.m2/apache-maven-3.2.5  # .m2 is cached
+    M2:      $HOME/.m2/apache-maven-3.2.5/bin
+    PATH:    $HOME/.m2/apache-maven-3.2.5/bin:$PATH
+
+dependencies:
+  pre:
+    # install maven-3.2.3 required by Presto
+    - mkdir -p $(dirname $M2_HOME)
+    - test -d $M2_HOME || curl 'http://ftp.kddilabs.jp/infosystems/apache/maven/maven-3/3.2.5/binaries/apache-maven-3.2.5-bin.tar.gz' | tar zxvf - -C $(dirname $M2_HOME)
+  override:
+    # Assign a unique version number to the modules
+    - rake update-pom
+    # Run mvn test-compile here to cache the compile-time dependencies
+    - rake compile
+
+test:
+  override:
+    # Currently CircleCI provides us 8GB container, so mvn test will work. 
+    # Running tests only in master branch
+    - if [ "$CIRCLE_BRANCH" = "master" ]; then rake test; fi
+
+deployment:
+  all:
+    branch: /.*/
+    commands:
+      - rake deploy
+
