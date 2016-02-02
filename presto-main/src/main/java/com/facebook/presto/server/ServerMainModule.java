@@ -324,6 +324,9 @@ public class ServerMainModule
         // thread execution visualizer
         jaxrsBinder(binder).bind(QueryExecutionResource.class);
 
+        // query stage UI
+        jaxrsBinder(binder).bind(QueryPlanResource.class);
+
         // PageSorter
         binder.bind(PageSorter.class).to(PagesIndexPageSorter.class).in(Scopes.SINGLETON);
 
