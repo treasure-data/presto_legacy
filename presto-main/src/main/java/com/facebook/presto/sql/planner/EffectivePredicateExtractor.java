@@ -78,6 +78,9 @@ public class EffectivePredicateExtractor
     private static final Predicate<Map.Entry<Symbol, ? extends Expression>> SYMBOL_MATCHES_EXPRESSION =
             entry -> entry.getValue().equals(new QualifiedNameReference(entry.getKey().toQualifiedName()));
 
+    private static final Predicate<Map.Entry<Symbol, ? extends Expression>> SYMBOL_MATCHES_NAME_REFERENCE =
+            entry -> entry.getValue() instanceof QualifiedNameReference;
+
     private static final Function<Map.Entry<Symbol, ? extends Expression>, Expression> ENTRY_TO_EQUALITY =
             entry -> {
                 QualifiedNameReference reference = new QualifiedNameReference(entry.getKey().toQualifiedName());
@@ -143,6 +146,7 @@ public class EffectivePredicateExtractor
 
         List<Expression> projectionEqualities = node.getAssignments().entrySet().stream()
                 .filter(SYMBOL_MATCHES_EXPRESSION.negate())
+                .filter(SYMBOL_MATCHES_NAME_REFERENCE)
                 .map(ENTRY_TO_EQUALITY)
                 .collect(toImmutableList());
 
