@@ -15,6 +15,7 @@ package com.facebook.presto.raptor.metadata;
 
 import com.facebook.presto.raptor.NodeSupplier;
 import com.facebook.presto.raptor.RaptorColumnHandle;
+import com.facebook.presto.raptor.util.DaoSupplier;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.predicate.TupleDomain;
@@ -32,6 +33,7 @@ import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ExecutionError;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.airlift.log.Logger;
+import io.airlift.units.Duration;
 import org.h2.jdbc.JdbcConnection;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
@@ -67,16 +69,17 @@ import static com.facebook.presto.raptor.util.ArrayUtil.intArrayFromBytes;
 import static com.facebook.presto.raptor.util.ArrayUtil.intArrayToBytes;
 import static com.facebook.presto.raptor.util.DatabaseUtil.bindOptionalInt;
 import static com.facebook.presto.raptor.util.DatabaseUtil.metadataError;
-import static com.facebook.presto.raptor.util.DatabaseUtil.onDemandDao;
 import static com.facebook.presto.raptor.util.DatabaseUtil.runIgnoringConstraintViolation;
 import static com.facebook.presto.raptor.util.DatabaseUtil.runTransaction;
 import static com.facebook.presto.raptor.util.UuidUtil.uuidFromBytes;
 import static com.facebook.presto.raptor.util.UuidUtil.uuidToBytes;
 import static com.facebook.presto.spi.StandardErrorCode.INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.NO_NODES_AVAILABLE;
+import static com.facebook.presto.spi.StandardErrorCode.SERVER_STARTING_UP;
 import static com.facebook.presto.spi.StandardErrorCode.TRANSACTION_CONFLICT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.partition;
+import static io.airlift.units.Duration.nanosSince;
 import static java.lang.String.format;
 import static java.sql.Statement.RETURN_GENERATED_KEYS;
 import static java.util.Arrays.asList;
@@ -91,9 +94,12 @@ public class DatabaseShardManager
 
     private static final String INDEX_TABLE_PREFIX = "x_shards_t";
 
+    private final long startTime = System.nanoTime();
     private final IDBI dbi;
-    private final ShardManagerDao dao;
+    private final DaoSupplier<ShardDao> shardDaoSupplier;
+    private final ShardDao dao;
     private final NodeSupplier nodeSupplier;
+    private final Duration startupGracePeriod;
 
     private final LoadingCache<String, Integer> nodeIdCache = CacheBuilder.newBuilder()
             .maximumSize(10_000)
@@ -107,11 +113,26 @@ public class DatabaseShardManager
             });
 
     @Inject
-    public DatabaseShardManager(@ForMetadata IDBI dbi, NodeSupplier nodeSupplier)
+    public DatabaseShardManager(
+            @ForMetadata IDBI dbi,
+            DaoSupplier<ShardDao> shardDaoSupplier,
+            NodeSupplier nodeSupplier,
+            MetadataConfig config)
+    {
+        this(dbi, shardDaoSupplier, nodeSupplier, config.getStartupGracePeriod());
+    }
+
+    public DatabaseShardManager(
+            IDBI dbi,
+            DaoSupplier<ShardDao> shardDaoSupplier,
+            NodeSupplier nodeSupplier,
+            Duration startupGracePeriod)
     {
         this.dbi = requireNonNull(dbi, "dbi is null");
-        this.dao = onDemandDao(dbi, ShardManagerDao.class);
+        this.shardDaoSupplier = requireNonNull(shardDaoSupplier, "shardDaoSupplier is null");
+        this.dao = shardDaoSupplier.onDemand();
         this.nodeSupplier = requireNonNull(nodeSupplier, "nodeSupplier is null");
+        this.startupGracePeriod = requireNonNull(startupGracePeriod, "startupGracePeriod is null");
 
         createTablesWithRetry(dbi);
     }
@@ -168,11 +189,11 @@ public class DatabaseShardManager
         runTransaction(dbi, (handle, status) -> {
             lockTable(handle, tableId);
 
-            ShardManagerDao shardManagerDao = handle.attach(ShardManagerDao.class);
-            shardManagerDao.insertDeletedShardNodes(tableId);
-            shardManagerDao.insertDeletedShards(tableId);
-            shardManagerDao.dropShardNodes(tableId);
-            shardManagerDao.dropShards(tableId);
+            ShardDao shardDao = shardDaoSupplier.attach(handle);
+            shardDao.insertDeletedShardNodes(tableId);
+            shardDao.insertDeletedShards(tableId);
+            shardDao.dropShardNodes(tableId);
+            shardDao.dropShards(tableId);
 
             MetadataDao dao = handle.attach(MetadataDao.class);
             dao.dropColumns(tableId);
@@ -222,7 +243,7 @@ public class DatabaseShardManager
         Map<String, Integer> nodeIds = toNodeIdMap(shards);
 
         runTransaction(dbi, (handle, status) -> {
-            ShardManagerDao dao = handle.attach(ShardManagerDao.class);
+            ShardDao dao = shardDaoSupplier.attach(handle);
             commitTransaction(dao, transactionId);
             externalBatchId.ifPresent(dao::insertExternalBatch);
 
@@ -238,7 +259,7 @@ public class DatabaseShardManager
         Map<String, Integer> nodeIds = toNodeIdMap(newShards);
 
         runTransaction(dbi, (handle, status) -> {
-            commitTransaction(handle.attach(ShardManagerDao.class), transactionId);
+            commitTransaction(shardDaoSupplier.attach(handle), transactionId);
             lockTable(handle, tableId);
             for (List<ShardInfo> shards : partition(newShards, 1000)) {
                 insertShardsAndIndex(tableId, columns, shards, nodeIds, handle);
@@ -250,7 +271,7 @@ public class DatabaseShardManager
         });
     }
 
-    private static void deleteShardsAndIndex(long tableId, Set<UUID> shardUuids, Handle handle)
+    private void deleteShardsAndIndex(long tableId, Set<UUID> shardUuids, Handle handle)
             throws SQLException
     {
         String args = Joiner.on(",").join(nCopies(shardUuids.size(), "?"));
@@ -282,7 +303,7 @@ public class DatabaseShardManager
             throw transactionConflict();
         }
 
-        ShardManagerDao dao = handle.attach(ShardManagerDao.class);
+        ShardDao dao = shardDaoSupplier.attach(handle);
         dao.insertDeletedShards(shardUuids);
         dao.insertDeletedShardNodes(shardUuidList.build(), nodeIdList.build());
 
@@ -381,12 +402,16 @@ public class DatabaseShardManager
     }
 
     @Override
-    public void assignShard(long tableId, UUID shardUuid, String nodeIdentifier)
+    public void assignShard(long tableId, UUID shardUuid, String nodeIdentifier, boolean gracePeriod)
     {
+        if (gracePeriod && (nanosSince(startTime).compareTo(startupGracePeriod) < 0)) {
+            throw new PrestoException(SERVER_STARTING_UP, "Cannot reassign shards while server is starting");
+        }
+
         int nodeId = getOrCreateNodeId(nodeIdentifier);
 
         runTransaction(dbi, (handle, status) -> {
-            ShardManagerDao dao = handle.attach(ShardManagerDao.class);
+            ShardDao dao = shardDaoSupplier.attach(handle);
 
             Set<Integer> nodes = new HashSet<>(fetchLockedNodeIds(handle, tableId, shardUuid));
             if (nodes.add(nodeId)) {
@@ -404,7 +429,7 @@ public class DatabaseShardManager
         int nodeId = getOrCreateNodeId(nodeIdentifier);
 
         runTransaction(dbi, (handle, status) -> {
-            ShardManagerDao dao = handle.attach(ShardManagerDao.class);
+            ShardDao dao = shardDaoSupplier.attach(handle);
 
             Set<Integer> nodes = new HashSet<>(fetchLockedNodeIds(handle, tableId, shardUuid));
             if (nodes.remove(nodeId)) {
@@ -452,7 +477,7 @@ public class DatabaseShardManager
         dao.finalizeTransaction(transactionId, false);
     }
 
-    private static void commitTransaction(ShardManagerDao dao, long transactionId)
+    private static void commitTransaction(ShardDao dao, long transactionId)
     {
         if (dao.finalizeTransaction(transactionId, true) != 1) {
             throw new PrestoException(TRANSACTION_CONFLICT, "Transaction commit failed. Please retry the operation.");
@@ -466,7 +491,7 @@ public class DatabaseShardManager
     {
         int nodeId = getOrCreateNodeId(nodeIdentifier);
         runTransaction(dbi, (handle, status) -> {
-            ShardManagerDao dao = handle.attach(ShardManagerDao.class);
+            ShardDao dao = shardDaoSupplier.attach(handle);
             dao.insertCreatedShard(shardUuid, transactionId);
             dao.insertCreatedShardNode(shardUuid, nodeId, transactionId);
             return null;
@@ -489,7 +514,7 @@ public class DatabaseShardManager
     }
 
     @Override
-    public Map<Integer, String> getBucketAssignments(long distributionId)
+    public Map<Integer, String> getBucketAssignments(long distributionId, boolean gracePeriod)
     {
         Set<String> nodeIds = getNodeIdentifiers();
         Iterator<String> nodeIterator = cyclingShuffledIterator(nodeIds);
@@ -501,6 +526,9 @@ public class DatabaseShardManager
             String nodeId = bucketNode.getNodeIdentifier();
 
             if (!nodeIds.contains(nodeId)) {
+                if (gracePeriod && (nanosSince(startTime).compareTo(startupGracePeriod) < 0)) {
+                    throw new PrestoException(SERVER_STARTING_UP, "Cannot reassign buckets while server is starting");
+                }
                 String oldNodeId = nodeId;
                 // TODO: use smarter system to choose replacement node
                 nodeId = nodeIterator.next();

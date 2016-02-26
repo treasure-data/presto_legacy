@@ -39,7 +39,6 @@ public final class SystemSessionProperties
     public static final String HASH_PARTITION_COUNT = "hash_partition_count";
     public static final String PREFER_STREAMING_OPERATORS = "prefer_streaming_operators";
     public static final String TASK_WRITER_COUNT = "task_writer_count";
-    public static final String TASK_DEFAULT_CONCURRENCY = "task_default_concurrency";
     public static final String TASK_JOIN_CONCURRENCY = "task_join_concurrency";
     public static final String TASK_HASH_BUILD_CONCURRENCY = "task_hash_build_concurrency";
     public static final String TASK_AGGREGATION_CONCURRENCY = "task_aggregation_concurrency";
@@ -55,6 +54,8 @@ public final class SystemSessionProperties
     public static final String COLUMNAR_PROCESSING_DICTIONARY = "columnar_processing_dictionary";
     public static final String DICTIONARY_AGGREGATION = "dictionary_aggregation";
     public static final String PLAN_WITH_TABLE_NODE_PARTITIONING = "plan_with_table_node_partitioning";
+    public static final String INITIAL_SPLITS_PER_NODE = "initial_splits_per_node";
+    public static final String SPLIT_CONCURRENCY_ADJUSTMENT_INTERVAL = "split_concurrency_adjustment_interval";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -117,14 +118,9 @@ public final class SystemSessionProperties
                         featuresConfig.isPushTableWriteThroughUnion(),
                         false),
                 integerSessionProperty(
-                        TASK_DEFAULT_CONCURRENCY,
-                        "Experimental: Default number of local parallel jobs per worker",
-                        taskManagerConfig.getTaskDefaultConcurrency(),
-                        false),
-                integerSessionProperty(
                         TASK_JOIN_CONCURRENCY,
                         "Experimental: Default number of local parallel join jobs per worker",
-                        taskManagerConfig.getTaskDefaultConcurrency(),
+                        taskManagerConfig.getTaskJoinConcurrency(),
                         false),
                 integerSessionProperty(
                         TASK_HASH_BUILD_CONCURRENCY,
@@ -182,6 +178,19 @@ public final class SystemSessionProperties
                         "Enable optimization for aggregations on dictionaries",
                         featuresConfig.isDictionaryAggregation(),
                         false),
+                integerSessionProperty(
+                        INITIAL_SPLITS_PER_NODE,
+                        "The number of splits each node will run per task, initially",
+                        taskManagerConfig.getInitialSplitsPerNode(),
+                        false),
+                new PropertyMetadata<>(
+                        SPLIT_CONCURRENCY_ADJUSTMENT_INTERVAL,
+                        "Experimental: Interval between changes to the number of concurrent splits per node",
+                        VARCHAR,
+                        Duration.class,
+                        taskManagerConfig.getSplitConcurrencyAdjustmentInterval(),
+                        false,
+                        value -> Duration.valueOf((String) value)),
                 booleanSessionProperty(
                         PLAN_WITH_TABLE_NODE_PARTITIONING,
                         "Experimental: Adapt plan to pre-partitioned tables",
@@ -241,17 +250,17 @@ public final class SystemSessionProperties
 
     public static int getTaskJoinConcurrency(Session session)
     {
-        return getPropertyOr(session, TASK_JOIN_CONCURRENCY, TASK_DEFAULT_CONCURRENCY, Integer.class);
+        return session.getProperty(TASK_JOIN_CONCURRENCY, Integer.class);
     }
 
     public static int getTaskHashBuildConcurrency(Session session)
     {
-        return getPropertyOr(session, TASK_HASH_BUILD_CONCURRENCY, TASK_DEFAULT_CONCURRENCY, Integer.class);
+        return session.getProperty(TASK_HASH_BUILD_CONCURRENCY, Integer.class);
     }
 
     public static int getTaskAggregationConcurrency(Session session)
     {
-        return getPropertyOr(session, TASK_AGGREGATION_CONCURRENCY, TASK_DEFAULT_CONCURRENCY, Integer.class);
+        return session.getProperty(TASK_AGGREGATION_CONCURRENCY, Integer.class);
     }
 
     public static boolean isIntermediateAggregation(Session session)
@@ -299,12 +308,13 @@ public final class SystemSessionProperties
         return session.getProperty(PLAN_WITH_TABLE_NODE_PARTITIONING, Boolean.class);
     }
 
-    private static <T> T getPropertyOr(Session session, String propertyName, String defaultPropertyName, Class<T> type)
+    public static int getInitialSplitsPerNode(Session session)
     {
-        T value = session.getProperty(propertyName, type);
-        if (value == null) {
-            value = session.getProperty(defaultPropertyName, type);
-        }
-        return value;
+        return session.getProperty(INITIAL_SPLITS_PER_NODE, Integer.class);
+    }
+
+    public static Duration getSplitConcurrencyAdjustmentInterval(Session session)
+    {
+        return session.getProperty(SPLIT_CONCURRENCY_ADJUSTMENT_INTERVAL, Duration.class);
     }
 }

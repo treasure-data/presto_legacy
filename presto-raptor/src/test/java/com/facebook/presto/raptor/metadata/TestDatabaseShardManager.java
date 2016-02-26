@@ -13,7 +13,9 @@
  */
 package com.facebook.presto.raptor.metadata;
 
+import com.facebook.presto.raptor.NodeSupplier;
 import com.facebook.presto.raptor.RaptorColumnHandle;
+import com.facebook.presto.raptor.util.DaoSupplier;
 import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.PrestoException;
@@ -30,6 +32,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
 import io.airlift.slice.Slice;
 import io.airlift.testing.FileUtils;
+import io.airlift.units.Duration;
 import org.skife.jdbi.v2.DBI;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
@@ -54,6 +57,7 @@ import java.util.UUID;
 
 import static com.facebook.presto.raptor.RaptorErrorCode.RAPTOR_EXTERNAL_BATCH_ALREADY_EXISTS;
 import static com.facebook.presto.raptor.storage.ShardStats.MAX_BINARY_INDEX_SIZE;
+import static com.facebook.presto.spi.StandardErrorCode.SERVER_STARTING_UP;
 import static com.facebook.presto.spi.StandardErrorCode.TRANSACTION_CONFLICT;
 import static com.facebook.presto.spi.predicate.Range.greaterThan;
 import static com.facebook.presto.spi.predicate.Range.greaterThanOrEqual;
@@ -71,6 +75,7 @@ import static com.google.common.collect.Iterators.concat;
 import static com.google.common.collect.Iterators.transform;
 import static io.airlift.slice.Slices.utf8Slice;
 import static java.time.ZoneOffset.UTC;
+import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.stream.Collectors.toSet;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -160,14 +165,22 @@ public class TestDatabaseShardManager
         ShardNodes actual = getOnlyElement(getShardNodes(tableId, TupleDomain.all()));
         assertEquals(actual, new ShardNodes(shard, ImmutableSet.of("node1")));
 
-        shardManager.assignShard(tableId, shard, "node2");
+        try {
+            shardManager.assignShard(tableId, shard, "node2", true);
+            fail("expected exception");
+        }
+        catch (PrestoException e) {
+            assertEquals(e.getErrorCode(), SERVER_STARTING_UP.toErrorCode());
+        }
+
+        shardManager.assignShard(tableId, shard, "node2", false);
 
         // assign shard to another node
         actual = getOnlyElement(getShardNodes(tableId, TupleDomain.all()));
         assertEquals(actual, new ShardNodes(shard, ImmutableSet.of("node1", "node2")));
 
         // assigning a shard should be idempotent
-        shardManager.assignShard(tableId, shard, "node2");
+        shardManager.assignShard(tableId, shard, "node2", false);
 
         // remove assignment from first node
         shardManager.unassignShard(tableId, shard, "node1");
@@ -203,7 +216,7 @@ public class TestDatabaseShardManager
 
         assertEquals(shardManager.getNodeBytes(), ImmutableMap.of("node1", 88L));
 
-        shardManager.assignShard(tableId, shard1, "node2");
+        shardManager.assignShard(tableId, shard1, "node2", false);
 
         assertEquals(getShardNodes(tableId, TupleDomain.all()), ImmutableSet.of(
                 new ShardNodes(shard1, ImmutableSet.of("node1", "node2")),
@@ -342,18 +355,26 @@ public class TestDatabaseShardManager
         long distributionId = metadataDao.insertDistribution(null, "test", bucketCount);
 
         Set<Node> originalNodes = ImmutableSet.of(node1, node2);
-        ShardManager shardManager = new DatabaseShardManager(dbi, () -> originalNodes);
+        ShardManager shardManager = createShardManager(dbi, () -> originalNodes);
 
         shardManager.createBuckets(distributionId, bucketCount);
 
-        Map<Integer, String> assignments = shardManager.getBucketAssignments(distributionId);
+        Map<Integer, String> assignments = shardManager.getBucketAssignments(distributionId, false);
         assertEquals(assignments.size(), bucketCount);
         assertEquals(ImmutableSet.copyOf(assignments.values()), nodeIds(originalNodes));
 
         Set<Node> newNodes = ImmutableSet.of(node1, node3);
-        shardManager = new DatabaseShardManager(dbi, () -> newNodes);
+        shardManager = createShardManager(dbi, () -> newNodes);
 
-        assignments = shardManager.getBucketAssignments(distributionId);
+        try {
+            shardManager.getBucketAssignments(distributionId, true);
+            fail("expected exception");
+        }
+        catch (PrestoException e) {
+            assertEquals(e.getErrorCode(), SERVER_STARTING_UP.toErrorCode());
+        }
+
+        assignments = shardManager.getBucketAssignments(distributionId, false);
         assertEquals(assignments.size(), bucketCount);
         assertEquals(ImmutableSet.copyOf(assignments.values()), nodeIds(newNodes));
     }
@@ -604,7 +625,12 @@ public class TestDatabaseShardManager
 
     public static ShardManager createShardManager(IDBI dbi)
     {
-        return new DatabaseShardManager(dbi, ImmutableSet::of);
+        return createShardManager(dbi, ImmutableSet::of);
+    }
+
+    public static ShardManager createShardManager(IDBI dbi, NodeSupplier nodeSupplier)
+    {
+        return new DatabaseShardManager(dbi, new DaoSupplier<>(dbi, ShardDao.class), nodeSupplier, new Duration(1, DAYS));
     }
 
     private static Domain createDomain(Range first, Range... ranges)
