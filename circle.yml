@@ -5,7 +5,7 @@ machine:
   java:
     version: oraclejdk8
   environment:
-    _JAVA_OPTIONS: -Xmx8g
+    _JAVA_OPTIONS: -Xmx4g
     M2_HOME: $HOME/.m2/apache-maven-3.2.5  # .m2 is cached
     M2:      $HOME/.m2/apache-maven-3.2.5/bin
     PATH:    $HOME/.m2/apache-maven-3.2.5/bin:$PATH
