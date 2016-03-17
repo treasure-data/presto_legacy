@@ -21,12 +21,13 @@ import com.facebook.presto.spi.block.SortOrder;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.gen.JoinCompiler;
 import com.facebook.presto.sql.gen.OrderingCompiler;
+import com.facebook.presto.util.list.BlockBigArrayList;
+import com.facebook.presto.util.list.LongBigArrayList;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.units.DataSize;
 import it.unimi.dsi.fastutil.Swapper;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.List;
@@ -39,7 +40,6 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.sql.gen.JoinCompiler.LookupSourceFactory;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.MoreObjects.toStringHelper;
-import static io.airlift.slice.SizeOf.sizeOf;
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static java.util.Objects.requireNonNull;
 
@@ -64,8 +64,8 @@ public class PagesIndex
     private static final JoinCompiler joinCompiler = new JoinCompiler();
 
     private final List<Type> types;
-    private final LongArrayList valueAddresses;
-    private final ObjectArrayList<Block>[] channels;
+    private final LongBigArrayList valueAddresses;
+    private final BlockBigArrayList[] channels;
 
     private int nextBlockToCompact;
     private int positionCount;
@@ -75,12 +75,12 @@ public class PagesIndex
     public PagesIndex(List<Type> types, int expectedPositions)
     {
         this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
-        this.valueAddresses = new LongArrayList(expectedPositions);
+        this.valueAddresses = new LongBigArrayList(expectedPositions);
 
         //noinspection rawtypes
-        channels = (ObjectArrayList<Block>[]) new ObjectArrayList[types.size()];
+        channels = new BlockBigArrayList[types.size()];
         for (int i = 0; i < channels.length; i++) {
-            channels[i] = ObjectArrayList.wrap(new Block[1024], 0);
+            channels[i] = new BlockBigArrayList();
         }
     }
 
@@ -94,19 +94,19 @@ public class PagesIndex
         return positionCount;
     }
 
-    public LongArrayList getValueAddresses()
+    public LongBigArrayList getValueAddresses()
     {
         return valueAddresses;
     }
 
-    public ObjectArrayList<Block> getChannel(int channel)
+    public BlockBigArrayList getChannel(int channel)
     {
         return channels[channel];
     }
 
     public void clear()
     {
-        for (ObjectArrayList<Block> channel : channels) {
+        for (BlockBigArrayList channel : channels) {
             channel.clear();
         }
         valueAddresses.clear();
@@ -128,14 +128,12 @@ public class PagesIndex
         int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
         for (int i = 0; i < channels.length; i++) {
             Block block = page.getBlock(i);
-            ensureCapacity(channels[i]);
             channels[i].add(block);
             pagesMemorySize += block.getRetainedSizeInBytes();
         }
 
         for (int position = 0; position < page.getPositionCount(); position++) {
             long sliceAddress = encodeSyntheticAddress(pageIndex, position);
-            ensureCapacity(valueAddresses);
             valueAddresses.add(sliceAddress);
         }
 
@@ -157,14 +155,12 @@ public class PagesIndex
         int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
         for (int i = 0; i < channels.length; i++) {
             Block block = page.getBlock(i);
-            ensureCapacity(channels[i]);
             channels[i].add(block);
         }
 
         for (int position = 0; position < page.getPositionCount(); position++) {
             if (partitionId == BIGINT.getLong(partitionIds, position)) {
                 long sliceAddress = encodeSyntheticAddress(pageIndex, position);
-                ensureCapacity(valueAddresses);
                 valueAddresses.add(sliceAddress);
 
                 positionCount++;
@@ -185,17 +181,6 @@ public class PagesIndex
         }
     }
 
-    private static void ensureCapacity(LongArrayList values)
-    {
-        int expectedSize = values.size() + 1;
-        int elementsSize = values.elements().length;
-        if (expectedSize > elementsSize) {
-            long capacity = elementsSize > 1024768L ? 1024768L + elementsSize : 2L * elementsSize;
-            capacity = Math.min(capacity, Integer.MAX_VALUE);
-            values.ensureCapacity((int) capacity);
-        }
-    }
-
     public DataSize getEstimatedSize()
     {
         return new DataSize(estimatedSize, BYTE);
@@ -204,7 +189,7 @@ public class PagesIndex
     public void compact()
     {
         for (int channel = 0; channel < types.size(); channel++) {
-            ObjectArrayList<Block> blocks = channels[channel];
+            BlockBigArrayList blocks = channels[channel];
             for (int i = nextBlockToCompact; i < blocks.size(); i++) {
                 Block block = blocks.get(i);
                 if (block.getSizeInBytes() < block.getRetainedSizeInBytes()) {
@@ -222,9 +207,9 @@ public class PagesIndex
 
     private long calculateEstimatedSize()
     {
-        long elementsSize = (channels.length > 0) ? sizeOf(channels[0].elements()) : 0;
+        long elementsSize = (channels.length > 0) ? channels[0].sizeOf() : 0;
         long channelsArraySize = elementsSize * channels.length;
-        long addressesArraySize = sizeOf(valueAddresses.elements());
+        long addressesArraySize = valueAddresses.sizeOf();
         return pagesMemorySize + channelsArraySize + addressesArraySize;
     }
 
@@ -236,10 +221,7 @@ public class PagesIndex
     @Override
     public void swap(int a, int b)
     {
-        long[] elements = valueAddresses.elements();
-        long temp = elements[a];
-        elements[a] = elements[b];
-        elements[b] = temp;
+        valueAddresses.swap(a, b);
     }
 
     public int buildPage(int position, int[] outputChannels, PageBuilder pageBuilder)
