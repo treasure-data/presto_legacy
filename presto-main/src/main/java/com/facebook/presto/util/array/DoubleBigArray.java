@@ -113,7 +113,7 @@ public final class DoubleBigArray
 
         // grow base array if necessary
         if (array.length < requiredSegments) {
-            array = Arrays.copyOf(array, INITIAL_SEGMENTS * ((requiredSegments - 1) / INITIAL_SEGMENTS + 1));
+            array = Arrays.copyOf(array, requiredSegments);
         }
 
         // add new segments
