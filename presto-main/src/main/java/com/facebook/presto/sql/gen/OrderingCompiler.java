@@ -29,8 +29,6 @@ import com.facebook.presto.operator.SyntheticAddress;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.SortOrder;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.util.list.BlockBigArrayList;
-import com.facebook.presto.util.list.LongBigArrayList;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -40,6 +38,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ExecutionError;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.airlift.log.Logger;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.util.List;
 import java.util.Objects;
@@ -135,11 +135,11 @@ public class OrderingCompiler
         MethodDefinition compareToMethod = classDefinition.declareMethod(a(PUBLIC), "compareTo", type(int.class), pagesIndex, leftPosition, rightPosition);
         Scope scope = compareToMethod.getScope();
 
-        Variable valueAddresses = scope.declareVariable(LongBigArrayList.class, "valueAddresses");
+        Variable valueAddresses = scope.declareVariable(LongArrayList.class, "valueAddresses");
         compareToMethod
                 .getBody()
                 .comment("LongArrayList valueAddresses = pagesIndex.valueAddresses")
-                .append(valueAddresses.set(pagesIndex.invoke("getValueAddresses", LongBigArrayList.class)));
+                .append(valueAddresses.set(pagesIndex.invoke("getValueAddresses", LongArrayList.class)));
 
         Variable leftPageAddress = scope.declareVariable(long.class, "leftPageAddress");
         compareToMethod
@@ -187,12 +187,12 @@ public class OrderingCompiler
             Type sortType = sortTypes.get(i);
 
             BytecodeExpression leftBlock = pagesIndex
-                    .invoke("getChannel", BlockBigArrayList.class, constantInt(sortChannel))
+                    .invoke("getChannel", ObjectArrayList.class, constantInt(sortChannel))
                     .invoke("get", Object.class, leftBlockIndex)
                     .cast(Block.class);
 
             BytecodeExpression rightBlock = pagesIndex
-                    .invoke("getChannel", BlockBigArrayList.class, constantInt(sortChannel))
+                    .invoke("getChannel", ObjectArrayList.class, constantInt(sortChannel))
                     .invoke("get", Object.class, rightBlockIndex)
                     .cast(Block.class);
 

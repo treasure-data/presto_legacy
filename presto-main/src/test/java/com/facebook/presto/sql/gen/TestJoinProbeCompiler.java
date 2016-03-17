@@ -27,9 +27,9 @@ import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.gen.JoinCompiler.LookupSourceFactory;
 import com.facebook.presto.type.TypeUtils;
-import com.facebook.presto.util.list.LongBigArrayList;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
@@ -89,7 +89,7 @@ public class TestJoinProbeCompiler
                 BlockAssertions.createStringSequenceBlock(10, 20),
                 BlockAssertions.createStringSequenceBlock(20, 30),
                 BlockAssertions.createStringSequenceBlock(15, 25));
-        LongBigArrayList addresses = new LongBigArrayList();
+        LongArrayList addresses = new LongArrayList();
         for (int blockIndex = 0; blockIndex < channel.size(); blockIndex++) {
             Block block = channel.get(blockIndex);
             for (int positionIndex = 0; positionIndex < block.getPositionCount(); positionIndex++) {

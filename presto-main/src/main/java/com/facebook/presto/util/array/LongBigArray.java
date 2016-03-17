@@ -79,12 +79,7 @@ public final class LongBigArray
      */
     public void set(long index, long value)
     {
-        try {
-            array[segment(index)][offset(index)] = value;
-        }
-        catch (NullPointerException e) {
-            int temp = 1;
-        }
+        array[segment(index)][offset(index)] = value;
     }
 
     /**
@@ -146,22 +141,5 @@ public final class LongBigArray
         array[segments] = newSegment;
         capacity += SEGMENT_SIZE;
         segments++;
-    }
-
-    public long[] toArray(long[] target)
-    {
-        if (target == null) {
-            target = new long[capacity];
-        }
-
-        int pos = 0;
-        int length = target.length;
-        for (int i = 0; i < segments && length > 0; i++) {
-            int size = Math.min(length, SEGMENT_SIZE);
-            System.arraycopy(array[i], 0, target, pos, size);
-            length -= size;
-            pos += size;
-        }
-        return target;
     }
 }
