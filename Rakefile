@@ -6,9 +6,13 @@
 #
 
 EXCLUDE_MODULES = %w|
- presto-cassandra presto-kafka presto-docs
+ presto-cassandra presto-kafka presto-redis presto-docs
+ presto-benchmark presto-benchmark-driver
+ presto-example-http presto-tpch presto-base-jdbc presto-blackhole
  presto-mysql presto-postgresql presto-hive
  presto-hive-hadoop1 presto-hive-hadoop2
+ presto-verifier presto-testing-server-launcher
+ presto-jdbc presto-cli presto-jmx
  presto-hive-cdh4 presto-hive-cdh5 presto-raptor presto-server-rpm|
 
 EXCLUDE_FROM_COMPILE = %w|presto-docs presto-server-rpm|
@@ -24,11 +28,7 @@ def presto_modules
 end
 
 def active_modules
-  modules = []
-  presto_modules.each{|m_name|
-    modules << m_name if EXCLUDE_MODULES.none? {|e| e == m_name }
-  }
-  modules
+  presto_modules.keep_if{|m| !EXCLUDE_MODULES.include?(m) }
 end
 
 def compile_target_modules
