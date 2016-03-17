@@ -8,7 +8,7 @@
 EXCLUDE_MODULES = %w|
  presto-cassandra presto-kafka presto-redis presto-docs
  presto-benchmark presto-benchmark-driver
- presto-example-http presto-tpch presto-base-jdbc presto-blackhole
+ presto-example-http presto-base-jdbc presto-blackhole
  presto-mysql presto-postgresql presto-hive
  presto-hive-hadoop1 presto-hive-hadoop2
  presto-verifier presto-testing-server-launcher
