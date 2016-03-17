@@ -178,6 +178,7 @@ public class ParallelHashBuilder
         private final List<Type> types;
 
         private boolean finished;
+        private long pagesMemorySize;
 
         public ParallelHashCollectOperator(
                 OperatorContext operatorContext,
@@ -270,7 +271,10 @@ public class ParallelHashBuilder
                 size += index.getEstimatedSize().toBytes();
             }
 
-            operatorContext.setMemoryReservation(size);
+            // PagesIndex.addPage doesn't track page memory but blocks are shared and kept
+            pagesMemorySize += page.getRetainedSizeInBytes();
+
+            operatorContext.setMemoryReservation(pagesMemorySize + size);
             operatorContext.recordGeneratedOutput(page.getSizeInBytes(), page.getPositionCount());
         }
 
