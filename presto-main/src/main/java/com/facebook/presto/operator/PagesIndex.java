@@ -128,7 +128,6 @@ public class PagesIndex
         int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
         for (int i = 0; i < channels.length; i++) {
             Block block = page.getBlock(i);
-            ensureCapacity(channels[i]);
             channels[i].add(block);
             pagesMemorySize += block.getRetainedSizeInBytes();
         }
@@ -156,7 +155,6 @@ public class PagesIndex
         int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
         for (int i = 0; i < channels.length; i++) {
             Block block = page.getBlock(i);
-            ensureCapacity(channels[i]);
             channels[i].add(block);
         }
 
@@ -170,17 +168,6 @@ public class PagesIndex
         }
 
         estimatedSize = calculateEstimatedSize();
-    }
-
-    private void ensureCapacity(ObjectArrayList<Block> channel)
-    {
-        int expectedSize = channel.size() + 1;
-        int elementsSize = channel.elements().length;
-        if (expectedSize > elementsSize) {
-            long capacity = elementsSize > 1024768L ? 1024768L + elementsSize : 2L * elementsSize;
-            capacity = Math.min(capacity, Integer.MAX_VALUE);
-            channel.ensureCapacity((int) capacity);
-        }
     }
 
     public DataSize getEstimatedSize()
