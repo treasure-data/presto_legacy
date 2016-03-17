@@ -270,6 +270,11 @@ public class ParallelHashBuilder
                 size += index.getEstimatedSize().toBytes();
             }
 
+            // PagesIndex.addPage doesn't track page memory but blocks are shared and kept
+            for (Block block : page.getBlocks()) {
+                size += block.getRetainedSizeInBytes();
+            }
+
             operatorContext.setMemoryReservation(size);
             operatorContext.recordGeneratedOutput(page.getSizeInBytes(), page.getPositionCount());
         }
