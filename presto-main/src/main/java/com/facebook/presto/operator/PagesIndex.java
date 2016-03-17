@@ -135,7 +135,6 @@ public class PagesIndex
 
         for (int position = 0; position < page.getPositionCount(); position++) {
             long sliceAddress = encodeSyntheticAddress(pageIndex, position);
-            ensureCapacity(valueAddresses);
             valueAddresses.add(sliceAddress);
         }
 
@@ -164,7 +163,6 @@ public class PagesIndex
         for (int position = 0; position < page.getPositionCount(); position++) {
             if (partitionId == BIGINT.getLong(partitionIds, position)) {
                 long sliceAddress = encodeSyntheticAddress(pageIndex, position);
-                ensureCapacity(valueAddresses);
                 valueAddresses.add(sliceAddress);
 
                 positionCount++;
@@ -174,25 +172,14 @@ public class PagesIndex
         estimatedSize = calculateEstimatedSize();
     }
 
-    private static void ensureCapacity(ObjectArrayList<Block> values)
+    private void ensureCapacity(ObjectArrayList<Block> channel)
     {
-        int expectedSize = values.size() + 1;
-        int elementsSize = values.elements().length;
+        int expectedSize = channel.size() + 1;
+        int elementsSize = channel.elements().length;
         if (expectedSize > elementsSize) {
             long capacity = elementsSize > 1024768L ? 1024768L + elementsSize : 2L * elementsSize;
             capacity = Math.min(capacity, Integer.MAX_VALUE);
-            values.ensureCapacity((int) capacity);
-        }
-    }
-
-    private static void ensureCapacity(LongArrayList values)
-    {
-        int expectedSize = values.size() + 1;
-        int elementsSize = values.elements().length;
-        if (expectedSize > elementsSize) {
-            long capacity = elementsSize > 1024768L ? 1024768L + elementsSize : 2L * elementsSize;
-            capacity = Math.min(capacity, Integer.MAX_VALUE);
-            values.ensureCapacity((int) capacity);
+            channel.ensureCapacity((int) capacity);
         }
     }
 
