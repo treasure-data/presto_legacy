@@ -149,6 +149,7 @@ public class HashGenerationOptimizer
                             node.getAggregations(),
                             node.getFunctions(),
                             node.getMasks(),
+                            node.getGroupingSets(),
                             node.getStep(),
                             node.getSampleWeight(),
                             node.getConfidence(),
@@ -617,7 +618,7 @@ public class HashGenerationOptimizer
 
             // return only hash symbols that are passed through the new node
             Map<HashComputation, Symbol> hashSymbols = new HashMap<>(source.getHashSymbols());
-            hashSymbols.keySet().retainAll(result.getOutputSymbols());
+            hashSymbols.values().retainAll(result.getOutputSymbols());
 
             return new PlanWithProperties(result, hashSymbols);
         }

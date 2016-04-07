@@ -43,6 +43,7 @@ import com.facebook.presto.sql.planner.plan.DeleteNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
+import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.IndexSourceNode;
@@ -89,6 +90,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -266,9 +268,17 @@ public class AddExchanges
                     .map(functionRegistry::getAggregateFunctionImplementation)
                     .allMatch(InternalAggregationFunction::isDecomposable);
 
-            PreferredProperties preferredProperties = node.getGroupBy().isEmpty()
-                    ? PreferredProperties.any()
-                    : PreferredProperties.derivePreferences(context.getPreferredProperties(), ImmutableSet.copyOf(node.getGroupBy()), Optional.of(node.getGroupBy()), grouped(node.getGroupBy()));
+            HashSet<Symbol> partitioningRequirement = new HashSet<>(node.getGroupingSets().get(0));
+            for (int i = 1; i < node.getGroupingSets().size(); i++) {
+                partitioningRequirement.retainAll(node.getGroupingSets().get(i));
+            }
+
+            PreferredProperties preferredProperties = PreferredProperties.any();
+            if (!node.getGroupBy().isEmpty()) {
+                preferredProperties = PreferredProperties.derivePreferences(context.getPreferredProperties(),
+                        partitioningRequirement,
+                        Optional.of(ImmutableList.copyOf(partitioningRequirement)), grouped(node.getGroupBy()));
+            }
 
             PlanWithProperties child = planChild(node, context.withPreferredProperties(preferredProperties));
 
@@ -290,13 +300,13 @@ public class AddExchanges
                 }
             }
             else {
-                if (child.getProperties().isNodePartitionedOn(node.getGroupBy())) {
+                if (child.getProperties().isNodePartitionedOn(partitioningRequirement)) {
                     return rebaseAndDeriveProperties(node, child);
                 }
                 else {
                     if (decomposable) {
                         Function<PlanNode, PlanNode> exchanger = null;
-                        if (!child.getProperties().isNodePartitionedOn(node.getGroupBy())) {
+                        if (!child.getProperties().isNodePartitionedOn(partitioningRequirement)) {
                             exchanger = partial -> partitionedExchange(
                                     idAllocator.getNextId(),
                                     partial,
@@ -347,6 +357,7 @@ public class AddExchanges
                             intermediateCalls,
                             intermediateFunctions,
                             intermediateMask,
+                            node.getGroupingSets(),
                             PARTIAL,
                             node.getSampleWeight(),
                             node.getConfidence(),
@@ -366,6 +377,7 @@ public class AddExchanges
                             finalCalls,
                             node.getFunctions(),
                             ImmutableMap.of(),
+                            node.getGroupingSets(),
                             FINAL,
                             Optional.empty(),
                             node.getConfidence(),
@@ -750,6 +762,24 @@ public class AddExchanges
                     ActualProperties.builder()
                             .global(singleStreamPartition())
                             .build());
+        }
+
+        @Override
+        public PlanWithProperties visitExplainAnalyze(ExplainAnalyzeNode node, Context context)
+        {
+            PlanWithProperties child = planChild(node, context.withPreferredProperties(PreferredProperties.any()));
+
+            // if the child is already a gathering exchange, don't add another
+            if ((child.getNode() instanceof ExchangeNode) && ((ExchangeNode) child.getNode()).getType() == ExchangeNode.Type.GATHER) {
+                return rebaseAndDeriveProperties(node, child);
+            }
+
+            // Always add an exchange because ExplainAnalyze should be in its own stage
+            child = withDerivedProperties(
+                    gatheringExchange(idAllocator.getNextId(), child.getNode()),
+                    child.getProperties());
+
+            return rebaseAndDeriveProperties(node, child);
         }
 
         @Override

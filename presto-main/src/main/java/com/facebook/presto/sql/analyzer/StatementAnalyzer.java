@@ -597,6 +597,10 @@ class StatementAnalyzer
             Type tableType = tableTypesIterator.next();
             Type queryType = queryTypesIterator.next();
 
+            if (isNullType(queryType)) {
+                continue;
+            }
+
             if (isStructuralType(tableType)) {
                 if (!tableType.getTypeSignature().getBase().equals(queryType.getTypeSignature().getBase())) {
                     return false;
@@ -612,6 +616,11 @@ class StatementAnalyzer
             }
         }
         return true;
+    }
+
+    private static boolean isNullType(Type queryType)
+    {
+        return Objects.equals(queryType, UNKNOWN);
     }
 
     private static boolean isStructuralType(Type type)
@@ -744,6 +753,16 @@ class StatementAnalyzer
                 throw new SemanticException(NOT_SUPPORTED, node, "EXPLAIN ANALYZE only supports TYPE DISTRIBUTED option");
             }
             process(node.getStatement(), context);
+            Statement statement = analysis.getStatement();
+            // Some statements, like SHOW COLUMNS, are rewritten into a SELECT
+            if (statement != node.getStatement()) {
+                if (node.getLocation().isPresent()) {
+                    node = new Explain(node.getLocation().get(), node.isAnalyze(), statement, node.getOptions());
+                }
+                else {
+                    node = new Explain(statement, node.isAnalyze(), node.getOptions());
+                }
+            }
             analysis.setStatement(node);
             analysis.setUpdateType(null);
             RelationType type = new RelationType(Field.newUnqualified("Query Plan", VARCHAR));

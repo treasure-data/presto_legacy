@@ -42,8 +42,10 @@ import com.facebook.presto.operator.aggregation.VarianceAggregation;
 import com.facebook.presto.operator.scalar.ArrayConcatFunction;
 import com.facebook.presto.operator.scalar.ArrayDistinctFunction;
 import com.facebook.presto.operator.scalar.ArrayElementAtFunction;
+import com.facebook.presto.operator.scalar.ArrayEqualOperator;
 import com.facebook.presto.operator.scalar.ArrayFunctions;
 import com.facebook.presto.operator.scalar.ArrayGreaterThanOperator;
+import com.facebook.presto.operator.scalar.ArrayHashCodeOperator;
 import com.facebook.presto.operator.scalar.ArrayLessThanOrEqualOperator;
 import com.facebook.presto.operator.scalar.ArrayMaxFunction;
 import com.facebook.presto.operator.scalar.ArrayMinFunction;
@@ -57,6 +59,7 @@ import com.facebook.presto.operator.scalar.FailureFunction;
 import com.facebook.presto.operator.scalar.HyperLogLogFunctions;
 import com.facebook.presto.operator.scalar.JsonFunctions;
 import com.facebook.presto.operator.scalar.JsonOperators;
+import com.facebook.presto.operator.scalar.MapEqualOperator;
 import com.facebook.presto.operator.scalar.MathFunctions;
 import com.facebook.presto.operator.scalar.RegexpFunctions;
 import com.facebook.presto.operator.scalar.ScalarFunctionImplementation;
@@ -155,9 +158,7 @@ import static com.facebook.presto.operator.aggregation.MultimapAggregationFuncti
 import static com.facebook.presto.operator.scalar.ArrayCardinalityFunction.ARRAY_CARDINALITY;
 import static com.facebook.presto.operator.scalar.ArrayConstructor.ARRAY_CONSTRUCTOR;
 import static com.facebook.presto.operator.scalar.ArrayContains.ARRAY_CONTAINS;
-import static com.facebook.presto.operator.scalar.ArrayEqualOperator.ARRAY_EQUAL;
 import static com.facebook.presto.operator.scalar.ArrayGreaterThanOrEqualOperator.ARRAY_GREATER_THAN_OR_EQUAL;
-import static com.facebook.presto.operator.scalar.ArrayHashCodeOperator.ARRAY_HASH_CODE;
 import static com.facebook.presto.operator.scalar.ArrayIntersectFunction.ARRAY_INTERSECT_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayJoin.ARRAY_JOIN;
 import static com.facebook.presto.operator.scalar.ArrayJoin.ARRAY_JOIN_WITH_NULL_REPLACEMENT;
@@ -180,7 +181,6 @@ import static com.facebook.presto.operator.scalar.Least.LEAST;
 import static com.facebook.presto.operator.scalar.MapCardinalityFunction.MAP_CARDINALITY;
 import static com.facebook.presto.operator.scalar.MapConcatFunction.MAP_CONCAT_FUNCTION;
 import static com.facebook.presto.operator.scalar.MapConstructor.MAP_CONSTRUCTOR;
-import static com.facebook.presto.operator.scalar.MapEqualOperator.MAP_EQUAL;
 import static com.facebook.presto.operator.scalar.MapHashCodeOperator.MAP_HASH_CODE;
 import static com.facebook.presto.operator.scalar.MapKeys.MAP_KEYS;
 import static com.facebook.presto.operator.scalar.MapNotEqualOperator.MAP_NOT_EQUAL;
@@ -354,10 +354,13 @@ public class FunctionRegistry
                 .scalar(ArrayDistinctFunction.class)
                 .scalar(ArrayConcatFunction.class)
                 .scalar(ArrayNotEqualOperator.class)
+                .scalar(ArrayEqualOperator.class)
+                .scalar(ArrayHashCodeOperator.class)
+                .scalar(MapEqualOperator.class)
                 .functions(ARRAY_CONTAINS, ARRAY_JOIN, ARRAY_JOIN_WITH_NULL_REPLACEMENT)
-                .functions(ARRAY_TO_ARRAY_CAST, ARRAY_HASH_CODE, ARRAY_EQUAL, ARRAY_LESS_THAN, ARRAY_GREATER_THAN_OR_EQUAL)
+                .functions(ARRAY_TO_ARRAY_CAST, ARRAY_LESS_THAN, ARRAY_GREATER_THAN_OR_EQUAL)
                 .functions(ARRAY_TO_ELEMENT_CONCAT_FUNCTION, ELEMENT_TO_ARRAY_CONCAT_FUNCTION)
-                .functions(MAP_EQUAL, MAP_NOT_EQUAL, MAP_HASH_CODE)
+                .functions(MAP_NOT_EQUAL, MAP_HASH_CODE)
                 .functions(ARRAY_CONSTRUCTOR, ARRAY_SUBSCRIPT, ARRAY_CARDINALITY, ARRAY_POSITION, ARRAY_SORT_FUNCTION, ARRAY_INTERSECT_FUNCTION, ARRAY_TO_JSON, JSON_TO_ARRAY, ARRAY_SLICE_FUNCTION)
                 .functions(MAP_CONSTRUCTOR, MAP_CARDINALITY, MAP_SUBSCRIPT, MAP_TO_JSON, JSON_TO_MAP, MAP_KEYS, MAP_VALUES, MAP_CONCAT_FUNCTION)
                 .functions(MAP_AGG, MULTIMAP_AGG)

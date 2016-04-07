@@ -25,9 +25,12 @@ import com.facebook.presto.connector.system.SystemConnectorModule;
 import com.facebook.presto.event.query.QueryCompletionEvent;
 import com.facebook.presto.event.query.QueryCreatedEvent;
 import com.facebook.presto.event.query.QueryMonitor;
+import com.facebook.presto.event.query.QueryMonitorConfig;
 import com.facebook.presto.event.query.SplitCompletionEvent;
 import com.facebook.presto.execution.LocationFactory;
 import com.facebook.presto.execution.QueryInfo;
+import com.facebook.presto.execution.QueryPerformanceFetcher;
+import com.facebook.presto.execution.QueryPerformanceFetcherProvider;
 import com.facebook.presto.execution.RemoteTaskFactory;
 import com.facebook.presto.execution.SqlTaskManager;
 import com.facebook.presto.execution.TaskExecutor;
@@ -104,6 +107,7 @@ import io.airlift.units.Duration;
 import javax.inject.Singleton;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
@@ -146,6 +150,10 @@ public class ServerMainModule
 
         if (serverConfig.isCoordinator()) {
             discoveryBinder(binder).bindHttpAnnouncement("presto-coordinator");
+            binder.bind(new TypeLiteral<Optional<QueryPerformanceFetcher>>(){}).toProvider(QueryPerformanceFetcherProvider.class).in(Scopes.SINGLETON);
+        }
+        else {
+            binder.bind(new TypeLiteral<Optional<QueryPerformanceFetcher>>(){}).toInstance(Optional.empty());
         }
 
         binder.bind(SqlParser.class).in(Scopes.SINGLETON);
@@ -157,6 +165,7 @@ public class ServerMainModule
 
         // task execution
         jaxrsBinder(binder).bind(TaskResource.class);
+        newExporter(binder).export(TaskResource.class).withGeneratedName();
         binder.bind(TaskManager.class).to(SqlTaskManager.class).in(Scopes.SINGLETON);
 
         // workaround for CodeCache GC issue
@@ -270,6 +279,7 @@ public class ServerMainModule
         jsonBinder(binder).addDeserializerBinding(FunctionCall.class).to(FunctionCallDeserializer.class);
 
         // query monitor
+        configBinder(binder).bindConfig(QueryMonitorConfig.class);
         binder.bind(QueryMonitor.class).in(Scopes.SINGLETON);
         eventBinder(binder).bindEventClient(QueryCreatedEvent.class);
         eventBinder(binder).bindEventClient(QueryCompletionEvent.class);
