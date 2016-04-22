@@ -314,9 +314,7 @@ public class PageProcessorCompiler
             // if nothing is filtered out, copy the entire block, else project it
             body.append(new IfStatement()
                     .condition(equal(cardinality, positionCount))
-                    .ifTrue(new BytecodeBlock()
-                            .append(inputs.get(0).invoke("assureLoaded", void.class))
-                            .append(outputBlock.set(inputs.get(0))))
+                    .ifTrue(outputBlock.set(inputs.get(0)))
                     .ifFalse(projectBlock));
         }
         else if (isConstantExpression(projection)) {
