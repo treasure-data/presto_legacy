@@ -55,18 +55,24 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static com.facebook.presto.hadoop.HadoopFileStatus.isDirectory;
 import static com.facebook.presto.hive.HiveBucketing.HiveBucket;
+import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_BUCKET_FILES;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_PARTITION_VALUE;
-import static com.facebook.presto.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMATCH;
+import static com.facebook.presto.hive.HiveSessionProperties.getMaxInitialSplitSize;
+import static com.facebook.presto.hive.HiveSessionProperties.getMaxSplitSize;
 import static com.facebook.presto.hive.HiveUtil.checkCondition;
 import static com.facebook.presto.hive.HiveUtil.getInputFormat;
 import static com.facebook.presto.hive.HiveUtil.isSplittable;
 import static com.facebook.presto.hive.UnpartitionedPartition.isUnpartitioned;
+import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.google.common.base.Preconditions.checkState;
+import static java.lang.String.format;
 
 public class BackgroundHiveSplitLoader
         implements HiveSplitLoader
 {
+    private static final String CORRUPT_BUCKETING = "Hive table is corrupt. It is declared as being bucketed, but the files do not match the bucketing declaration.";
+
     public static final CompletableFuture<?> COMPLETED_FUTURE = CompletableFuture.completedFuture(null);
 
     private final String connectorId;
@@ -108,14 +114,12 @@ public class BackgroundHiveSplitLoader
             Iterable<HivePartitionMetadata> partitions,
             Optional<HiveBucketHandle> bucketHandle,
             Optional<HiveBucket> bucket,
-            DataSize maxSplitSize,
             ConnectorSession session,
             HdfsEnvironment hdfsEnvironment,
             NamenodeStats namenodeStats,
             DirectoryLister directoryLister,
             Executor executor,
             int maxPartitionBatchSize,
-            DataSize maxInitialSplitSize,
             int maxInitialSplits,
             boolean recursiveDirWalkerEnabled)
     {
@@ -123,13 +127,13 @@ public class BackgroundHiveSplitLoader
         this.table = table;
         this.bucketHandle = bucketHandle;
         this.bucket = bucket;
-        this.maxSplitSize = maxSplitSize;
+        this.maxSplitSize = getMaxSplitSize(session);
         this.maxPartitionBatchSize = maxPartitionBatchSize;
         this.session = session;
         this.hdfsEnvironment = hdfsEnvironment;
         this.namenodeStats = namenodeStats;
         this.directoryLister = directoryLister;
-        this.maxInitialSplitSize = maxInitialSplitSize;
+        this.maxInitialSplitSize = getMaxInitialSplitSize(session);
         this.remainingInitialSplits = new AtomicInteger(maxInitialSplits);
         this.recursiveDirWalkerEnabled = recursiveDirWalkerEnabled;
         this.executor = executor;
@@ -364,16 +368,13 @@ public class BackgroundHiveSplitLoader
             LocatedFileStatus next = hiveFileIterator.next();
             if (isDirectory(next)) {
                 // Fail here to be on the safe side. This seems to be the same as what Hive does
-                throw new PrestoException(HIVE_PARTITION_SCHEMA_MISMATCH, "Found sub-directory in bucket directory");
-            }
-            if (list.size() >= bucketCount) {
-                throw new PrestoException(HIVE_PARTITION_SCHEMA_MISMATCH, "There are more files in the directory than the specified bucket count: " + bucketCount);
+                throw new PrestoException(HIVE_INVALID_BUCKET_FILES, format("%s Found sub-directory in bucket directory for partition: %s", CORRUPT_BUCKETING, hiveFileIterator.getPartitionName()));
             }
             list.add(next);
         }
 
         if (list.size() != bucketCount) {
-            throw new PrestoException(HIVE_PARTITION_SCHEMA_MISMATCH, "There are less files in the directory than the specified bucket count: " + bucketCount);
+            throw new PrestoException(HIVE_INVALID_BUCKET_FILES, format("%s The number of files in the directory (%s) does not match the declared bucket count (%s) for partition: %s", CORRUPT_BUCKETING, list.size(), bucketCount, hiveFileIterator.getPartitionName()));
         }
 
         // Sort FileStatus objects (instead of, e.g., fileStatus.getPath().toString). This matches org.apache.hadoop.hive.ql.metadata.Table.getSortedPaths
@@ -494,6 +495,9 @@ public class BackgroundHiveSplitLoader
         for (int i = 0; i < keys.size(); i++) {
             String name = keys.get(i).getName();
             HiveType hiveType = HiveType.valueOf(keys.get(i).getType());
+            if (!hiveType.isSupportedType()) {
+                throw new PrestoException(NOT_SUPPORTED, format("Unsupported Hive type %s found in partition keys of table %s.%s", hiveType, table.getDbName(), table.getTableName()));
+            }
             String value = values.get(i);
             checkCondition(value != null, HIVE_INVALID_PARTITION_VALUE, "partition key value cannot be null for field: %s", name);
             partitionKeys.add(new HivePartitionKey(name, hiveType, value));

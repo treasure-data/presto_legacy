@@ -19,7 +19,6 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorNewTableLayout;
-import com.facebook.presto.spi.ConnectorNodePartitioning;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableHandle;
@@ -81,7 +80,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import static com.facebook.presto.hive.HiveColumnHandle.SAMPLE_WEIGHT_COLUMN_NAME;
 import static com.facebook.presto.hive.HiveColumnHandle.updateRowIdHandle;
@@ -112,9 +110,8 @@ import static com.facebook.presto.hive.HiveWriteUtils.isWritableType;
 import static com.facebook.presto.hive.HiveWriteUtils.pathExists;
 import static com.facebook.presto.hive.HiveWriteUtils.renameDirectory;
 import static com.facebook.presto.hive.util.Types.checkType;
+import static com.facebook.presto.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
-import static com.facebook.presto.spi.StandardErrorCode.PERMISSION_DENIED;
-import static com.facebook.presto.spi.StandardErrorCode.USER_ERROR;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -138,10 +135,6 @@ public class HiveMetadata
     private static final int PARTITION_COMMIT_BATCH_SIZE = 8;
 
     private final String connectorId;
-    private final boolean allowDropTable;
-    private final boolean allowRenameTable;
-    private final boolean allowAddColumn;
-    private final boolean allowRenameColumn;
     private final boolean allowCorruptWritesForTesting;
     private final HiveMetastore metastore;
     private final HdfsEnvironment hdfsEnvironment;
@@ -163,10 +156,6 @@ public class HiveMetadata
             HdfsEnvironment hdfsEnvironment,
             HivePartitionManager partitionManager,
             DateTimeZone timeZone,
-            boolean allowDropTable,
-            boolean allowRenameTable,
-            boolean allowAddColumn,
-            boolean allowRenameColumn,
             boolean allowCorruptWritesForTesting,
             boolean respectTableFormat,
             HiveStorageFormat defaultStorageFormat,
@@ -178,10 +167,6 @@ public class HiveMetadata
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null");
 
-        this.allowDropTable = allowDropTable;
-        this.allowRenameTable = allowRenameTable;
-        this.allowAddColumn = allowAddColumn;
-        this.allowRenameColumn = allowRenameColumn;
         this.allowCorruptWritesForTesting = allowCorruptWritesForTesting;
 
         this.metastore = requireNonNull(metastore, "metastore is null");
@@ -384,6 +369,9 @@ public class HiveMetadata
         String tableName = schemaTableName.getTableName();
         List<String> partitionedBy = getPartitionedBy(tableMetadata.getProperties());
         Optional<HiveBucketProperty> bucketProperty = getBucketProperty(tableMetadata.getProperties());
+        if (bucketProperty.isPresent()) {
+            throw new PrestoException(NOT_SUPPORTED, "Writing to bucketed Hive table has been temporarily disabled");
+        }
         List<HiveColumnHandle> columnHandles = getColumnHandles(connectorId, tableMetadata, ImmutableSet.copyOf(partitionedBy));
         HiveStorageFormat hiveStorageFormat = getHiveStorageFormat(tableMetadata.getProperties());
         Map<String, String> additionalTableParameters = tableParameterCodec.encode(tableMetadata.getProperties());
@@ -461,10 +449,6 @@ public class HiveMetadata
     @Override
     public void addColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnMetadata column)
     {
-        if (!allowAddColumn) {
-            throw new PrestoException(PERMISSION_DENIED, "Adding Columns is disabled in this Hive catalog");
-        }
-
         HiveTableHandle handle = checkType(tableHandle, HiveTableHandle.class, "tableHandle");
         Optional<Table> tableMetadata = metastore.getTable(handle.getSchemaName(), handle.getTableName());
         if (!tableMetadata.isPresent()) {
@@ -485,10 +469,6 @@ public class HiveMetadata
     @Override
     public void renameColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle source, String target)
     {
-        if (!allowRenameColumn) {
-            throw new PrestoException(PERMISSION_DENIED, "Renaming columns is disabled in this Hive catalog");
-        }
-
         HiveTableHandle hiveTableHandle = checkType(tableHandle, HiveTableHandle.class, "tableHandle");
         HiveColumnHandle sourceHandle = checkType(source, HiveColumnHandle.class, "columnHandle");
         Optional<Table> tableMetadata = metastore.getTable(hiveTableHandle.getSchemaName(), hiveTableHandle.getTableName());
@@ -514,10 +494,6 @@ public class HiveMetadata
     @Override
     public void renameTable(ConnectorSession session, ConnectorTableHandle tableHandle, SchemaTableName newTableName)
     {
-        if (!allowRenameTable) {
-            throw new PrestoException(PERMISSION_DENIED, "Renaming tables is disabled in this Hive catalog");
-        }
-
         HiveTableHandle handle = checkType(tableHandle, HiveTableHandle.class, "tableHandle");
         SchemaTableName tableName = schemaTableName(tableHandle);
         Optional<Table> source = metastore.getTable(handle.getSchemaName(), handle.getTableName());
@@ -536,18 +512,9 @@ public class HiveMetadata
         HiveTableHandle handle = checkType(tableHandle, HiveTableHandle.class, "tableHandle");
         SchemaTableName tableName = schemaTableName(tableHandle);
 
-        if (!allowDropTable) {
-            throw new PrestoException(PERMISSION_DENIED, "DROP TABLE is disabled in this Hive catalog");
-        }
-
         Optional<Table> target = metastore.getTable(handle.getSchemaName(), handle.getTableName());
         if (!target.isPresent()) {
             throw new TableNotFoundException(tableName);
-        }
-        Table table = target.get();
-
-        if (!session.getUser().equals(table.getOwner())) {
-            throw new PrestoException(PERMISSION_DENIED, format("Unable to drop table '%s': owner of the table is different from session user", table));
         }
         metastore.dropTable(handle.getSchemaName(), handle.getTableName());
     }
@@ -564,6 +531,9 @@ public class HiveMetadata
         HiveStorageFormat tableStorageFormat = getHiveStorageFormat(tableMetadata.getProperties());
         List<String> partitionedBy = getPartitionedBy(tableMetadata.getProperties());
         Optional<HiveBucketProperty> bucketProperty = getBucketProperty(tableMetadata.getProperties());
+        if (bucketProperty.isPresent()) {
+            throw new PrestoException(NOT_SUPPORTED, "Writing to bucketed Hive table has been temporarily disabled");
+        }
         Map<String, String> additionalTableParameters = tableParameterCodec.encode(tableMetadata.getProperties());
 
         // get the root directory for the database
@@ -674,13 +644,16 @@ public class HiveMetadata
 
         checkTableIsWritable(table.get());
 
-        List<HiveColumnHandle> handles = hiveColumnHandles(connectorId, table.get());
-
-        for (HiveColumnHandle hiveColumnHandle : handles) {
-            if (!isWritableType(hiveColumnHandle.getHiveType())) {
-                throw new PrestoException(NOT_SUPPORTED, format("Inserting into Hive table with column type %s not supported", hiveColumnHandle.getHiveType()));
+        for (FieldSchema fieldSchema : table.get().getSd().getCols()) {
+            HiveType hiveType = HiveType.valueOf(fieldSchema.getType());
+            if (!isWritableType(hiveType)) {
+                throw new PrestoException(
+                        NOT_SUPPORTED,
+                        format("Inserting into Hive table %s.%s with column type %s not supported", table.get().getDbName(), table.get().getTableName(), hiveType));
             }
         }
+
+        List<HiveColumnHandle> handles = hiveColumnHandles(connectorId, table.get());
 
         HiveStorageFormat tableStorageFormat = extractHiveStorageFormat(table.get());
         HiveInsertTableHandle result = new HiveInsertTableHandle(
@@ -1284,16 +1257,7 @@ public class HiveMetadata
                 hiveLayoutHandle,
                 Optional.empty(),
                 predicate,
-                hiveLayoutHandle.getBucketHandle().map(hiveBucketHandle -> new ConnectorNodePartitioning(
-                        new HivePartitioningHandle(
-                                connectorId,
-                                hiveBucketHandle.getBucketCount(),
-                                hiveBucketHandle.getColumns().stream()
-                                        .map(HiveColumnHandle::getHiveType)
-                                        .collect(Collectors.toList())),
-                        hiveBucketHandle.getColumns().stream()
-                                .map(hiveColumnHandle -> (ColumnHandle) hiveColumnHandle)
-                                .collect(toList()))),
+                Optional.empty(),
                 Optional.empty(),
                 discretePredicates,
                 ImmutableList.of());
@@ -1303,6 +1267,9 @@ public class HiveMetadata
     public Optional<ConnectorNewTableLayout> getNewTableLayout(ConnectorSession session, ConnectorTableMetadata tableMetadata)
     {
         Optional<HiveBucketProperty> bucketProperty = getBucketProperty(tableMetadata.getProperties());
+        if (bucketProperty.isPresent()) {
+            throw new PrestoException(NOT_SUPPORTED, "Writing to bucketed Hive table has been temporarily disabled");
+        }
         if (!bucketProperty.isPresent()) {
             return Optional.empty();
         }
@@ -1380,11 +1347,11 @@ public class HiveMetadata
                 .collect(toList());
 
         if (!allColumns.containsAll(partitionedBy)) {
-            throw new PrestoException(USER_ERROR, format("Partition columns %s not present in schema", Sets.difference(ImmutableSet.copyOf(partitionedBy), ImmutableSet.copyOf(allColumns))));
+            throw new PrestoException(INVALID_TABLE_PROPERTY, format("Partition columns %s not present in schema", Sets.difference(ImmutableSet.copyOf(partitionedBy), ImmutableSet.copyOf(allColumns))));
         }
 
         if (allColumns.size() == partitionedBy.size()) {
-            throw new PrestoException(USER_ERROR, "Table contains only partition columns");
+            throw new PrestoException(INVALID_TABLE_PROPERTY, "Table contains only partition columns");
         }
 
         if (!allColumns.subList(allColumns.size() - partitionedBy.size(), allColumns.size()).equals(partitionedBy)) {
@@ -1492,8 +1459,12 @@ public class HiveMetadata
         sd.setParameters(ImmutableMap.of());
 
         bucketProperty.ifPresent(property -> {
-                sd.setBucketCols(property.getClusteredBy());
-                sd.setNumBuckets(property.getBucketCount());
+            if (true) {
+                // This line is not strictly necessary. But it is added as a fail-safe.
+                throw new PrestoException(NOT_SUPPORTED, "Writing to bucketed Hive table has been temporarily disabled");
+            }
+            sd.setBucketCols(property.getClusteredBy());
+            sd.setNumBuckets(property.getBucketCount());
         });
 
         return sd;

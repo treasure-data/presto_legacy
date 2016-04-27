@@ -37,6 +37,7 @@ import com.facebook.presto.execution.TaskExecutor;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.execution.TaskManager;
 import com.facebook.presto.execution.TaskManagerConfig;
+import com.facebook.presto.execution.TaskStatus;
 import com.facebook.presto.failureDetector.FailureDetector;
 import com.facebook.presto.failureDetector.FailureDetectorModule;
 import com.facebook.presto.index.IndexManager;
@@ -60,6 +61,8 @@ import com.facebook.presto.operator.ExchangeClientSupplier;
 import com.facebook.presto.operator.ForExchange;
 import com.facebook.presto.operator.ForScheduler;
 import com.facebook.presto.operator.index.IndexJoinLookupStats;
+import com.facebook.presto.server.remotetask.HttpLocationFactory;
+import com.facebook.presto.server.remotetask.RemoteTaskStats;
 import com.facebook.presto.spi.ConnectorPageSinkProvider;
 import com.facebook.presto.spi.ConnectorPageSourceProvider;
 import com.facebook.presto.spi.ConnectorSplit;
@@ -191,6 +194,7 @@ public class ServerMainModule
         binder.bind(AsyncHttpExecutionMBean.class).in(Scopes.SINGLETON);
         newExporter(binder).export(AsyncHttpExecutionMBean.class).withGeneratedName();
 
+        jsonCodecBinder(binder).bindJsonCodec(TaskStatus.class);
         jsonCodecBinder(binder).bindJsonCodec(TaskInfo.class);
         jaxrsBinder(binder).bind(PagesResponseWriter.class);
 
@@ -199,7 +203,7 @@ public class ServerMainModule
         httpClientBinder(binder).bindHttpClient("exchange", ForExchange.class)
                 .withTracing()
                 .withConfigDefaults(config -> {
-                    config.setIdleTimeout(new Duration(2, SECONDS));
+                    config.setIdleTimeout(new Duration(30, SECONDS));
                     config.setRequestTimeout(new Duration(10, SECONDS));
                     config.setMaxConnectionsPerServer(250);
                 });
@@ -212,10 +216,14 @@ public class ServerMainModule
         binder.bind(LocationFactory.class).to(HttpLocationFactory.class).in(Scopes.SINGLETON);
         binder.bind(RemoteTaskFactory.class).to(HttpRemoteTaskFactory.class).in(Scopes.SINGLETON);
         newExporter(binder).export(RemoteTaskFactory.class).withGeneratedName();
+
+        binder.bind(RemoteTaskStats.class).in(Scopes.SINGLETON);
+        newExporter(binder).export(RemoteTaskStats.class).withGeneratedName();
+
         httpClientBinder(binder).bindHttpClient("scheduler", ForScheduler.class)
                 .withTracing()
                 .withConfigDefaults(config -> {
-                    config.setIdleTimeout(new Duration(2, SECONDS));
+                    config.setIdleTimeout(new Duration(30, SECONDS));
                     config.setRequestTimeout(new Duration(10, SECONDS));
                     config.setMaxConnectionsPerServer(250);
                 });
@@ -225,7 +233,7 @@ public class ServerMainModule
         httpClientBinder(binder).bindHttpClient("memoryManager", ForMemoryManager.class)
                 .withTracing()
                 .withConfigDefaults(config -> {
-                    config.setIdleTimeout(new Duration(2, SECONDS));
+                    config.setIdleTimeout(new Duration(30, SECONDS));
                     config.setRequestTimeout(new Duration(10, SECONDS));
                 });
 
@@ -312,7 +320,7 @@ public class ServerMainModule
         httpClientBinder(binder).bindHttpClient("execute", ForExecute.class)
                 .withTracing()
                 .withConfigDefaults(config -> {
-                    config.setIdleTimeout(new Duration(2, SECONDS));
+                    config.setIdleTimeout(new Duration(30, SECONDS));
                     config.setRequestTimeout(new Duration(10, SECONDS));
                 });
 

@@ -109,8 +109,8 @@ public class QueryMonitor
             }
 
             Optional<TaskInfo> task = findFailedTask(queryInfo.getOutputStage());
-            String failureHost = task.map(x -> x.getSelf().getHost()).orElse(null);
-            String failureTask = task.map(x -> x.getTaskId().toString()).orElse(null);
+            String failureHost = task.map(x -> x.getTaskStatus().getSelf().getHost()).orElse(null);
+            String failureTask = task.map(x -> x.getTaskStatus().getTaskId().toString()).orElse(null);
 
             eventClient.post(
                     new QueryCompletionEvent(
@@ -173,7 +173,7 @@ public class QueryMonitor
             }
         }
         return stageInfo.getTasks().stream()
-                .filter(taskInfo -> taskInfo.getState() == TaskState.FAILED)
+                .filter(taskInfo -> taskInfo.getTaskStatus().getState() == TaskState.FAILED)
                 .findFirst();
     }
 
@@ -320,8 +320,8 @@ public class QueryMonitor
             return null;
         }
         catch (IOException e) {
-            // StringWriter and LengthLimitedWriter can't throw IOException
-            throw Throwables.propagate(e);
+            log.warn(e, "Unexpected exception");
+            return null;
         }
     }
 
@@ -364,7 +364,7 @@ public class QueryMonitor
         }
 
         public static class LengthLimitExceededException
-                extends RuntimeException
+                extends IOException
         {
         }
     }

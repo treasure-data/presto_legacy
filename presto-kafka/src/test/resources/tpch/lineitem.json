@@ -34,12 +34,12 @@
             {
                 "name": "linenumber",
                 "mapping": "linenumber",
-                "type": "BIGINT"
+                "type": "INTEGER"
             },
             {
                 "name": "quantity",
                 "mapping": "quantity",
-                "type": "BIGINT"
+                "type": "DOUBLE"
             },
             {
                 "name": "extendedprice",

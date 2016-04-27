@@ -26,6 +26,7 @@ import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.block.LazyBlock;
 import com.facebook.presto.spi.block.LazyBlockLoader;
 import com.facebook.presto.spi.predicate.TupleDomain;
+import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.FixedWidthType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
@@ -49,13 +50,19 @@ import static com.facebook.presto.hive.HiveUtil.bigintPartitionKey;
 import static com.facebook.presto.hive.HiveUtil.booleanPartitionKey;
 import static com.facebook.presto.hive.HiveUtil.datePartitionKey;
 import static com.facebook.presto.hive.HiveUtil.doublePartitionKey;
+import static com.facebook.presto.hive.HiveUtil.integerPartitionKey;
+import static com.facebook.presto.hive.HiveUtil.longDecimalPartitionKey;
+import static com.facebook.presto.hive.HiveUtil.shortDecimalPartitionKey;
 import static com.facebook.presto.hive.HiveUtil.timestampPartitionKey;
 import static com.facebook.presto.hive.parquet.ParquetTypeUtils.getParquetType;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
+import static com.facebook.presto.spi.type.Decimals.isLongDecimal;
+import static com.facebook.presto.spi.type.Decimals.isShortDecimal;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
+import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -158,6 +165,12 @@ class ParquetPageSource
                         BOOLEAN.writeBoolean(blockBuilder, value);
                     }
                 }
+                else if (type.equals(INTEGER)) {
+                    long value = integerPartitionKey(partitionKey.getValue(), name);
+                    for (int i = 0; i < MAX_VECTOR_LENGTH; i++) {
+                        INTEGER.writeLong(blockBuilder, value);
+                    }
+                }
                 else if (type.equals(BIGINT)) {
                     long value = bigintPartitionKey(partitionKey.getValue(), name);
                     for (int i = 0; i < MAX_VECTOR_LENGTH; i++) {
@@ -186,6 +199,18 @@ class ParquetPageSource
                     long value = datePartitionKey(partitionKey.getValue(), name);
                     for (int i = 0; i < MAX_VECTOR_LENGTH; i++) {
                         DATE.writeLong(blockBuilder, value);
+                    }
+                }
+                else if (isShortDecimal(type)) {
+                    long value = shortDecimalPartitionKey(partitionKey.getValue(), (DecimalType) type, name);
+                    for (int i = 0; i < MAX_VECTOR_LENGTH; i++) {
+                        type.writeLong(blockBuilder, value);
+                    }
+                }
+                else if (isLongDecimal(type)) {
+                    Slice value = longDecimalPartitionKey(partitionKey.getValue(), (DecimalType) type, name);
+                    for (int i = 0; i < MAX_VECTOR_LENGTH; i++) {
+                        type.writeSlice(blockBuilder, value);
                     }
                 }
                 else {

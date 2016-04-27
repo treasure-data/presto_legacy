@@ -43,7 +43,6 @@ import com.facebook.presto.sql.planner.plan.TopNNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.Cast;
-import com.facebook.presto.sql.tree.DefaultTraversalVisitor;
 import com.facebook.presto.sql.tree.Delete;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FrameBound;
@@ -86,7 +85,6 @@ import static com.google.common.collect.Iterables.getOnlyElement;
 import static java.util.Objects.requireNonNull;
 
 class QueryPlanner
-        extends DefaultTraversalVisitor<PlanBuilder, Void>
 {
     private final Analysis analysis;
     private final SymbolAllocator symbolAllocator;
@@ -112,8 +110,7 @@ class QueryPlanner
         this.approximationConfidence = approximationConfidence;
     }
 
-    @Override
-    protected PlanBuilder visitQuery(Query query, Void context)
+    public RelationPlan plan(Query query)
     {
         PlanBuilder builder = planQueryBody(query);
 
@@ -127,11 +124,14 @@ class QueryPlanner
         builder = project(builder, analysis.getOutputExpressions(query));
         builder = limit(builder, query);
 
-        return builder;
+        return new RelationPlan(
+                builder.getRoot(),
+                analysis.getOutputDescriptor(query),
+                computeOutputs(builder, analysis.getOutputExpressions(query)),
+                builder.getSampleWeight());
     }
 
-    @Override
-    protected PlanBuilder visitQuerySpecification(QuerySpecification node, Void context)
+    public RelationPlan plan(QuerySpecification node)
     {
         PlanBuilder builder = planFrom(node);
 
@@ -152,45 +152,14 @@ class QueryPlanner
         builder = project(builder, analysis.getOutputExpressions(node));
         builder = limit(builder, node);
 
-        return builder;
+        return new RelationPlan(
+                builder.getRoot(),
+                analysis.getOutputDescriptor(node),
+                computeOutputs(builder, analysis.getOutputExpressions(node)),
+                builder.getSampleWeight());
     }
 
-    private PlanBuilder planQueryBody(Query query)
-    {
-        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session)
-                .process(query.getQueryBody(), null);
-
-        TranslationMap translations = new TranslationMap(relationPlan, analysis);
-
-        // Make field->symbol mapping from underlying relation plan available for translations
-        // This makes it possible to rewrite FieldOrExpressions that reference fields from the QuerySpecification directly
-        translations.setFieldMappings(relationPlan.getOutputSymbols());
-
-        return new PlanBuilder(translations, relationPlan.getRoot(), relationPlan.getSampleWeight());
-    }
-
-    private PlanBuilder planFrom(QuerySpecification node)
-    {
-        RelationPlan relationPlan;
-
-        if (node.getFrom().isPresent()) {
-            relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session)
-                    .process(node.getFrom().get(), null);
-        }
-        else {
-            relationPlan = planImplicitTable();
-        }
-
-        TranslationMap translations = new TranslationMap(relationPlan, analysis);
-
-        // Make field->symbol mapping from underlying relation plan available for translations
-        // This makes it possible to rewrite FieldOrExpressions that reference fields from the FROM clause directly
-        translations.setFieldMappings(relationPlan.getOutputSymbols());
-
-        return new PlanBuilder(translations, relationPlan.getRoot(), relationPlan.getSampleWeight());
-    }
-
-    public DeleteNode planDelete(Delete node)
+    public DeleteNode plan(Delete node)
     {
         RelationType descriptor = analysis.getOutputDescriptor(node.getTable());
         TableHandle handle = analysis.getTableHandle(node.getTable());
@@ -237,6 +206,50 @@ class QueryPlanner
         return new DeleteNode(idAllocator.getNextId(), builder.getRoot(), new DeleteHandle(handle), rowId, outputs);
     }
 
+    private List<Symbol> computeOutputs(PlanBuilder builder, List<FieldOrExpression> outputExpressions)
+    {
+        ImmutableList.Builder<Symbol> outputSymbols = ImmutableList.builder();
+        for (FieldOrExpression fieldOrExpression : outputExpressions) {
+            outputSymbols.add(builder.translate(fieldOrExpression));
+        }
+        return outputSymbols.build();
+    }
+
+    private PlanBuilder planQueryBody(Query query)
+    {
+        RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session)
+                .process(query.getQueryBody(), null);
+
+        TranslationMap translations = new TranslationMap(relationPlan, analysis);
+
+        // Make field->symbol mapping from underlying relation plan available for translations
+        // This makes it possible to rewrite FieldOrExpressions that reference fields from the QuerySpecification directly
+        translations.setFieldMappings(relationPlan.getOutputSymbols());
+
+        return new PlanBuilder(translations, relationPlan.getRoot(), relationPlan.getSampleWeight());
+    }
+
+    private PlanBuilder planFrom(QuerySpecification node)
+    {
+        RelationPlan relationPlan;
+
+        if (node.getFrom().isPresent()) {
+            relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session)
+                    .process(node.getFrom().get(), null);
+        }
+        else {
+            relationPlan = planImplicitTable();
+        }
+
+        TranslationMap translations = new TranslationMap(relationPlan, analysis);
+
+        // Make field->symbol mapping from underlying relation plan available for translations
+        // This makes it possible to rewrite FieldOrExpressions that reference fields from the FROM clause directly
+        translations.setFieldMappings(relationPlan.getOutputSymbols());
+
+        return new PlanBuilder(translations, relationPlan.getRoot(), relationPlan.getSampleWeight());
+    }
+
     private RelationPlan planImplicitTable()
     {
         List<Expression> emptyRow = ImmutableList.of();
@@ -257,10 +270,8 @@ class QueryPlanner
         Expression rewrittenBeforeSubqueries = subPlan.rewrite(predicate);
         subPlan = handleSubqueries(subPlan, rewrittenBeforeSubqueries, node);
         Expression rewrittenAfterSubqueries = subPlan.rewrite(predicate);
-        return new PlanBuilder(
-                subPlan.getTranslations(),
-                new FilterNode(idAllocator.getNextId(), subPlan.getRoot(), rewrittenAfterSubqueries),
-                subPlan.getSampleWeight());
+
+        return subPlan.withNewRoot(new FilterNode(idAllocator.getNextId(), subPlan.getRoot(), rewrittenAfterSubqueries));
     }
 
     private PlanBuilder project(PlanBuilder subPlan, Iterable<FieldOrExpression> expressions)
@@ -277,7 +288,7 @@ class QueryPlanner
             }
             else {
                 Expression expression = fieldOrExpression.getExpression();
-                symbol = symbolAllocator.newSymbol(expression, analysis.getType(expression));
+                symbol = symbolAllocator.newSymbol(expression, analysis.getTypeWithCoercions(expression));
             }
 
             projections.put(symbol, subPlan.rewrite(fieldOrExpression));
@@ -306,7 +317,7 @@ class QueryPlanner
                         rewritten,
                         coercion.getTypeSignature().toString(),
                         false,
-                        isTypeOnlyCoercion(type.getTypeSignature(), coercion.getTypeSignature()));
+                        isTypeOnlyCoercion(type, coercion));
             }
             projections.put(symbol, rewritten);
             translations.put(expression, symbol);
@@ -421,7 +432,7 @@ class QueryPlanner
         if (groupingSets.size() > 1) {
             Symbol groupIdSymbol = symbolAllocator.newSymbol("groupId", BIGINT);
             GroupIdNode groupId = new GroupIdNode(idAllocator.getNextId(), subPlan.getRoot(), subPlan.getRoot().getOutputSymbols(), groupingSetsSymbols, groupIdSymbol);
-            subPlan = new PlanBuilder(subPlan.getTranslations(), groupId, subPlan.getSampleWeight());
+            subPlan = subPlan.withNewRoot(groupId);
             distinctGroupingSymbolsBuilder.add(groupIdSymbol);
         }
         List<Symbol> distinctGroupingSymbols = distinctGroupingSymbolsBuilder.build().asList();
@@ -454,12 +465,13 @@ class QueryPlanner
             for (Expression expression : entry.getKey()) {
                 builder.add(subPlan.translate(expression));
             }
-            MarkDistinctNode markDistinct = new MarkDistinctNode(idAllocator.getNextId(),
-                    subPlan.getRoot(),
-                    entry.getValue(),
-                    builder.build(),
-                    Optional.empty());
-            subPlan = new PlanBuilder(subPlan.getTranslations(), markDistinct, subPlan.getSampleWeight());
+            subPlan = subPlan.withNewRoot(
+                    new MarkDistinctNode(
+                            idAllocator.getNextId(),
+                            subPlan.getRoot(),
+                            entry.getValue(),
+                            builder.build(),
+                            Optional.empty()));
         }
 
         double confidence = approximationConfidence.orElse(1.0);
@@ -621,7 +633,7 @@ class QueryPlanner
 
         ImmutableMap.Builder<Symbol, Expression> newTranslations = ImmutableMap.builder();
         for (Expression expression : expressions) {
-            Symbol symbol = symbolAllocator.newSymbol(expression, analysis.getType(expression));
+            Symbol symbol = symbolAllocator.newSymbol(expression, analysis.getTypeWithCoercions(expression));
 
             projections.put(symbol, translations.rewrite(expression));
             newTranslations.put(symbol, expression);
@@ -761,19 +773,19 @@ class QueryPlanner
         if (node.getSelect().isDistinct()) {
             checkState(outputs.containsAll(orderBy), "Expected ORDER BY terms to be in SELECT. Broken analysis");
 
-            AggregationNode aggregation = new AggregationNode(idAllocator.getNextId(),
-                    subPlan.getRoot(),
-                    subPlan.getRoot().getOutputSymbols(),
-                    ImmutableMap.<Symbol, FunctionCall>of(),
-                    ImmutableMap.<Symbol, Signature>of(),
-                    ImmutableMap.<Symbol, Symbol>of(),
-                    ImmutableList.of(subPlan.getRoot().getOutputSymbols()),
-                    AggregationNode.Step.SINGLE,
-                    Optional.empty(),
-                    1.0,
-                    Optional.empty());
-
-            return new PlanBuilder(subPlan.getTranslations(), aggregation, subPlan.getSampleWeight());
+            return subPlan.withNewRoot(
+                    new AggregationNode(
+                            idAllocator.getNextId(),
+                            subPlan.getRoot(),
+                            subPlan.getRoot().getOutputSymbols(),
+                            ImmutableMap.of(),
+                            ImmutableMap.of(),
+                            ImmutableMap.of(),
+                            ImmutableList.of(subPlan.getRoot().getOutputSymbols()),
+                            AggregationNode.Step.SINGLE,
+                            Optional.empty(),
+                            1.0,
+                            Optional.empty()));
         }
 
         return subPlan;
@@ -817,7 +829,7 @@ class QueryPlanner
             planNode = new SortNode(idAllocator.getNextId(), subPlan.getRoot(), orderBySymbols.build(), orderings);
         }
 
-        return new PlanBuilder(subPlan.getTranslations(), planNode, subPlan.getSampleWeight());
+        return subPlan.withNewRoot(planNode);
     }
 
     private PlanBuilder limit(PlanBuilder subPlan, Query node)
@@ -833,12 +845,9 @@ class QueryPlanner
     private PlanBuilder limit(PlanBuilder subPlan, List<SortItem> orderBy, Optional<String> limit)
     {
         if (orderBy.isEmpty() && limit.isPresent()) {
-            if (limit.get().equalsIgnoreCase("all")) {
-                return subPlan;
-            }
-            else {
+            if (!limit.get().equalsIgnoreCase("all")) {
                 long limitValue = Long.parseLong(limit.get());
-                return new PlanBuilder(subPlan.getTranslations(), new LimitNode(idAllocator.getNextId(), subPlan.getRoot(), limitValue), subPlan.getSampleWeight());
+                subPlan = subPlan.withNewRoot(new LimitNode(idAllocator.getNextId(), subPlan.getRoot(), limitValue));
             }
         }
 

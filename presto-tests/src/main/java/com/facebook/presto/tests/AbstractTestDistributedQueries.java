@@ -300,12 +300,12 @@ public abstract class AbstractTestDistributedQueries
 
         assertUpdate("ALTER TABLE test_rename RENAME TO test_rename_new");
         MaterializedResult materializedRows = computeActual("SELECT x FROM test_rename_new");
-        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123L);
+        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123);
 
         // provide new table name in uppercase
         assertUpdate("ALTER TABLE test_rename_new RENAME TO TEST_RENAME");
         materializedRows = computeActual("SELECT x FROM test_rename");
-        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123L);
+        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123);
 
         assertUpdate("DROP TABLE test_rename");
 
@@ -321,11 +321,11 @@ public abstract class AbstractTestDistributedQueries
 
         assertUpdate("ALTER TABLE test_rename_column RENAME COLUMN x TO y");
         MaterializedResult materializedRows = computeActual("SELECT y FROM test_rename_column");
-        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123L);
+        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123);
 
         assertUpdate("ALTER TABLE test_rename_column RENAME COLUMN y TO Z");
         materializedRows = computeActual("SELECT z FROM test_rename_column");
-        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123L);
+        assertEquals(getOnlyElement(materializedRows.getMaterializedRows()).getField(0), 123);
 
         assertUpdate("DROP TABLE test_rename_column");
         assertFalse(queryRunner.tableExists(getSession(), "test_rename_column"));
@@ -345,21 +345,21 @@ public abstract class AbstractTestDistributedQueries
         assertUpdate("ALTER TABLE test_add_column ADD COLUMN a bigint");
         assertUpdate("INSERT INTO test_add_column SELECT * FROM test_add_column_a", 1);
         MaterializedResult materializedRows = computeActual("SELECT x, a FROM test_add_column ORDER BY x");
-        assertEquals(materializedRows.getMaterializedRows().get(0).getField(0), 123L);
+        assertEquals(materializedRows.getMaterializedRows().get(0).getField(0), 123);
         assertEquals(materializedRows.getMaterializedRows().get(0).getField(1), null);
-        assertEquals(materializedRows.getMaterializedRows().get(1).getField(0), 234L);
+        assertEquals(materializedRows.getMaterializedRows().get(1).getField(0), 234);
         assertEquals(materializedRows.getMaterializedRows().get(1).getField(1), 111L);
 
         assertUpdate("ALTER TABLE test_add_column ADD COLUMN b double");
         assertUpdate("INSERT INTO test_add_column SELECT * FROM test_add_column_ab", 1);
         materializedRows = computeActual("SELECT x, a, b FROM test_add_column ORDER BY x");
-        assertEquals(materializedRows.getMaterializedRows().get(0).getField(0), 123L);
+        assertEquals(materializedRows.getMaterializedRows().get(0).getField(0), 123);
         assertEquals(materializedRows.getMaterializedRows().get(0).getField(1), null);
         assertEquals(materializedRows.getMaterializedRows().get(0).getField(2), null);
-        assertEquals(materializedRows.getMaterializedRows().get(1).getField(0), 234L);
+        assertEquals(materializedRows.getMaterializedRows().get(1).getField(0), 234);
         assertEquals(materializedRows.getMaterializedRows().get(1).getField(1), 111L);
         assertEquals(materializedRows.getMaterializedRows().get(1).getField(2), null);
-        assertEquals(materializedRows.getMaterializedRows().get(2).getField(0), 345L);
+        assertEquals(materializedRows.getMaterializedRows().get(2).getField(0), 345);
         assertEquals(materializedRows.getMaterializedRows().get(2).getField(1), 222L);
         assertEquals(materializedRows.getMaterializedRows().get(2).getField(2), 33.3);
 
@@ -375,7 +375,7 @@ public abstract class AbstractTestDistributedQueries
     public void testInsert()
             throws Exception
     {
-        @Language("SQL") String query = "SELECT orderdate, orderkey FROM orders";
+        @Language("SQL") String query = "SELECT orderdate, orderkey, totalprice FROM orders";
 
         assertUpdate("CREATE TABLE test_insert AS " + query + " WITH NO DATA", 0);
         assertQuery("SELECT count(*) FROM test_insert", "SELECT 0");
@@ -385,24 +385,38 @@ public abstract class AbstractTestDistributedQueries
         assertQuery("SELECT * FROM test_insert", query);
 
         assertUpdate("INSERT INTO test_insert (orderkey) VALUES (-1)", 1);
+        assertUpdate("INSERT INTO test_insert (orderkey) VALUES (null)", 1);
         assertUpdate("INSERT INTO test_insert (orderdate) VALUES (DATE '2001-01-01')", 1);
         assertUpdate("INSERT INTO test_insert (orderkey, orderdate) VALUES (-2, DATE '2001-01-02')", 1);
         assertUpdate("INSERT INTO test_insert (orderdate, orderkey) VALUES (DATE '2001-01-03', -3)", 1);
+        assertUpdate("INSERT INTO test_insert (totalprice) VALUES (1234)", 1);
 
         assertQuery("SELECT * FROM test_insert", query
-                + " UNION ALL SELECT null, -1"
-                + " UNION ALL SELECT DATE '2001-01-01', null"
-                + " UNION ALL SELECT DATE '2001-01-02', -2"
-                + " UNION ALL SELECT DATE '2001-01-03', -3");
+                + " UNION ALL SELECT null, -1, null"
+                + " UNION ALL SELECT null, null, null"
+                + " UNION ALL SELECT DATE '2001-01-01', null, null"
+                + " UNION ALL SELECT DATE '2001-01-02', -2, null"
+                + " UNION ALL SELECT DATE '2001-01-03', -3, null"
+                + " UNION ALL SELECT null, null, 1234");
 
         // UNION query produces columns in the opposite order
         // of how they are declared in the table schema
         assertUpdate(
-                "INSERT INTO test_insert (orderkey, orderdate) " +
-                        "SELECT orderkey, orderdate FROM orders " +
+                "INSERT INTO test_insert (orderkey, orderdate, totalprice) " +
+                        "SELECT orderkey, orderdate, totalprice FROM orders " +
                         "UNION ALL " +
-                        "SELECT orderkey, orderdate FROM orders",
+                        "SELECT orderkey, orderdate, totalprice FROM orders",
                 "SELECT 2 * count(*) FROM orders");
+
+        assertUpdate("DROP TABLE test_insert");
+
+        assertUpdate("CREATE TABLE test_insert (a ARRAY<DOUBLE>, b ARRAY<BIGINT>)");
+
+        assertUpdate("INSERT INTO test_insert (a) VALUES (ARRAY[null])", 1);
+        assertUpdate("INSERT INTO test_insert (a) VALUES (ARRAY[1234])", 1);
+        assertQuery("SELECT a[1] FROM test_insert", "VALUES (null), (1234)");
+
+        assertQueryFails("INSERT INTO test_insert (b) VALUES (ARRAY[1.23E1])", "Insert query has mismatched column types: .*");
 
         assertUpdate("DROP TABLE test_insert");
     }
@@ -579,10 +593,29 @@ public abstract class AbstractTestDistributedQueries
     }
 
     @Test
+    public void testCompatibleTypeChangeForView2()
+            throws Exception
+    {
+        assertUpdate("CREATE TABLE test_table_2 AS SELECT BIGINT '1' v", 1);
+        assertUpdate("CREATE VIEW test_view_2 AS SELECT * FROM test_table_2");
+
+        assertQuery("SELECT * FROM test_view_2", "VALUES 1");
+
+        // replace table with a version that's implicitly coercible to the previous one
+        assertUpdate("DROP TABLE test_table_2");
+        assertUpdate("CREATE TABLE test_table_2 AS SELECT INTEGER '1' v", 1);
+
+        assertQuery("SELECT * FROM test_view_2 WHERE v = 1", "VALUES 1");
+
+        assertUpdate("DROP VIEW test_view_2");
+        assertUpdate("DROP TABLE test_table_2");
+    }
+
+    @Test
     public void testViewMetadata()
             throws Exception
     {
-        @Language("SQL") String query = "SELECT 123 x, 'foo' y";
+        @Language("SQL") String query = "SELECT BIGINT '123' x, 'foo' y";
         assertUpdate("CREATE VIEW meta_test_view AS " + query);
 
         // test INFORMATION_SCHEMA.TABLES

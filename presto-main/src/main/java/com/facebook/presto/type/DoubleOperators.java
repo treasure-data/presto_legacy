@@ -17,6 +17,7 @@ import com.facebook.presto.operator.scalar.MathFunctions;
 import com.facebook.presto.operator.scalar.ScalarOperator;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.type.StandardTypes;
+import com.google.common.primitives.Ints;
 import io.airlift.slice.Slice;
 
 import static com.facebook.presto.metadata.OperatorType.ADD;
@@ -35,6 +36,7 @@ import static com.facebook.presto.metadata.OperatorType.NEGATION;
 import static com.facebook.presto.metadata.OperatorType.NOT_EQUAL;
 import static com.facebook.presto.metadata.OperatorType.SUBTRACT;
 import static com.facebook.presto.spi.StandardErrorCode.DIVISION_BY_ZERO;
+import static com.facebook.presto.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
 import static io.airlift.slice.Slices.utf8Slice;
 import static java.lang.Double.doubleToLongBits;
 import static java.lang.String.valueOf;
@@ -156,6 +158,18 @@ public final class DoubleOperators
     }
 
     @ScalarOperator(CAST)
+    @SqlType(StandardTypes.INTEGER)
+    public static long castToInteger(@SqlType(StandardTypes.DOUBLE) double value)
+    {
+        try {
+            return Ints.checkedCast((long) MathFunctions.round(value));
+        }
+        catch (IllegalArgumentException e) {
+            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, e);
+        }
+    }
+
+    @ScalarOperator(CAST)
     @SqlType(StandardTypes.BIGINT)
     public static long castToLong(@SqlType(StandardTypes.DOUBLE) double value)
     {
@@ -173,7 +187,6 @@ public final class DoubleOperators
     @SqlType(StandardTypes.BIGINT)
     public static long hashCode(@SqlType(StandardTypes.DOUBLE) double value)
     {
-        long bits = doubleToLongBits(value);
-        return (int) (bits ^ (bits >>> 32));
+        return doubleToLongBits(value);
     }
 }
