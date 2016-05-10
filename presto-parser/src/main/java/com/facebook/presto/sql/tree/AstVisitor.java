@@ -117,6 +117,11 @@ public abstract class AstVisitor<R, C>
         return visitStatement(node, context);
     }
 
+    protected R visitShowCreate(ShowCreate node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
     protected R visitShowFunctions(ShowFunctions node, C context)
     {
         return visitStatement(node, context);
@@ -422,7 +427,7 @@ public abstract class AstVisitor<R, C>
         return visitExpression(node, context);
     }
 
-    protected R visitInputReference(InputReference node, C context)
+    protected R visitFieldReference(FieldReference node, C context)
     {
         return visitExpression(node, context);
     }

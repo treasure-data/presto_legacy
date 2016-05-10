@@ -14,25 +14,19 @@
 package com.facebook.presto.tests;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.intellij.lang.annotations.Language;
 import org.testng.annotations.Test;
 
-import java.util.List;
-
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.INFORMATION_SCHEMA;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
-import static com.facebook.presto.sql.SqlFormatter.formatSql;
 import static com.facebook.presto.testing.MaterializedResult.resultBuilder;
 import static com.facebook.presto.tests.QueryAssertions.assertContains;
-import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static java.lang.String.format;
 import static java.util.Collections.nCopies;
@@ -654,7 +648,7 @@ public abstract class AbstractTestDistributedQueries
                 getSession().getSchema().get()));
 
         expected = resultBuilder(getSession(), actual.getTypes())
-                .row("meta_test_view", formatSql(new SqlParser().createStatement(query)))
+                .row("meta_test_view", formatSqlText(query))
                 .build();
 
         assertContains(actual, expected);
@@ -668,6 +662,18 @@ public abstract class AbstractTestDistributedQueries
                 .build();
 
         assertEquals(actual, expected);
+
+        // test SHOW CREATE VIEW
+        String expectedSql = formatSqlText(format(
+                "CREATE VIEW %s.%s.%s AS %s",
+                getSession().getCatalog().get(),
+                getSession().getSchema().get(),
+                "meta_test_view",
+                query)).trim();
+
+        actual = computeActual("SHOW CREATE VIEW meta_test_view");
+
+        assertEquals(getOnlyElement(actual.getOnlyColumnAsSet()), expectedSql);
 
         assertUpdate("DROP VIEW meta_test_view");
     }
@@ -735,15 +741,5 @@ public abstract class AbstractTestDistributedQueries
         assertUpdate("CREATE TABLE test_symbol_aliasing AS SELECT 1 foo_1, 2 foo_2_4", 1);
         assertQuery("SELECT foo_1, foo_2_4 FROM test_symbol_aliasing", "SELECT 1, 2");
         assertUpdate("DROP TABLE test_symbol_aliasing");
-    }
-
-    private void assertTableColumnNames(String tableName, String... columnNames)
-    {
-        MaterializedResult result = computeActual("DESCRIBE " + tableName);
-        List<String> expected = ImmutableList.copyOf(columnNames);
-        List<String> actual = result.getMaterializedRows().stream()
-                .map(row -> (String) row.getField(0))
-                .collect(toImmutableList());
-        assertEquals(actual, expected);
     }
 }

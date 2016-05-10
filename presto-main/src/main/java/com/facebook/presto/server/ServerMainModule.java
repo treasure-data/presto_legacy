@@ -42,6 +42,7 @@ import com.facebook.presto.failureDetector.FailureDetector;
 import com.facebook.presto.failureDetector.FailureDetectorModule;
 import com.facebook.presto.index.IndexManager;
 import com.facebook.presto.memory.ClusterMemoryManager;
+import com.facebook.presto.memory.ClusterMemoryPoolManager;
 import com.facebook.presto.memory.ForMemoryManager;
 import com.facebook.presto.memory.LocalMemoryManager;
 import com.facebook.presto.memory.LocalMemoryManagerExporter;
@@ -80,6 +81,7 @@ import com.facebook.presto.split.PageSourceProvider;
 import com.facebook.presto.sql.Serialization.ExpressionDeserializer;
 import com.facebook.presto.sql.Serialization.ExpressionSerializer;
 import com.facebook.presto.sql.Serialization.FunctionCallDeserializer;
+import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.gen.ExpressionCompiler;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.parser.SqlParserOptions;
@@ -147,9 +149,10 @@ public class ServerMainModule
     protected void setup(Binder binder)
     {
         ServerConfig serverConfig = buildConfigObject(ServerConfig.class);
+        FeaturesConfig featuresConfig = buildConfigObject(FeaturesConfig.class);
 
         // TODO: this should only be installed if this is a coordinator
-        binder.install(new CoordinatorModule());
+        binder.install(new CoordinatorModule(featuresConfig.isResourceGroupsEnabled()));
 
         if (serverConfig.isCoordinator()) {
             discoveryBinder(binder).bindHttpAnnouncement("presto-coordinator");
@@ -179,6 +182,7 @@ public class ServerMainModule
         configBinder(binder).bindConfig(ReservedSystemMemoryConfig.class);
         newExporter(binder).export(ClusterMemoryManager.class).withGeneratedName();
         binder.bind(ClusterMemoryManager.class).in(Scopes.SINGLETON);
+        binder.bind(ClusterMemoryPoolManager.class).to(ClusterMemoryManager.class).in(Scopes.SINGLETON);
         binder.bind(LocalMemoryManager.class).in(Scopes.SINGLETON);
         binder.bind(LocalMemoryManagerExporter.class).in(Scopes.SINGLETON);
         newExporter(binder).export(TaskManager.class).withGeneratedName();

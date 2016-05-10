@@ -31,6 +31,7 @@ public class TestFeaturesConfig
     {
         assertRecordedDefaults(ConfigAssertions.recordDefaults(FeaturesConfig.class)
                 .setExperimentalSyntaxEnabled(false)
+                .setResourceGroupsEnabled(false)
                 .setDistributedIndexJoinsEnabled(false)
                 .setDistributedJoinsEnabled(true)
                 .setRedistributeWrites(true)
@@ -38,7 +39,6 @@ public class TestFeaturesConfig
                 .setOptimizeHashGeneration(true)
                 .setOptimizeSingleDistinct(true)
                 .setPushTableWriteThroughUnion(true)
-                .setIntermediateAggregationsEnabled(false)
                 .setColumnarProcessing(false)
                 .setColumnarProcessingDictionary(false)
                 .setDictionaryAggregation(false)
@@ -50,6 +50,7 @@ public class TestFeaturesConfig
     {
         Map<String, String> propertiesLegacy = new ImmutableMap.Builder<String, String>()
                 .put("analyzer.experimental-syntax-enabled", "true")
+                .put("experimental.resource-groups-enabled", "true")
                 .put("distributed-index-joins-enabled", "true")
                 .put("distributed-joins-enabled", "false")
                 .put("redistribute-writes", "false")
@@ -57,7 +58,6 @@ public class TestFeaturesConfig
                 .put("optimizer.optimize-hash-generation", "false")
                 .put("optimizer.optimize-single-distinct", "false")
                 .put("optimizer.push-table-write-through-union", "false")
-                .put("optimizer.use-intermediate-aggregations", "true")
                 .put("optimizer.columnar-processing", "true")
                 .put("optimizer.columnar-processing-dictionary", "true")
                 .put("optimizer.dictionary-aggregation", "true")
@@ -65,6 +65,7 @@ public class TestFeaturesConfig
                 .build();
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
                 .put("experimental-syntax-enabled", "true")
+                .put("experimental.resource-groups-enabled", "true")
                 .put("distributed-index-joins-enabled", "true")
                 .put("distributed-joins-enabled", "false")
                 .put("redistribute-writes", "false")
@@ -72,7 +73,6 @@ public class TestFeaturesConfig
                 .put("optimizer.optimize-hash-generation", "false")
                 .put("optimizer.optimize-single-distinct", "false")
                 .put("optimizer.push-table-write-through-union", "false")
-                .put("optimizer.use-intermediate-aggregations", "true")
                 .put("optimizer.columnar-processing", "true")
                 .put("optimizer.columnar-processing-dictionary", "true")
                 .put("optimizer.dictionary-aggregation", "true")
@@ -81,6 +81,7 @@ public class TestFeaturesConfig
 
         FeaturesConfig expected = new FeaturesConfig()
                 .setExperimentalSyntaxEnabled(true)
+                .setResourceGroupsEnabled(true)
                 .setDistributedIndexJoinsEnabled(true)
                 .setDistributedJoinsEnabled(false)
                 .setRedistributeWrites(false)
@@ -88,7 +89,6 @@ public class TestFeaturesConfig
                 .setOptimizeHashGeneration(false)
                 .setOptimizeSingleDistinct(false)
                 .setPushTableWriteThroughUnion(false)
-                .setIntermediateAggregationsEnabled(true)
                 .setColumnarProcessing(true)
                 .setColumnarProcessingDictionary(true)
                 .setDictionaryAggregation(true)

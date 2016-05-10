@@ -25,6 +25,10 @@ Array Functions
 
     Remove duplicate values from the array ``x``.
 
+.. function:: flatten(x) -> array
+
+    Flattens an ``array(array(T))`` to an ``array(T)`` by concatenating the contained arrays.
+
 .. function:: array_intersect(x, y) -> array
 
     Returns an array of the elements in the intersection of ``x`` and ``y``, without duplicates.
@@ -75,4 +79,19 @@ Array Functions
 
 .. function:: slice(x, start, length) -> array
 
-    Subsets array ``x`` starting from index ``start`` (or starting from the end if ``start`` is negative) with a length of ``length``.
+    Subsets array ``x`` starting from index ``start`` (or starting from the end if ``start`` is negative) with a length
+    of ``length``.
+
+.. function:: sequence(start bigint, stop bigint) -> array<bigint>
+
+    Generate a sequence of integers from ``start`` to ``stop``, incrementing by 1 if ``start <= stop`` and -1 if
+    ``start > stop``.
+
+.. function:: sequence(start bigint, stop bigint, step bigint) -> array<bigint>
+
+    Generate a sequence of integers from ``start`` to ``stop`` incrementing by ``step``.
+
+.. function:: sequence(start timestamp, stop timestamp, step interval) -> array<timestamp>
+
+    Generate a sequence of timestamps from ``start`` to ``stop`` incrementing by ``step``. The type of the ``step``
+    parameter can be either ``INTERVAL DAY TO SECOND`` or ``INTERVAL YEAR TO MONTH``.

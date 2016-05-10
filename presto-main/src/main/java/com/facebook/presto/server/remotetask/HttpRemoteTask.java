@@ -198,12 +198,13 @@ public final class HttpRemoteTask
             this.stats = stats;
 
             for (Entry<PlanNodeId, Split> entry : requireNonNull(initialSplits, "initialSplits is null").entries()) {
-                ScheduledSplit scheduledSplit = new ScheduledSplit(nextSplitId.getAndIncrement(), entry.getValue());
+                ScheduledSplit scheduledSplit = new ScheduledSplit(nextSplitId.getAndIncrement(), entry.getKey(), entry.getValue());
                 pendingSplits.put(entry.getKey(), scheduledSplit);
             }
-            if (initialSplits.containsKey(planFragment.getPartitionedSource())) {
-                pendingSourceSplitCount = initialSplits.get(planFragment.getPartitionedSource()).size();
-            }
+            pendingSourceSplitCount = planFragment.getPartitionedSources().stream()
+                    .filter(initialSplits::containsKey)
+                    .mapToInt(partitionedSource -> initialSplits.get(partitionedSource).size())
+                    .sum();
 
             List<BufferInfo> bufferStates = outputBuffers.getBuffers()
                     .keySet().stream()
@@ -239,6 +240,9 @@ public final class HttpRemoteTask
                 TaskState state = newStatus.getState();
                 if (state.isDone()) {
                     cleanUpTask();
+                }
+                else {
+                    partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
                 }
             });
 
@@ -306,14 +310,13 @@ public final class HttpRemoteTask
                 Collection<Split> splits = entry.getValue();
 
                 checkState(!noMoreSplits.contains(sourceId), "noMoreSplits has already been set for %s", sourceId);
-                checkState(!noMoreSplits.contains(sourceId), "noMoreSplits has already been set for %s", sourceId);
                 int added = 0;
                 for (Split split : splits) {
-                    if (pendingSplits.put(sourceId, new ScheduledSplit(nextSplitId.getAndIncrement(), split))) {
+                    if (pendingSplits.put(sourceId, new ScheduledSplit(nextSplitId.getAndIncrement(), sourceId, split))) {
                         added++;
                     }
                 }
-                if (sourceId.equals(planFragment.getPartitionedSource())) {
+                if (planFragment.isPartitionedSources(sourceId)) {
                     pendingSourceSplitCount += added;
                     partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
                 }
@@ -401,7 +404,7 @@ public final class HttpRemoteTask
                     removed++;
                 }
             }
-            if (planNodeId.equals(planFragment.getPartitionedSource())) {
+            if (planFragment.isPartitionedSources(planNodeId)) {
                 pendingSourceSplitCount -= removed;
             }
         }
@@ -478,7 +481,7 @@ public final class HttpRemoteTask
 
     private synchronized List<TaskSource> getSources()
     {
-        return Stream.concat(Stream.of(planFragment.getPartitionedSourceNode()), planFragment.getRemoteSourceNodes().stream())
+        return Stream.concat(planFragment.getPartitionedSourceNodes().stream(), planFragment.getRemoteSourceNodes().stream())
                 .filter(Objects::nonNull)
                 .map(PlanNode::getId)
                 .map(this::getSource)
@@ -640,12 +643,18 @@ public final class HttpRemoteTask
         public void success(TaskInfo value)
         {
             try (SetThreadName ignored = new SetThreadName("UpdateResponseHandler-%s", taskId)) {
-                updateStats(currentRequestStartNanos);
                 try {
+                    long currentRequestStartNanos;
                     synchronized (HttpRemoteTask.this) {
+                        // Needed because IntelliJ doesn't understand "this" in the context of inner classes
+                        //noinspection FieldAccessNotGuarded
                         currentRequest = null;
                         sendPlan.set(value.isNeedsPlan());
+                        // Needed because IntelliJ doesn't understand "this" in the context of inner classes
+                        //noinspection FieldAccessNotGuarded
+                        currentRequestStartNanos = HttpRemoteTask.this.currentRequestStartNanos;
                     }
+                    updateStats(currentRequestStartNanos);
                     updateTaskInfo(value, sources);
                     updateErrorTracker.requestSucceeded();
                 }
@@ -659,11 +668,17 @@ public final class HttpRemoteTask
         public void failed(Throwable cause)
         {
             try (SetThreadName ignored = new SetThreadName("UpdateResponseHandler-%s", taskId)) {
-                updateStats(currentRequestStartNanos);
                 try {
+                    long currentRequestStartNanos;
                     synchronized (HttpRemoteTask.this) {
+                        // Needed because IntelliJ doesn't understand "this" in the context of inner classes
+                        //noinspection FieldAccessNotGuarded
                         currentRequest = null;
+                        // Needed because IntelliJ doesn't understand "this" in the context of inner classes
+                        //noinspection FieldAccessNotGuarded
+                        currentRequestStartNanos = HttpRemoteTask.this.currentRequestStartNanos;
                     }
+                    updateStats(currentRequestStartNanos);
 
                     // on failure assume we need to update again
                     needsUpdate.set(true);

@@ -52,8 +52,7 @@ public class TaskManagerConfig
     private Duration infoUpdateInterval = new Duration(200, TimeUnit.MILLISECONDS);
 
     private int writerCount = 1;
-    private int taskDefaultConcurrency = 1;
-    private Integer taskJoinConcurrency;
+    private int taskConcurrency = 1;
     private int httpResponseThreads = 100;
     private int httpTimeoutThreads = 3;
 
@@ -293,33 +292,16 @@ public class TaskManagerConfig
     }
 
     @Min(1)
-    public int getTaskJoinConcurrency()
+    public int getTaskConcurrency()
     {
-        if (taskJoinConcurrency == null) {
-            return taskDefaultConcurrency;
-        }
-        return taskJoinConcurrency;
+        return taskConcurrency;
     }
 
-    @Config("task.join-concurrency")
-    @ConfigDescription("Local concurrency for join operators")
-    public TaskManagerConfig setTaskJoinConcurrency(int taskJoinConcurrency)
+    @Config("task.concurrency")
+    @ConfigDescription("Default number of local parallel jobs per worker")
+    public TaskManagerConfig setTaskConcurrency(int taskConcurrency)
     {
-        this.taskJoinConcurrency = taskJoinConcurrency;
-        return this;
-    }
-
-    @Min(1)
-    public int getTaskDefaultConcurrency()
-    {
-        return taskDefaultConcurrency;
-    }
-
-    @Config("task.default-concurrency")
-    @ConfigDescription("Default local concurrency for parallel operators")
-    public TaskManagerConfig setTaskDefaultConcurrency(int taskDefaultConcurrency)
-    {
-        this.taskDefaultConcurrency = taskDefaultConcurrency;
+        this.taskConcurrency = taskConcurrency;
         return this;
     }
 

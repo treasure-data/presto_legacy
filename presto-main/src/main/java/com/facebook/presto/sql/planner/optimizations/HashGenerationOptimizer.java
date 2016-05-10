@@ -81,7 +81,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 public class HashGenerationOptimizer
-        extends PlanOptimizer
+        implements PlanOptimizer
 {
     public static final int INITIAL_HASH_VALUE = 0;
     private static final String HASH_CODE = FunctionRegistry.mangleOperatorName("HASH_CODE");
@@ -188,7 +188,7 @@ public class HashGenerationOptimizer
             Symbol hashSymbol = child.getRequiredHashSymbol(hashComputation.get());
 
             return new PlanWithProperties(
-                    new DistinctLimitNode(idAllocator.getNextId(), child.getNode(), node.getLimit(), Optional.of(hashSymbol)),
+                    new DistinctLimitNode(idAllocator.getNextId(), child.getNode(), node.getLimit(), node.isPartial(), Optional.of(hashSymbol)),
                     child.getHashSymbols());
         }
 
@@ -497,6 +497,7 @@ public class HashGenerationOptimizer
                     new ExchangeNode(
                             idAllocator.getNextId(),
                             node.getType(),
+                            node.getScope(),
                             partitionFunction,
                             newSources.build(),
                             newInputs.build()),

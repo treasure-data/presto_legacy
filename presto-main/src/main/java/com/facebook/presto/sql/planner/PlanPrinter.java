@@ -39,6 +39,7 @@ import com.facebook.presto.sql.planner.plan.DeleteNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
+import com.facebook.presto.sql.planner.plan.ExchangeNode.Scope;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
@@ -73,6 +74,7 @@ import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.util.GraphvizPrinter;
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -99,6 +101,7 @@ import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.sql.planner.DomainUtils.simplifyDomain;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
+import static com.google.common.base.CaseFormat.UPPER_UNDERSCORE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctDataSize;
@@ -318,7 +321,7 @@ public class PlanPrinter
                 plan,
                 types,
                 SINGLE_DISTRIBUTION,
-                plan.getId(),
+                ImmutableList.of(plan.getId()),
                 new PartitionFunctionBinding(SINGLE_DISTRIBUTION, plan.getOutputSymbols(), ImmutableList.of()));
         return GraphvizPrinter.printLogical(ImmutableList.of(fragment));
     }
@@ -464,7 +467,7 @@ public class PlanPrinter
         @Override
         public Void visitLimit(LimitNode node, Integer indent)
         {
-            print(indent, "- Limit[%s] => [%s]", node.getCount(), formatOutputs(node.getOutputSymbols()));
+            print(indent, "- Limit%s[%s] => [%s]", node.isPartial() ? "Partial" : "", node.getCount(), formatOutputs(node.getOutputSymbols()));
             printStats(indent + 2, node.getId());
             return processChildren(node, indent + 1);
         }
@@ -472,7 +475,7 @@ public class PlanPrinter
         @Override
         public Void visitDistinctLimit(DistinctLimitNode node, Integer indent)
         {
-            print(indent, "- DistinctLimit[%s] => [%s]", node.getLimit(), formatOutputs(node.getOutputSymbols()));
+            print(indent, "- DistinctLimit%s[%s] => [%s]", node.isPartial() ? "Partial" : "", node.getLimit(), formatOutputs(node.getOutputSymbols()));
             printStats(indent + 2, node.getId());
             return processChildren(node, indent + 1);
         }
@@ -794,7 +797,18 @@ public class PlanPrinter
         @Override
         public Void visitExchange(ExchangeNode node, Integer indent)
         {
-            print(indent, "- Exchange[%s] => %s", node.getType(), formatOutputs(node.getOutputSymbols()));
+            if (node.getScope() == Scope.LOCAL) {
+                print(indent, "- LocalExchange[%s] (%s) => %s",
+                        node.getPartitionFunction().getPartitioningHandle(),
+                        Joiner.on(", ").join(node.getPartitionFunction().getPartitionFunctionArguments()),
+                        formatOutputs(node.getOutputSymbols()));
+            }
+            else {
+                print(indent, "- %sExchange[%s] => %s",
+                        UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, node.getScope().toString()),
+                        node.getType(),
+                        formatOutputs(node.getOutputSymbols()));
+            }
             printStats(indent + 2, node.getId());
 
             return processChildren(node, indent + 1);

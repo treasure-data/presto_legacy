@@ -194,6 +194,10 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT a.col1 FROM (VALUES ROW (test_row(1.0, 'kittens'))) AS t (a)", "SELECT 'kittens'");
         assertQuery("SELECT a.col2.col1 FROM (VALUES ROW(test_row(1.0, ARRAY[2], test_row(3, 4.0)))) t(a)", "SELECT 4.0");
 
+        // mixture of row field reference and table field reference
+        assertQuery("SELECT test_row(1, t.x).col1 FROM (VALUES 1, 2, 3) t(x)", "SELECT * FROM (VALUES 1, 2, 3)");
+        assertQuery("SELECT Y.col1 FROM (SELECT test_row(1, t.x) AS Y FROM (VALUES 1, 2, 3) t(x)) test_t", "SELECT * FROM (VALUES 1, 2, 3)");
+
         // Subscript + Dereference
         assertQuery("SELECT a.col1[2] FROM (VALUES ROW(test_row(1.0, ARRAY[22, 33, 44, 55], test_row(3, 4.0)))) t(a)", "SELECT 33");
         assertQuery("SELECT a.col1[2].col0, a.col1[2].col1 FROM (VALUES ROW(test_row(1.0, ARRAY[test_row(31, 4.1), test_row(32, 4.2)], test_row(3, 4.0)))) t(a)", "SELECT 32, 4.2");
@@ -320,6 +324,18 @@ public abstract class AbstractTestQueries
                         "INNER JOIN orders " +
                         "ON t.a.col0 = orders.orderkey",
                 "SELECT * FROM VALUES (11, 370, 1), (22, 781, 2), (33, 1234, 3)");
+    }
+
+    @Test
+    public void testRowCast()
+            throws Exception
+    {
+        assertQuery("SELECT cast(test_row(1, 2) as row(aa bigint, bb boolean)).aa", "SELECT 1");
+        assertQuery("SELECT cast(test_row(1, 2) as row(aa bigint, bb boolean)).bb", "SELECT true");
+        assertQuery("SELECT cast(test_row(1, 2) as row(aa bigint, bb varchar)).bb", "SELECT '2'");
+        assertQuery("SELECT cast(test_row(true, array[0, 2]) as row(aa boolean, bb array(boolean))).bb[1]", "SELECT false");
+        assertQuery("SELECT cast(test_row(0.1, array[0, 2], test_row(1, 0.5)) as row(aa bigint, bb array(boolean), cc row(dd varchar, ee varchar))).cc.ee", "SELECT '0.5'");
+        assertQuery("SELECT cast(array[test_row(0.1, array[0, 2], test_row(1, 0.5))] as array<row(aa bigint, bb array(boolean), cc row(dd varchar, ee varchar))>)[1].cc.ee", "SELECT '0.5'");
     }
 
     @Test
@@ -1392,6 +1408,16 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testGroupingSetPredicatePushdown()
+            throws Exception
+    {
+        assertQuery("SELECT * FROM (" +
+                        "SELECT COALESCE(orderpriority, 'ALL'), COALESCE(shippriority, -1) sp FROM (" +
+                        "SELECT orderpriority, shippriority, COUNT(1) FROM orders GROUP BY GROUPING SETS ((orderpriority), (shippriority)))) WHERE sp=-1",
+                "SELECT orderpriority, -1 FROM orders GROUP BY orderpriority");
+    }
+
+    @Test
     public void testRollup()
             throws Exception
     {
@@ -1434,6 +1460,43 @@ public abstract class AbstractTestQueries
                         "SELECT orderkey, partkey, NULL, linenumber, SUM(CAST(quantity AS BIGINT)) FROM lineitem GROUP BY orderkey, partkey, linenumber UNION ALL " +
                         "SELECT orderkey, partkey, suppkey, NULL, SUM(CAST(quantity AS BIGINT)) FROM lineitem GROUP BY orderkey, partkey, suppkey UNION ALL " +
                         "SELECT orderkey, partkey, NULL, NULL, SUM(CAST(quantity AS BIGINT)) FROM lineitem GROUP BY orderkey, partkey");
+    }
+
+    @Test
+    public void testIntersect()
+            throws Exception
+    {
+        assertQuery("SELECT regionkey FROM nation WHERE nationkey < 7 INTERSECT select regionkey FROM nation WHERE nationkey > 21", "VALUES 1, 3");
+        assertQuery("SELECT regionkey FROM nation WHERE nationkey < 7 INTERSECT DISTINCT SELECT regionkey FROM nation WHERE nationkey > 21", "VALUES 1, 3");
+        assertQuery("WITH wnation AS (SELECT nationkey, regionkey FROM nation) SELECT regionkey FROM wnation WHERE nationkey < 7 INTERSECT SELECT regionkey FROM wnation WHERE nationkey > 21", "VALUES 1, 3");
+        assertQuery("SELECT num FROM (SELECT 1 as num FROM nation WHERE nationkey=10 intersect SELECT 1 FROM nation WHERE nationkey=20) T", "SELECT 1");
+        assertQuery("SELECT nationkey, nationkey / 2 FROM (SELECT nationkey FROM nation WHERE nationkey < 10 INTERSECT SELECT nationkey FROM nation WHERE nationkey > 4)T WHERE nationkey % 2 = 0", "VALUES (6,3), (8,4)");
+        assertQuery("SELECT regionkey FROM (SELECT regionkey FROM nation WHERE nationkey < 7 INTERSECT SELECT regionkey FROM nation WHERE nationkey > 21) UNION SELECT 4", "VALUES 3, 1, 4");
+        assertQuery("SELECT regionkey FROM (SELECT regionkey FROM nation WHERE nationkey < 7 UNION SELECT regionkey FROM nation WHERE nationkey > 21) INTERSECT SELECT 1", "SELECT 1");
+        assertQuery("SELECT regionkey FROM (SELECT regionkey FROM nation WHERE nationkey < 7 INTERSECT SELECT regionkey FROM nation WHERE nationkey > 21) UNION ALL SELECT 3", "VALUES 3, 1, 3");
+        assertQuery("SELECT regionkey FROM (SELECT regionkey FROM nation WHERE nationkey < 7 INTERSECT SELECT regionkey FROM nation WHERE nationkey > 21) UNION ALL SELECT 3", "VALUES 3, 1, 3");
+        assertQuery("SELECT * FROM (VALUES 1, 2) INTERSECT SELECT * FROM (VALUES 1.0, 2)", "VALUES 1.0, 2.0");
+
+        MaterializedResult emptyResult = computeActual("SELECT 100 INTERSECT (SELECT regionkey FROM nation WHERE nationkey <10)");
+        assertEquals(emptyResult.getMaterializedRows().size(), 0);
+    }
+
+    @Test
+    public void testIntersectWithAggregation()
+            throws Exception
+    {
+        assertQuery("SELECT COUNT(*) FROM nation INTERSECT SELECT COUNT(regionkey) FROM nation HAVING SUM(regionkey) IS NOT NULL", "SELECT 25");
+        assertQuery("SELECT SUM(nationkey), COUNT(name) FROM (SELECT nationkey,name FROM nation INTERSECT SELECT regionkey,name FROM nation)n", "VALUES (5, 3)");
+        assertQuery("SELECT COUNT(*) * 2 FROM nation INTERSECT (SELECT SUM(nationkey) FROM nation GROUP BY regionkey ORDER BY 1 LIMIT 2)", "SELECT 50");
+        assertQuery("SELECT COUNT(a) FROM (SELECT nationkey AS a FROM (SELECT nationkey FROM nation INTERSECT SELECT regionkey FROM nation)n1 INTERSECT SELECT regionkey FROM nation) n2", "SELECT 5");
+        assertQuery("SELECT count(*),SUM(2), regionkey FROM (SELECT nationkey, regionkey FROM nation INTERSECT SELECT regionkey, regionkey FROM nation)n GROUP BY regionkey", "VALUES (1, 2, 0), (1, 2, 1), (1, 2, 4)");
+        assertQuery("SELECT count(*) FROM (SELECT nationkey FROM nation INTERSECT SELECT 2)n1 INTERSECT SELECT regionkey FROM nation", "SELECT 1");
+    }
+
+    @Test
+    public void testIntersectAllFails()
+    {
+        assertQueryFails("SELECT * FROM (VALUES 1, 2, 3, 4) INTERSECT ALL SELECT * FROM (VALUES 3, 4)", "line 1:35: INTERSECT ALL not yet implemented");
     }
 
     @Test
@@ -1857,6 +1920,15 @@ public abstract class AbstractTestQueries
                 "SELECT COUNT(*) FROM lineitem JOIN (SELECT orderkey, orderdate shipdate FROM ORDERS) T USING (orderkey, shipdate)",
                 "SELECT COUNT(*) FROM lineitem JOIN orders ON lineitem.orderkey = orders.orderkey AND lineitem.shipdate = orders.orderdate"
         );
+    }
+
+    @Test
+    public void testColocatedJoinWithLocalUnion()
+            throws Exception
+    {
+        assertQuery(
+                "select count(*) from ((select * from orders) union all (select * from orders)) join orders using (orderkey)",
+                "select 2 * count(*) from orders");
     }
 
     @Test
@@ -3174,7 +3246,7 @@ public abstract class AbstractTestQueries
                 ") WHERE rn <= 10000");
         String sql = "SELECT row_number() OVER (), orderkey, orderstatus FROM orders ORDER BY orderkey LIMIT 10000";
         MaterializedResult expected = computeExpected(sql, actual.getTypes());
-        assertEquals(actual, expected);
+        assertEqualsIgnoreOrder(actual, expected);
     }
 
     @Test
@@ -3745,13 +3817,17 @@ public abstract class AbstractTestQueries
                 "SELECT 123, 123 FROM orders LIMIT 1");
     }
 
-    @Test(enabled = false)
+    @Test
     public void testWithColumnAliasing()
             throws Exception
     {
         assertQuery(
-                "WITH a (id) AS (SELECT 123 FROM orders LIMIT 1) SELECT * FROM a",
+                "WITH a (id) AS (SELECT 123 FROM orders LIMIT 1) SELECT id FROM a",
                 "SELECT 123 FROM orders LIMIT 1");
+
+        assertQuery(
+                "WITH t (a, b, c) AS (SELECT 1, custkey x, orderkey FROM orders) SELECT c, b, a FROM t",
+                "SELECT orderkey, custkey, 1 FROM orders");
     }
 
     @Test
@@ -4099,6 +4175,14 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testShowCatalogsLike()
+            throws Exception
+    {
+        MaterializedResult result = computeActual(format("SHOW CATALOGS LIKE '%s'", getSession().getCatalog().get()));
+        assertEquals(result.getOnlyColumnAsSet(), ImmutableSet.of(getSession().getCatalog().get()));
+    }
+
+    @Test
     public void testShowSchemas()
             throws Exception
     {
@@ -4115,6 +4199,13 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testShowSchemasLike()
+            throws Exception
+    {
+        MaterializedResult result = computeActual(format("SHOW SCHEMAS LIKE '%s'", getSession().getSchema().get()));
+        assertEquals(result.getOnlyColumnAsSet(), ImmutableSet.of(getSession().getSchema().get()));
+    }
+
     public void testShowTables()
             throws Exception
     {
@@ -4165,7 +4256,7 @@ public abstract class AbstractTestQueries
     {
         MaterializedResult actual = computeActual("SHOW COLUMNS FROM orders");
 
-        MaterializedResult expected = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR)
+        MaterializedResult expectedUnparametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR)
                 .row("orderkey", "bigint", "")
                 .row("custkey", "bigint", "")
                 .row("orderstatus", "varchar", "")
@@ -4177,7 +4268,21 @@ public abstract class AbstractTestQueries
                 .row("comment", "varchar", "")
                 .build();
 
-        assertEquals(actual, expected);
+        MaterializedResult expectedParametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR)
+                .row("orderkey", "bigint", "")
+                .row("custkey", "bigint", "")
+                .row("orderstatus", "varchar(1)", "")
+                .row("totalprice", "double",  "")
+                .row("orderdate", "date", "")
+                .row("orderpriority", "varchar(5)", "")
+                .row("clerk", "varchar(25)", "")
+                .row("shippriority", "integer", "")
+                .row("comment", "varchar(115)", "")
+                .build();
+
+        // Until we migrate all connectors to parametrized varchar we check two options
+        assertTrue(actual.equals(expectedParametrizedVarchar) || actual.equals(expectedUnparametrizedVarchar),
+                format("%s does not matche neither of %s and %s", actual, expectedParametrizedVarchar, expectedUnparametrizedVarchar));
     }
 
     @Test
@@ -4313,7 +4418,8 @@ public abstract class AbstractTestQueries
                 "SELECT SUM(CASE WHEN CAST(round(totalprice/100) AS BIGINT) BETWEEN 2 AND 36 THEN 1 ELSE 0 END) FROM orders");
     }
 
-    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "\\Q/ by zero\\E.*")
+    // no regexp specified because the JVM optimizes away exception message constructor if run enough times
+    @Test(expectedExceptions = RuntimeException.class)
     public void testTryNoMergeProjections()
         throws Exception
     {
@@ -5027,6 +5133,50 @@ public abstract class AbstractTestQueries
                 "FROM lineitem " +
                 "GROUP BY linenumber, (SELECT count(orderkey) FROM orders WHERE orderkey < 7)" +
                 "HAVING min(orderkey) < (SELECT sum(orderkey) FROM orders WHERE orderkey < 7)");
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueries()
+            throws Exception
+    {
+        String errorMsg = "line .*: Correlated queries not yet supported. Invalid column reference: .*";
+
+        assertQueryFails("SELECT (SELECT l.orderkey) FROM lineitem l", errorMsg);
+        assertQueryFails("SELECT * FROM lineitem l WHERE 1 = (SELECT l.orderkey)", errorMsg);
+        assertQueryFails("SELECT * FROM lineitem l ORDER BY (SELECT l.orderkey)", errorMsg);
+
+        // group by
+        assertQueryFails("SELECT max(l.quantity), l.orderkey, (SELECT l.orderkey) FROM lineitem l GROUP BY l.orderkey", errorMsg);
+        assertQueryFails("SELECT max(l.quantity), l.orderkey FROM lineitem l GROUP BY l.orderkey HAVING max(l.quantity) < (SELECT l.orderkey)", errorMsg);
+        assertQueryFails("SELECT max(l.quantity), l.orderkey FROM lineitem l GROUP BY l.orderkey, (SELECT l.orderkey)", errorMsg);
+
+        // join
+        assertQueryFails("SELECT * FROM lineitem l1 JOIN lineitem l2 ON l1.orderkey= (SELECT l2.orderkey)", errorMsg);
+        assertQueryFails("SELECT * FROM lineitem l1 WHERE 1 = (SELECT count(*) FROM lineitem l2 CROSS JOIN (SELECT l1.orderkey) l3)", errorMsg);
+
+        // subrelation
+        assertQueryFails("SELECT * FROM lineitem l WHERE l.orderkey= (SELECT * FROM (SELECT l.orderkey))", errorMsg);
+    }
+
+    @Test
+    public void testCorrelatedInPredicateSubqueries()
+    {
+        String errorMsg = "line .*: Correlated queries not yet supported. Invalid column reference: .*";
+
+        assertQueryFails("SELECT 1 IN (SELECT l.orderkey) FROM lineitem l", errorMsg);
+        assertQueryFails("SELECT * FROM lineitem l WHERE 1 IN (SELECT l.orderkey)", errorMsg);
+        assertQueryFails("SELECT * FROM lineitem l ORDER BY 1 IN (SELECT l.orderkey)", errorMsg);
+
+        // group by
+        assertQueryFails("SELECT max(l.quantity), l.orderkey, 1 IN (SELECT l.orderkey) FROM lineitem l GROUP BY l.orderkey", errorMsg);
+        assertQueryFails("SELECT max(l.quantity), l.orderkey FROM lineitem l GROUP BY l.orderkey HAVING max(l.quantity) IN (SELECT l.orderkey)", errorMsg);
+        assertQueryFails("SELECT max(l.quantity), l.orderkey FROM lineitem l GROUP BY l.orderkey, 1 IN (SELECT l.orderkey)", errorMsg);
+
+        // join
+        assertQueryFails("SELECT * FROM lineitem l1 JOIN lineitem l2 ON l1.orderkey IN (SELECT l2.orderkey)", errorMsg);
+
+        // subrelation
+        assertQueryFails("SELECT * FROM lineitem l WHERE l.orderkey = (SELECT * FROM (SELECT 1 IN (SELECT l.orderkey)))", errorMsg);
     }
 
     @Test

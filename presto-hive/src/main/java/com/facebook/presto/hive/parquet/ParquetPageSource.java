@@ -33,9 +33,7 @@ import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
-import io.airlift.slice.Slices;
 import io.airlift.units.DataSize;
-import org.apache.hadoop.fs.Path;
 import org.joda.time.DateTimeZone;
 import parquet.column.ColumnDescriptor;
 import parquet.schema.MessageType;
@@ -54,6 +52,7 @@ import static com.facebook.presto.hive.HiveUtil.integerPartitionKey;
 import static com.facebook.presto.hive.HiveUtil.longDecimalPartitionKey;
 import static com.facebook.presto.hive.HiveUtil.shortDecimalPartitionKey;
 import static com.facebook.presto.hive.HiveUtil.timestampPartitionKey;
+import static com.facebook.presto.hive.HiveUtil.varcharPartitionKey;
 import static com.facebook.presto.hive.parquet.ParquetTypeUtils.getParquetType;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
@@ -64,12 +63,10 @@ import static com.facebook.presto.spi.type.Decimals.isShortDecimal;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
-import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.spi.type.Varchars.isVarcharType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Maps.uniqueIndex;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -81,6 +78,7 @@ class ParquetPageSource
     private static final long GUESSED_MEMORY_USAGE = new DataSize(16, DataSize.Unit.MEGABYTE).toBytes();
 
     private final ParquetReader parquetReader;
+    private final ParquetDataSource dataSource;
     private final MessageType requestedSchema;
     // for debugging heap dump
     private final List<String> columnNames;
@@ -90,16 +88,15 @@ class ParquetPageSource
     private final int[] hiveColumnIndexes;
 
     private final long totalBytes;
-    private long completedBytes;
     private int batchId;
     private boolean closed;
     private long readTimeNanos;
 
     public ParquetPageSource(
             ParquetReader parquetReader,
+            ParquetDataSource dataSource,
             MessageType fileSchema,
             MessageType requestedSchema,
-            Path path,
             long totalBytes,
             Properties splitSchema,
             List<HiveColumnHandle> columns,
@@ -109,7 +106,6 @@ class ParquetPageSource
             TypeManager typeManager,
             boolean useParquetColumnNames)
     {
-        requireNonNull(path, "path is null");
         checkArgument(totalBytes >= 0, "totalBytes is negative");
         requireNonNull(splitSchema, "splitSchema is null");
         requireNonNull(columns, "columns is null");
@@ -117,6 +113,7 @@ class ParquetPageSource
         requireNonNull(effectivePredicate, "effectivePredicate is null");
 
         this.parquetReader = parquetReader;
+        this.dataSource = dataSource;
         this.requestedSchema = requestedSchema;
         this.totalBytes = totalBytes;
 
@@ -183,10 +180,10 @@ class ParquetPageSource
                         DOUBLE.writeDouble(blockBuilder, value);
                     }
                 }
-                else if (type.equals(VARCHAR)) {
-                    Slice value = Slices.wrappedBuffer(bytes);
+                else if (isVarcharType(type)) {
+                    Slice value = varcharPartitionKey(partitionKey.getValue(), name, type);
                     for (int i = 0; i < MAX_VECTOR_LENGTH; i++) {
-                        VARCHAR.writeSlice(blockBuilder, value);
+                        type.writeSlice(blockBuilder, value);
                     }
                 }
                 else if (type.equals(TIMESTAMP)) {
@@ -240,7 +237,7 @@ class ParquetPageSource
     @Override
     public long getCompletedBytes()
     {
-        return completedBytes;
+        return dataSource.getReadBytes();
     }
 
     @Override
@@ -289,11 +286,7 @@ class ParquetPageSource
                     blocks[fieldId] = new LazyBlock(batchSize, new ParquetBlockLoader(columnDescriptor, type));
                 }
             }
-            Page page = new Page(batchSize, blocks);
-
-            long newCompletedBytes = (long) (totalBytes * parquetReader.getProgress());
-            completedBytes = min(totalBytes, max(completedBytes, newCompletedBytes));
-            return page;
+            return new Page(batchSize, blocks);
         }
         catch (PrestoException e) {
             closeWithSuppression(e);

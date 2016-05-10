@@ -664,6 +664,9 @@ public class TestAnalyzer
         assertFails(TYPE_MISMATCH, "SELECT CAST(date '2014-01-01' AS bigint)");
         assertFails(TYPE_MISMATCH, "SELECT TRY_CAST(date '2014-01-01' AS bigint)");
         assertFails(TYPE_MISMATCH, "SELECT CAST(null AS UNKNOWN)");
+        assertFails(TYPE_MISMATCH, "SELECT CAST(1 AS MAP)");
+        assertFails(TYPE_MISMATCH, "SELECT CAST(1 AS ARRAY)");
+        assertFails(TYPE_MISMATCH, "SELECT CAST(1 AS ROW)");
 
         // arithmetic unary
         assertFails(TYPE_MISMATCH, "SELECT -'a' FROM t1");
@@ -844,6 +847,16 @@ public class TestAnalyzer
         assertFails(COLUMN_NAME_NOT_SPECIFIED, "CREATE VIEW test AS SELECT 123");
         assertFails(DUPLICATE_COLUMN_NAME, "CREATE VIEW test AS SELECT 1 a, 2 a");
         assertFails(COLUMN_TYPE_UNKNOWN, "CREATE VIEW test AS SELECT null a");
+    }
+
+    @Test
+    public void testShowCreateView()
+    {
+        analyze("SHOW CREATE VIEW v1");
+        analyze("SHOW CREATE VIEW v2");
+
+        assertFails(NOT_SUPPORTED, "SHOW CREATE VIEW t1");
+        assertFails(MISSING_TABLE, "SHOW CREATE VIEW none");
     }
 
     @Test
