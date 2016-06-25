@@ -26,13 +26,16 @@ import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.DoubleType;
 import com.facebook.presto.spi.type.IntegerType;
+import com.facebook.presto.spi.type.SmallintType;
 import com.facebook.presto.spi.type.TimestampType;
+import com.facebook.presto.spi.type.TinyintType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.VarbinaryType;
 import com.facebook.presto.spi.type.VarcharType;
-import com.google.common.base.StandardSystemProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
+import com.google.common.primitives.Shorts;
+import com.google.common.primitives.SignedBytes;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hive.common.type.HiveDecimal;
@@ -49,6 +52,7 @@ import org.apache.hadoop.hive.ql.io.HiveOutputFormat;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
 import org.apache.hadoop.hive.serde2.io.DoubleWritable;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
+import org.apache.hadoop.hive.serde2.io.ShortWritable;
 import org.apache.hadoop.hive.serde2.io.TimestampWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
@@ -62,6 +66,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.StructTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.io.BooleanWritable;
+import org.apache.hadoop.io.ByteWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
@@ -105,17 +110,21 @@ import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveO
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.getPrimitiveWritableObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaBooleanObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaByteArrayObjectInspector;
+import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaByteObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaDateObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaDoubleObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaIntObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaLongObjectInspector;
+import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaShortObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaTimestampObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableBinaryObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableBooleanObjectInspector;
+import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableByteObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableDateObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableDoubleObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableIntObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableLongObjectInspector;
+import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableShortObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableStringObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.writableTimestampObjectInspector;
 import static org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory.getVarcharTypeInfo;
@@ -151,6 +160,12 @@ public final class HiveWriteUtils
         }
         else if (type.equals(IntegerType.INTEGER)) {
             return javaIntObjectInspector;
+        }
+        else if (type.equals(SmallintType.SMALLINT)) {
+            return javaShortObjectInspector;
+        }
+        else if (type.equals(TinyintType.TINYINT)) {
+            return javaByteObjectInspector;
         }
         else if (type.equals(DoubleType.DOUBLE)) {
             return javaDoubleObjectInspector;
@@ -204,6 +219,12 @@ public final class HiveWriteUtils
         }
         if (IntegerType.INTEGER.equals(type)) {
             return (int) type.getLong(block, position);
+        }
+        if (SmallintType.SMALLINT.equals(type)) {
+            return (short) type.getLong(block, position);
+        }
+        if (TinyintType.TINYINT.equals(type)) {
+            return (byte) type.getLong(block, position);
         }
         if (DoubleType.DOUBLE.equals(type)) {
             return type.getDouble(block, position);
@@ -341,7 +362,7 @@ public final class HiveWriteUtils
         }
     }
 
-    public static Path getTableDefaultLocation(HiveMetastore metastore, HdfsEnvironment hdfsEnvironment, String schemaName, String tableName)
+    public static Path getTableDefaultLocation(String user, HiveMetastore metastore, HdfsEnvironment hdfsEnvironment, String schemaName, String tableName)
     {
         String location = getDatabase(metastore, schemaName).getLocationUri();
         if (isNullOrEmpty(location)) {
@@ -349,11 +370,13 @@ public final class HiveWriteUtils
         }
 
         Path databasePath = new Path(location);
-        if (!pathExists(hdfsEnvironment, databasePath)) {
-            throw new PrestoException(HIVE_DATABASE_LOCATION_ERROR, format("Database '%s' location does not exist: %s", schemaName, databasePath));
-        }
-        if (!isDirectory(hdfsEnvironment, databasePath)) {
-            throw new PrestoException(HIVE_DATABASE_LOCATION_ERROR, format("Database '%s' location is not a directory: %s", schemaName, databasePath));
+        if (!isS3FileSystem(user, hdfsEnvironment, databasePath)) {
+            if (!pathExists(user, hdfsEnvironment, databasePath)) {
+                throw new PrestoException(HIVE_DATABASE_LOCATION_ERROR, format("Database '%s' location does not exist: %s", schemaName, databasePath));
+            }
+            if (!isDirectory(user, hdfsEnvironment, databasePath)) {
+                throw new PrestoException(HIVE_DATABASE_LOCATION_ERROR, format("Database '%s' location is not a directory: %s", schemaName, databasePath));
+            }
         }
 
         return new Path(databasePath, tableName);
@@ -364,39 +387,49 @@ public final class HiveWriteUtils
         return metastore.getDatabase(database).orElseThrow(() -> new SchemaNotFoundException(database));
     }
 
-    public static boolean pathExists(HdfsEnvironment hdfsEnvironment, Path path)
+    public static boolean pathExists(String user, HdfsEnvironment hdfsEnvironment, Path path)
     {
         try {
-            return hdfsEnvironment.getFileSystem(path).exists(path);
+            return hdfsEnvironment.getFileSystem(user, path).exists(path);
         }
         catch (IOException e) {
             throw new PrestoException(HIVE_FILESYSTEM_ERROR, "Failed checking path: " + path, e);
         }
     }
 
-    private static boolean isDirectory(HdfsEnvironment hdfsEnvironment, Path path)
+    public static boolean isS3FileSystem(String user, HdfsEnvironment hdfsEnvironment, Path path)
     {
         try {
-            return hdfsEnvironment.getFileSystem(path).isDirectory(path);
+            return hdfsEnvironment.getFileSystem(user, path) instanceof PrestoS3FileSystem;
         }
         catch (IOException e) {
             throw new PrestoException(HIVE_FILESYSTEM_ERROR, "Failed checking path: " + path, e);
         }
     }
 
-    public static void renameDirectory(HdfsEnvironment hdfsEnvironment, String schemaName, String tableName, Path source, Path target)
+    private static boolean isDirectory(String user, HdfsEnvironment hdfsEnvironment, Path path)
     {
-        if (pathExists(hdfsEnvironment, target)) {
+        try {
+            return hdfsEnvironment.getFileSystem(user, path).isDirectory(path);
+        }
+        catch (IOException e) {
+            throw new PrestoException(HIVE_FILESYSTEM_ERROR, "Failed checking path: " + path, e);
+        }
+    }
+
+    public static void renameDirectory(String user, HdfsEnvironment hdfsEnvironment, String schemaName, String tableName, Path source, Path target)
+    {
+        if (pathExists(user, hdfsEnvironment, target)) {
             throw new PrestoException(HIVE_PATH_ALREADY_EXISTS,
                     format("Unable to commit creation of table '%s.%s': target directory already exists: %s", schemaName, tableName, target));
         }
 
-        if (!pathExists(hdfsEnvironment, target.getParent())) {
-            createDirectory(hdfsEnvironment, target.getParent());
+        if (!pathExists(user, hdfsEnvironment, target.getParent())) {
+            createDirectory(user, hdfsEnvironment, target.getParent());
         }
 
         try {
-            if (!hdfsEnvironment.getFileSystem(source).rename(source, target)) {
+            if (!hdfsEnvironment.getFileSystem(user, source).rename(source, target)) {
                 throw new PrestoException(HIVE_FILESYSTEM_ERROR, format("Failed to rename %s to %s: rename returned false", source, target));
             }
         }
@@ -405,25 +438,24 @@ public final class HiveWriteUtils
         }
     }
 
-    public static Path createTemporaryPath(HdfsEnvironment hdfsEnvironment, Path targetPath)
+    public static Path createTemporaryPath(String user, HdfsEnvironment hdfsEnvironment, Path targetPath)
     {
         // use a per-user temporary directory to avoid permission problems
-        // TODO: this should use Hadoop UserGroupInformation
-        String temporaryPrefix = "/tmp/presto-" + StandardSystemProperty.USER_NAME.value();
+        String temporaryPrefix = "/tmp/presto-" + user;
 
         // create a temporary directory on the same filesystem
         Path temporaryRoot = new Path(targetPath, temporaryPrefix);
         Path temporaryPath = new Path(temporaryRoot, randomUUID().toString());
 
-        createDirectory(hdfsEnvironment, temporaryPath);
+        createDirectory(user, hdfsEnvironment, temporaryPath);
 
         return temporaryPath;
     }
 
-    public static void createDirectory(HdfsEnvironment hdfsEnvironment, Path path)
+    public static void createDirectory(String user, HdfsEnvironment hdfsEnvironment, Path path)
     {
         try {
-            if (!hdfsEnvironment.getFileSystem(path).mkdirs(path, ALL_PERMISSIONS)) {
+            if (!hdfsEnvironment.getFileSystem(user, path).mkdirs(path, ALL_PERMISSIONS)) {
                 throw new IOException("mkdirs returned false");
             }
         }
@@ -433,7 +465,7 @@ public final class HiveWriteUtils
 
         // explicitly set permission since the default umask overrides it on creation
         try {
-            hdfsEnvironment.getFileSystem(path).setPermission(path, ALL_PERMISSIONS);
+            hdfsEnvironment.getFileSystem(user, path).setPermission(path, ALL_PERMISSIONS);
         }
         catch (IOException e) {
             throw new PrestoException(HIVE_FILESYSTEM_ERROR, "Failed to set permission on directory: " + path, e);
@@ -470,6 +502,8 @@ public final class HiveWriteUtils
             case BOOLEAN:
             case LONG:
             case INT:
+            case SHORT:
+            case BYTE:
             case DOUBLE:
             case STRING:
             case DATE:
@@ -501,6 +535,14 @@ public final class HiveWriteUtils
 
         if (type.equals(IntegerType.INTEGER)) {
             return writableIntObjectInspector;
+        }
+
+        if (type.equals(SmallintType.SMALLINT)) {
+            return writableShortObjectInspector;
+        }
+
+        if (type.equals(TinyintType.TINYINT)) {
+            return writableByteObjectInspector;
         }
 
         if (type.equals(DoubleType.DOUBLE)) {
@@ -557,6 +599,14 @@ public final class HiveWriteUtils
 
         if (type.equals(IntegerType.INTEGER)) {
             return new IntFieldSetter(rowInspector, row, field);
+        }
+
+        if (type.equals(SmallintType.SMALLINT)) {
+            return new SmallintFieldSetter(rowInspector, row, field);
+        }
+
+        if (type.equals(TinyintType.TINYINT)) {
+            return new TinyintFieldSetter(rowInspector, row, field);
         }
 
         if (type.equals(DoubleType.DOUBLE)) {
@@ -665,6 +715,42 @@ public final class HiveWriteUtils
         public void setField(Block block, int position)
         {
             value.set(Ints.checkedCast(IntegerType.INTEGER.getLong(block, position)));
+            rowInspector.setStructFieldData(row, field, value);
+        }
+    }
+
+    private static class SmallintFieldSetter
+            extends FieldSetter
+    {
+        private final ShortWritable value = new ShortWritable();
+
+        public SmallintFieldSetter(SettableStructObjectInspector rowInspector, Object row, StructField field)
+        {
+            super(rowInspector, row, field);
+        }
+
+        @Override
+        public void setField(Block block, int position)
+        {
+            value.set(Shorts.checkedCast(SmallintType.SMALLINT.getLong(block, position)));
+            rowInspector.setStructFieldData(row, field, value);
+        }
+    }
+
+    private static class TinyintFieldSetter
+            extends FieldSetter
+    {
+        private final ByteWritable value = new ByteWritable();
+
+        public TinyintFieldSetter(SettableStructObjectInspector rowInspector, Object row, StructField field)
+        {
+            super(rowInspector, row, field);
+        }
+
+        @Override
+        public void setField(Block block, int position)
+        {
+            value.set(SignedBytes.checkedCast(TinyintType.TINYINT.getLong(block, position)));
             rowInspector.setStructFieldData(row, field, value);
         }
     }

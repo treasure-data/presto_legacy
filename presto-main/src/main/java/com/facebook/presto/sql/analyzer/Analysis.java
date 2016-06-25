@@ -34,7 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 
 import javax.annotation.concurrent.Immutable;
@@ -42,11 +41,11 @@ import javax.annotation.concurrent.Immutable;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.Sets.newIdentityHashSet;
 import static java.util.Objects.requireNonNull;
 
 public class Analysis
@@ -71,12 +70,12 @@ public class Analysis
     private final IdentityHashMap<Join, Expression> joins = new IdentityHashMap<>();
     private final ListMultimap<Node, InPredicate> inPredicatesSubqueries = ArrayListMultimap.create();
     private final ListMultimap<Node, SubqueryExpression> scalarSubqueries = ArrayListMultimap.create();
-    private final IdentityHashMap<Join, JoinInPredicates> joinInPredicates = new IdentityHashMap<>();
 
     private final IdentityHashMap<Table, TableHandle> tables = new IdentityHashMap<>();
 
     private final IdentityHashMap<Expression, Type> types = new IdentityHashMap<>();
     private final IdentityHashMap<Expression, Type> coercions = new IdentityHashMap<>();
+    private final Set<Expression> typeOnlyCoercions = newIdentityHashSet();
     private final IdentityHashMap<Relation, Type[]> relationCoercions = new IdentityHashMap<>();
     private final IdentityHashMap<FunctionCall, Signature> functionSignature = new IdentityHashMap<>();
 
@@ -197,6 +196,11 @@ public class Analysis
         groupByExpressions.put(node, expressions);
     }
 
+    public boolean isTypeOnlyCoercion(Expression expression)
+    {
+        return typeOnlyCoercions.contains(expression);
+    }
+
     public List<List<Expression>> getGroupingSets(QuerySpecification node)
     {
         return groupByExpressions.get(node);
@@ -269,16 +273,6 @@ public class Analysis
         return ImmutableList.of();
     }
 
-    public void addJoinInPredicates(Join node, JoinInPredicates joinInPredicates)
-    {
-        this.joinInPredicates.put(node, joinInPredicates);
-    }
-
-    public JoinInPredicates getJoinInPredicates(Join node)
-    {
-        return joinInPredicates.get(node);
-    }
-
     public void setWindowFunctions(QuerySpecification node, List<FunctionCall> functions)
     {
         windowFunctions.put(node, functions);
@@ -345,14 +339,18 @@ public class Analysis
         this.types.putAll(types);
     }
 
-    public void addCoercion(Expression expression, Type type)
+    public void addCoercion(Expression expression, Type type, boolean isTypeOnlyCoercion)
     {
         this.coercions.put(expression, type);
+        if (isTypeOnlyCoercion) {
+            this.typeOnlyCoercions.add(expression);
+        }
     }
 
-    public void addCoercions(IdentityHashMap<Expression, Type> coercions)
+    public void addCoercions(IdentityHashMap<Expression, Type> coercions, Set<Expression> typeOnlyCoercions)
     {
         this.coercions.putAll(coercions);
+        this.typeOnlyCoercions.addAll(typeOnlyCoercions);
     }
 
     public Expression getHaving(QuerySpecification query)
@@ -422,48 +420,6 @@ public class Analysis
     {
         Preconditions.checkState(sampleRatios.containsKey(relation), "Sample ratio missing for %s. Broken analysis?", relation);
         return sampleRatios.get(relation);
-    }
-
-    public static class JoinInPredicates
-    {
-        private final Set<InPredicate> leftInPredicates;
-        private final Set<InPredicate> rightInPredicates;
-
-        public JoinInPredicates(Set<InPredicate> leftInPredicates, Set<InPredicate> rightInPredicates)
-        {
-            this.leftInPredicates = ImmutableSet.copyOf(requireNonNull(leftInPredicates, "leftInPredicates is null"));
-            this.rightInPredicates = ImmutableSet.copyOf(requireNonNull(rightInPredicates, "rightInPredicates is null"));
-        }
-
-        public Set<InPredicate> getLeftInPredicates()
-        {
-            return leftInPredicates;
-        }
-
-        public Set<InPredicate> getRightInPredicates()
-        {
-            return rightInPredicates;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hash(leftInPredicates, rightInPredicates);
-        }
-
-        @Override
-        public boolean equals(Object obj)
-        {
-            if (this == obj) {
-                return true;
-            }
-            if (obj == null || getClass() != obj.getClass()) {
-                return false;
-            }
-            final JoinInPredicates other = (JoinInPredicates) obj;
-            return Objects.equals(this.leftInPredicates, other.leftInPredicates) &&
-                    Objects.equals(this.rightInPredicates, other.rightInPredicates);
-        }
     }
 
     @Immutable

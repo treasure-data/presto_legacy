@@ -82,6 +82,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static com.facebook.presto.hive.HiveTestUtils.HDFS_ENVIRONMENT;
 import static com.facebook.presto.hive.HiveTestUtils.SESSION;
 import static com.facebook.presto.operator.ProjectionFunctions.singleColumn;
 import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
@@ -307,7 +308,7 @@ public class TestOrcPageSourceMemoryTracking
         // Page source is over, but data still exist in buffer of ScanFilterProjectOperator
         assertFalse(operator.isFinished());
         assertNull(operator.getOutput());
-        assertBetweenInclusive(driverContext.getSystemMemoryUsage(), 110000L, 119999L);
+        assertBetweenInclusive(driverContext.getSystemMemoryUsage(), 100000L, 109999L);
         assertFalse(operator.isFinished());
         Page lastPage = operator.getOutput();
         assertNotNull(lastPage);
@@ -377,7 +378,7 @@ public class TestOrcPageSourceMemoryTracking
 
         public ConnectorPageSource newPageSource()
         {
-            OrcPageSourceFactory orcPageSourceFactory = new OrcPageSourceFactory(TYPE_MANAGER, false);
+            OrcPageSourceFactory orcPageSourceFactory = new OrcPageSourceFactory(TYPE_MANAGER, false, HDFS_ENVIRONMENT);
             return orcPageSourceFactory.createPageSource(
                     new Configuration(),
                     SESSION,

@@ -16,7 +16,6 @@ package com.facebook.presto.execution.resourceGroups;
 import com.facebook.presto.Session;
 import com.facebook.presto.execution.QueryExecution;
 import com.facebook.presto.execution.QueryQueueManager;
-import com.facebook.presto.execution.SqlQueryManagerStats;
 import com.facebook.presto.execution.resourceGroups.ResourceGroup.RootResourceGroup;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.sql.tree.Statement;
@@ -37,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,14 +43,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static com.facebook.presto.spi.StandardErrorCode.QUERY_REJECTED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 
 @ThreadSafe
 public class ResourceGroupManager
         implements QueryQueueManager
 {
     private static final Logger log = Logger.get(ResourceGroupManager.class);
-    private final ScheduledExecutorService refreshExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService refreshExecutor = newSingleThreadScheduledExecutor(daemonThreadsNamed("ResourceGroupManager"));
     private final List<RootResourceGroup> rootGroups = new CopyOnWriteArrayList<>();
     private final ConcurrentMap<ResourceGroupId, ResourceGroup> groups = new ConcurrentHashMap<>();
     private final List<ResourceGroupSelector> selectors;
@@ -75,11 +75,18 @@ public class ResourceGroupManager
     }
 
     @Override
-    public boolean submit(Statement statement, QueryExecution queryExecution, Executor executor, SqlQueryManagerStats stats)
+    public void submit(Statement statement, QueryExecution queryExecution, Executor executor)
     {
-        ResourceGroupId group = selectGroup(statement, queryExecution.getSession());
+        ResourceGroupId group;
+        try {
+            group = selectGroup(statement, queryExecution.getSession());
+        }
+        catch (PrestoException e) {
+            queryExecution.fail(e);
+            return;
+        }
         createGroupIfNecessary(group, queryExecution.getSession(), executor);
-        return groups.get(group).add(queryExecution);
+        groups.get(group).run(queryExecution);
     }
 
     @PreDestroy

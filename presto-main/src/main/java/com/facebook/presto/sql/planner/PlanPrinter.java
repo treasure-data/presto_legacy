@@ -45,6 +45,7 @@ import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.IndexSourceNode;
+import com.facebook.presto.sql.planner.plan.IntersectNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
 import com.facebook.presto.sql.planner.plan.LimitNode;
 import com.facebook.presto.sql.planner.plan.MarkDistinctNode;
@@ -72,7 +73,7 @@ import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.ComparisonExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
-import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.util.GraphvizPrinter;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Functions;
@@ -173,7 +174,7 @@ public class PlanPrinter
     {
         StringBuilder builder = new StringBuilder();
         List<StageInfo> allStages = stages.stream()
-                .flatMap(stage -> getAllStages(stage).stream())
+                .flatMap(stage -> getAllStages(Optional.of(stage)).stream())
                 .collect(toImmutableList());
         for (StageInfo stageInfo : allStages) {
             Map<PlanNodeId, PlanNodeStats> aggregatedStats = new HashMap<>();
@@ -274,31 +275,31 @@ public class PlanPrinter
                             stageStats.get().getOutputDataSize()));
         }
 
-        PartitionFunctionBinding partitionFunction = fragment.getPartitionFunction();
+        PartitioningScheme partitioningScheme = fragment.getPartitioningScheme();
         builder.append(indentString(1))
                 .append(format("Output layout: [%s]\n",
-                        Joiner.on(", ").join(partitionFunction.getOutputLayout())));
+                        Joiner.on(", ").join(partitioningScheme.getOutputLayout())));
 
-        boolean replicateNulls = partitionFunction.isReplicateNulls();
-        List<String> arguments = partitionFunction.getPartitionFunctionArguments().stream()
+        boolean replicateNulls = partitioningScheme.isReplicateNulls();
+        List<String> arguments = partitioningScheme.getPartitioning().getArguments().stream()
                 .map(argument -> {
-                        if (argument.isConstant()) {
-                            NullableValue constant = argument.getConstant();
-                            String printableValue = castToVarchar(constant.getType(), constant.getValue(), metadata, session);
-                            return constant.getType().getDisplayName() + "(" + printableValue + ")";
-                        }
-                        return argument.getColumn().toString();
+                    if (argument.isConstant()) {
+                        NullableValue constant = argument.getConstant();
+                        String printableValue = castToVarchar(constant.getType(), constant.getValue(), metadata, session);
+                        return constant.getType().getDisplayName() + "(" + printableValue + ")";
+                    }
+                    return argument.getColumn().toString();
                 })
                 .collect(toImmutableList());
         builder.append(indentString(1));
         if (replicateNulls) {
             builder.append(format("Output partitioning: %s (replicate nulls) [%s]\n",
-                    partitionFunction.getPartitioningHandle(),
+                    partitioningScheme.getPartitioning().getHandle(),
                     Joiner.on(", ").join(arguments)));
         }
         else {
             builder.append(format("Output partitioning: %s [%s]\n",
-                    partitionFunction.getPartitioningHandle(),
+                    partitioningScheme.getPartitioning().getHandle(),
                     Joiner.on(", ").join(arguments)));
         }
 
@@ -322,7 +323,7 @@ public class PlanPrinter
                 types,
                 SINGLE_DISTRIBUTION,
                 ImmutableList.of(plan.getId()),
-                new PartitionFunctionBinding(SINGLE_DISTRIBUTION, plan.getOutputSymbols(), ImmutableList.of()));
+                new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getOutputSymbols()));
         return GraphvizPrinter.printLogical(ImmutableList.of(fragment));
     }
 
@@ -410,9 +411,10 @@ public class PlanPrinter
             List<Expression> joinExpressions = new ArrayList<>();
             for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
                 joinExpressions.add(new ComparisonExpression(ComparisonExpression.Type.EQUAL,
-                        new QualifiedNameReference(clause.getLeft().toQualifiedName()),
-                        new QualifiedNameReference(clause.getRight().toQualifiedName())));
+                        clause.getLeft().toSymbolReference(),
+                        clause.getRight().toSymbolReference()));
             }
+            node.getFilter().ifPresent(expression -> joinExpressions.add(expression));
 
             print(indent, "- %s[%s] => [%s]", node.getType().getJoinLabel(), Joiner.on(" AND ").join(joinExpressions), formatOutputs(node.getOutputSymbols()));
             printStats(indent + 2, node.getId());
@@ -452,8 +454,8 @@ public class PlanPrinter
             List<Expression> joinExpressions = new ArrayList<>();
             for (IndexJoinNode.EquiJoinClause clause : node.getCriteria()) {
                 joinExpressions.add(new ComparisonExpression(ComparisonExpression.Type.EQUAL,
-                        new QualifiedNameReference(clause.getProbe().toQualifiedName()),
-                        new QualifiedNameReference(clause.getIndex().toQualifiedName())));
+                        clause.getProbe().toSymbolReference(),
+                        clause.getIndex().toSymbolReference()));
             }
 
             print(indent, "- %sIndexJoin[%s] => [%s]", node.getType().getJoinLabel(), Joiner.on(" AND ").join(joinExpressions), formatOutputs(node.getOutputSymbols()));
@@ -689,7 +691,7 @@ public class PlanPrinter
             print(indent, "- Project => [%s]", formatOutputs(node.getOutputSymbols()));
             printStats(indent + 2, node.getId());
             for (Map.Entry<Symbol, Expression> entry : node.getAssignments().entrySet()) {
-                if (entry.getValue() instanceof QualifiedNameReference && ((QualifiedNameReference) entry.getValue()).getName().equals(entry.getKey().toQualifiedName())) {
+                if (entry.getValue() instanceof SymbolReference && ((SymbolReference) entry.getValue()).getName().equals(entry.getKey().getName())) {
                     // skip identity assignments
                     continue;
                 }
@@ -763,6 +765,15 @@ public class PlanPrinter
         }
 
         @Override
+        public Void visitIntersect(IntersectNode node, Integer indent)
+        {
+            print(indent, "- Intersect => [%s]", formatOutputs(node.getOutputSymbols()));
+            printStats(indent + 2, node.getId());
+
+            return processChildren(node, indent + 1);
+        }
+
+        @Override
         public Void visitTableWriter(TableWriterNode node, Integer indent)
         {
             print(indent, "- TableWriter => [%s]", formatOutputs(node.getOutputSymbols()));
@@ -798,15 +809,17 @@ public class PlanPrinter
         public Void visitExchange(ExchangeNode node, Integer indent)
         {
             if (node.getScope() == Scope.LOCAL) {
-                print(indent, "- LocalExchange[%s] (%s) => %s",
-                        node.getPartitionFunction().getPartitioningHandle(),
-                        Joiner.on(", ").join(node.getPartitionFunction().getPartitionFunctionArguments()),
+                print(indent, "- LocalExchange[%s%s] (%s) => %s",
+                        node.getPartitioningScheme().getPartitioning().getHandle(),
+                        node.getPartitioningScheme().isReplicateNulls() ? " - REPLICATE NULLS" : "",
+                        Joiner.on(", ").join(node.getPartitioningScheme().getPartitioning().getArguments()),
                         formatOutputs(node.getOutputSymbols()));
             }
             else {
-                print(indent, "- %sExchange[%s] => %s",
+                print(indent, "- %sExchange[%s%s] => %s",
                         UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, node.getScope().toString()),
                         node.getType(),
+                        node.getPartitioningScheme().isReplicateNulls() ? " - REPLICATE NULLS" : "",
                         formatOutputs(node.getOutputSymbols()));
             }
             printStats(indent + 2, node.getId());

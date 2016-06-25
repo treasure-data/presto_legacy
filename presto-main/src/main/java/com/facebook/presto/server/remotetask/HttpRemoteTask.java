@@ -98,6 +98,7 @@ public final class HttpRemoteTask
 {
     private static final Logger log = Logger.get(HttpRemoteTask.class);
     private static final Duration MAX_CLEANUP_RETRY_TIME = new Duration(2, TimeUnit.MINUTES);
+    private static final int MIN_RETRIES = 3;
 
     private final TaskId taskId;
     private final int partition;
@@ -246,7 +247,7 @@ public final class HttpRemoteTask
                 }
             });
 
-            long timeout = minErrorDuration.toMillis() / 3;
+            long timeout = minErrorDuration.toMillis() / MIN_RETRIES;
             this.requestTimeout = new Duration(timeout + taskStatusRefreshMaxWait.toMillis(), MILLISECONDS);
             partitionedSplitCountTracker.setPartitionedSplitCount(getPartitionedSplitCount());
         }
@@ -509,8 +510,6 @@ public final class HttpRemoteTask
                 return;
             }
 
-            checkState(taskStatusFetcher.isRunning(), "Cannot cancel task when it is not running");
-
             // send cancel to task and ignore response
             HttpUriBuilder uriBuilder = uriBuilderFrom(taskStatus.getSelf()).addParameter("abort", "false");
             if (summarizeTaskInfo) {
@@ -540,7 +539,7 @@ public final class HttpRemoteTask
         }
 
         taskStatusFetcher.stop();
-        taskInfoFetcher.taskStatusDone();
+        taskInfoFetcher.taskStatusDone(getTaskStatus());
     }
 
     @Override
@@ -559,6 +558,7 @@ public final class HttpRemoteTask
 
         try (SetThreadName ignored = new SetThreadName("HttpRemoteTask-%s", taskId)) {
             taskStatusFetcher.updateTaskStatus(status);
+            taskInfoFetcher.abort(status);
 
             // send abort to task and ignore response
             HttpUriBuilder uriBuilder = uriBuilderFrom(getTaskStatus().getSelf());

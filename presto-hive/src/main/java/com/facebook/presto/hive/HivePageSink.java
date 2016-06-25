@@ -16,6 +16,7 @@ package com.facebook.presto.hive;
 import com.facebook.presto.hive.HiveWriteUtils.FieldSetter;
 import com.facebook.presto.hive.metastore.HiveMetastore;
 import com.facebook.presto.spi.ConnectorPageSink;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageIndexer;
 import com.facebook.presto.spi.PageIndexerFactory;
@@ -89,6 +90,7 @@ import static com.facebook.presto.hive.HiveWriteUtils.getRowColumnInspectors;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.Slices.wrappedBuffer;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -147,6 +149,8 @@ public class HivePageSink
     private final List<Int2ObjectMap<HiveRecordWriter>> bucketWriters;
     private int bucketWriterCount = 0;
 
+    private final ConnectorSession session;
+
     public HivePageSink(
             String schemaName,
             String tableName,
@@ -165,7 +169,8 @@ public class HivePageSink
             int maxOpenPartitions,
             boolean immutablePartitions,
             boolean compress,
-            JsonCodec<PartitionUpdate> partitionUpdateCodec)
+            JsonCodec<PartitionUpdate> partitionUpdateCodec,
+            ConnectorSession session)
     {
         this.schemaName = requireNonNull(schemaName, "schemaName is null");
         this.tableName = requireNonNull(tableName, "tableName is null");
@@ -273,10 +278,19 @@ public class HivePageSink
             Path hdfsEnvironmentPath = locationService.writePathRoot(locationHandle).orElseGet(() -> locationService.targetPathRoot(locationHandle));
             conf = new JobConf(hdfsEnvironment.getConfiguration(hdfsEnvironmentPath));
         }
+
+        this.session = requireNonNull(session, "session is null");
     }
 
     @Override
     public Collection<Slice> finish()
+    {
+        // Must be wrapped in doAs entirely
+        // Implicit FileSystem initializations are possible in HiveRecordWriter#commit -> RecordWriter#close
+        return hdfsEnvironment.doAs(session.getUser(), this::doFinish);
+    }
+
+    private ImmutableList<Slice> doFinish()
     {
         ImmutableList.Builder<Slice> partitionUpdates = ImmutableList.builder();
         if (!bucketCount.isPresent()) {
@@ -290,11 +304,31 @@ public class HivePageSink
         }
         else {
             for (Int2ObjectMap<HiveRecordWriter> writers : bucketWriters) {
+                PartitionUpdate firstPartitionUpdate = null;
+                ImmutableList.Builder<String> fileNamesBuilder = ImmutableList.builder();
                 for (HiveRecordWriter writer : writers.values()) {
                     writer.commit();
                     PartitionUpdate partitionUpdate = writer.getPartitionUpdate();
-                    partitionUpdates.add(wrappedBuffer(partitionUpdateCodec.toJsonBytes(partitionUpdate)));
+                    if (firstPartitionUpdate == null) {
+                        firstPartitionUpdate = partitionUpdate;
+                    }
+                    else {
+                        verify(firstPartitionUpdate.getName().equals(partitionUpdate.getName()));
+                        verify(firstPartitionUpdate.isNew() == partitionUpdate.isNew());
+                        verify(firstPartitionUpdate.getTargetPath().equals(partitionUpdate.getTargetPath()));
+                        verify(firstPartitionUpdate.getWritePath().equals(partitionUpdate.getWritePath()));
+                    }
+                    fileNamesBuilder.addAll(partitionUpdate.getFileNames());
                 }
+                if (firstPartitionUpdate == null) {
+                    continue;
+                }
+                partitionUpdates.add(wrappedBuffer(partitionUpdateCodec.toJsonBytes(new PartitionUpdate(
+                        firstPartitionUpdate.getName(),
+                        firstPartitionUpdate.isNew(),
+                        firstPartitionUpdate.getWritePath(),
+                        firstPartitionUpdate.getTargetPath(),
+                        fileNamesBuilder.build()))));
             }
         }
         return partitionUpdates.build();
@@ -302,6 +336,13 @@ public class HivePageSink
 
     @Override
     public void abort()
+    {
+        // Must be wrapped in doAs entirely
+        // Implicit FileSystem initializations are possible in HiveRecordWriter#rollback -> RecordWriter#close
+        hdfsEnvironment.doAs(session.getUser(), this::doAbort);
+    }
+
+    private void doAbort()
     {
         if (!bucketCount.isPresent()) {
             for (HiveRecordWriter writer : writers) {
@@ -334,6 +375,13 @@ public class HivePageSink
             throw new PrestoException(HIVE_TOO_MANY_OPEN_PARTITIONS, "Too many open partitions");
         }
 
+        // Must be wrapped in doAs entirely
+        // Implicit FileSystem initializations are possible in HiveRecordWriter#addRow or #createWriter
+        return hdfsEnvironment.doAs(session.getUser(), () -> doAppend(page, dataBlocks, partitionBlocks, indexes));
+    }
+
+    private CompletableFuture<?> doAppend(Page page, Block[] dataBlocks, Block[] partitionBlocks, int[] indexes)
+    {
         if (!bucketCount.isPresent()) {
             if (pageIndexer.getMaxIndex() >= writers.length) {
                 writers = Arrays.copyOf(writers, pageIndexer.getMaxIndex() + 1);
@@ -435,7 +483,7 @@ public class HivePageSink
                 if (partitionName.isPresent() && !target.equals(write)) {
                     // When target path is different from write path,
                     // verify that the target directory for the partition does not already exist
-                    if (HiveWriteUtils.pathExists(hdfsEnvironment, target)) {
+                    if (HiveWriteUtils.pathExists(session.getUser(), hdfsEnvironment, target)) {
                         throw new PrestoException(HIVE_PATH_ALREADY_EXISTS, format("Target directory for new partition '%s' of table '%s.%s' already exists: %s",
                                 partitionName,
                                 schemaName,
