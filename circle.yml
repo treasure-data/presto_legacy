@@ -5,13 +5,17 @@ machine:
   java:
     version: oraclejdk8
   environment:
-    _JAVA_OPTIONS: -Xmx4g
+    _JAVA_OPTIONS: -Xmx4g -XX:ReservedCodeCacheSize=300M
+    JAVA_HOME: $HOME/.java/jdk1.8.0_92
     M2_HOME: $HOME/.m2/apache-maven-3.3.9  # .m2 is cached
     M2:      $HOME/.m2/apache-maven-3.3.9/bin
-    PATH:    $HOME/.m2/apache-maven-3.3.9/bin:$PATH
+    PATH:    $HOME/.java/jdk1.8.0_92/bin:$HOME/.m2/apache-maven-3.3.9/bin:$PATH
 
 dependencies:
   pre:
+    # install 8u92
+    - mkdir -p $(dirname $JAVA_HOME)
+    - test -d $JAVA_HOME || curl -L -C - -b "oraclelicense=accept-securebackup-cookie" http://download.oracle.com/otn-pub/java/jdk/8u92-b14/jdk-8u92-linux-x64.tar.gz | tar zxvf - -C $(dirname $JAVA_HOME)
     # install maven-3.2.3 required by Presto
     - mkdir -p $(dirname $M2_HOME)
     - test -d $M2_HOME || curl 'http://ftp.kddilabs.jp/infosystems/apache/maven/maven-3/3.3.9/binaries/apache-maven-3.3.9-bin.tar.gz' | tar zxvf - -C $(dirname $M2_HOME)
