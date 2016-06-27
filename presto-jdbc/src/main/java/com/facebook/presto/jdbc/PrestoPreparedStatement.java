@@ -13,6 +13,17 @@
  */
 package com.facebook.presto.jdbc;
 
+import com.facebook.presto.sql.SqlFormatter;
+import com.facebook.presto.sql.parser.IdentifierSymbol;
+import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.parser.SqlParserOptions;
+import com.facebook.presto.sql.tree.BooleanLiteral;
+import com.facebook.presto.sql.tree.DoubleLiteral;
+import com.facebook.presto.sql.tree.Literal;
+import com.facebook.presto.sql.tree.LongLiteral;
+import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.StringLiteral;
+
 import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
@@ -31,25 +42,50 @@ import java.sql.RowId;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLXML;
+import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class PrestoPreparedStatement
         extends PrestoStatement
         implements PreparedStatement
 {
+    private final String sql;
+    private final SqlParser parser;
+    private final Map<Integer, Literal> parameters = new HashMap<>();
+
     PrestoPreparedStatement(PrestoConnection connection, String sql)
             throws SQLException
     {
         super(connection);
+        this.sql = sql;
+        this.parser = new SqlParser(new SqlParserOptions().allowIdentifierSymbol(EnumSet.allOf(IdentifierSymbol.class)));
     }
 
     @Override
     public ResultSet executeQuery()
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "executeQuery");
+        List<Literal> list = new ArrayList<>();
+        parameters.forEach((k, v) -> list.add(k, v));
+        // TODO: check parameters are enough
+
+        PlaceholderContext ctx = PlaceholderContext.scan(parser, sql);
+        String newSql = SqlFormatter.formatSql(ctx.rewrite(list));
+        try (Statement statement = getConnection().createStatement()) {
+            return statement.executeQuery(newSql);
+        }
+    }
+
+    private void setParameter(int parameterIndex, Literal literal)
+    {
+        parameters.put(parameterIndex - 1, literal);
     }
 
     @Override
@@ -63,14 +99,14 @@ public class PrestoPreparedStatement
     public void setNull(int parameterIndex, int sqlType)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setNull");
+        setParameter(parameterIndex, new NullLiteral());
     }
 
     @Override
     public void setBoolean(int parameterIndex, boolean x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setBoolean");
+        setParameter(parameterIndex, new BooleanLiteral(String.valueOf(x)));
     }
 
     @Override
@@ -84,35 +120,35 @@ public class PrestoPreparedStatement
     public void setShort(int parameterIndex, short x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setShort");
+        setParameter(parameterIndex, new LongLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setInt(int parameterIndex, int x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setInt");
+        setParameter(parameterIndex, new LongLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setLong(int parameterIndex, long x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setLong");
+        setParameter(parameterIndex, new LongLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setFloat(int parameterIndex, float x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setFloat");
+        setParameter(parameterIndex, new DoubleLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setDouble(int parameterIndex, double x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setDouble");
+        setParameter(parameterIndex, new DoubleLiteral(String.valueOf(x)));
     }
 
     @Override
@@ -126,7 +162,7 @@ public class PrestoPreparedStatement
     public void setString(int parameterIndex, String x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setString");
+        setParameter(parameterIndex, new StringLiteral(x));
     }
 
     @Override
@@ -182,7 +218,7 @@ public class PrestoPreparedStatement
     public void clearParameters()
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "clearParameters");
+        parameters.clear();
     }
 
     @Override
