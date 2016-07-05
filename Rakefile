@@ -6,14 +6,14 @@
 #
 
 EXCLUDE_MODULES = %w|
+ presto-atop presto-mongodb
  presto-cassandra presto-kafka presto-redis presto-docs
  presto-benchmark presto-benchmark-driver
  presto-example-http presto-base-jdbc presto-blackhole
  presto-mysql presto-postgresql presto-hive
  presto-hive-hadoop1 presto-hive-hadoop2
- presto-verifier presto-testing-server-launcher
- presto-jdbc presto-cli presto-jmx
- presto-hive-cdh4 presto-hive-cdh5 presto-raptor presto-server-rpm|
+ presto-verifier presto-testing-server-launcher presto-jmx
+ presto-hive-cdh4 presto-hive-cdh5 presto-server-rpm|
 
 EXCLUDE_FROM_COMPILE = %w|presto-docs presto-server-rpm|
 
