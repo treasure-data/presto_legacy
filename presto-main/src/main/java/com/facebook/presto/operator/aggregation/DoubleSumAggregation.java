@@ -19,10 +19,12 @@ import com.facebook.presto.spi.type.DoubleType;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.type.SqlType;
 
+import static com.facebook.presto.testing.AggregationTestUtils.generateInternalAggregationFunction;
+
 @AggregationFunction("sum")
 public final class DoubleSumAggregation
 {
-    public static final InternalAggregationFunction DOUBLE_SUM = new AggregationCompiler().generateAggregationFunction(DoubleSumAggregation.class);
+    public static final InternalAggregationFunction DOUBLE_SUM = generateInternalAggregationFunction(DoubleSumAggregation.class);
 
     private DoubleSumAggregation() {}
 

@@ -43,6 +43,7 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.units.DataSize.Unit.BYTE;
+import static io.airlift.units.DataSize.succinctBytes;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -88,7 +89,7 @@ public class OperatorContext
     private final OperatorSystemMemoryContext systemMemoryContext;
     private final long maxMemoryReservation;
 
-    private final AtomicReference<Supplier<Object>> infoSupplier = new AtomicReference<>();
+    private final AtomicReference<Supplier<?>> infoSupplier = new AtomicReference<>();
     private final boolean collectTimings;
     private final AtomicBoolean memoryTransferred = new AtomicBoolean(false);
 
@@ -355,7 +356,7 @@ public class OperatorContext
         }
     }
 
-    public void setInfoSupplier(Supplier<Object> infoSupplier)
+    public void setInfoSupplier(Supplier<?> infoSupplier)
     {
         requireNonNull(infoSupplier, "infoProvider is null");
         this.infoSupplier.set(infoSupplier);
@@ -383,7 +384,7 @@ public class OperatorContext
 
     public OperatorStats getOperatorStats()
     {
-        Supplier<Object> infoSupplier = this.infoSupplier.get();
+        Supplier<?> infoSupplier = this.infoSupplier.get();
         Object info = null;
         if (infoSupplier != null) {
             info = infoSupplier.get();
@@ -398,14 +399,14 @@ public class OperatorContext
                 new Duration(addInputWallNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(addInputCpuNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(addInputUserNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
-                new DataSize(inputDataSize.getTotalCount(), BYTE).convertToMostSuccinctDataSize(),
+                succinctBytes(inputDataSize.getTotalCount()),
                 inputPositions.getTotalCount(),
 
                 getOutputCalls.get(),
                 new Duration(getOutputWallNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(getOutputCpuNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(getOutputUserNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
-                new DataSize(outputDataSize.getTotalCount(), BYTE).convertToMostSuccinctDataSize(),
+                succinctBytes(outputDataSize.getTotalCount()),
                 outputPositions.getTotalCount(),
 
                 new Duration(blockedWallNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
@@ -415,8 +416,8 @@ public class OperatorContext
                 new Duration(finishCpuNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(finishUserNanos.get(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
 
-                new DataSize(memoryReservation.get(), BYTE).convertToMostSuccinctDataSize(),
-                new DataSize(systemMemoryContext.getReservedBytes(), BYTE).convertToMostSuccinctDataSize(),
+                succinctBytes(memoryReservation.get()),
+                succinctBytes(systemMemoryContext.getReservedBytes()),
                 memoryFuture.get().isDone() ? Optional.empty() : Optional.of(WAITING_FOR_MEMORY),
                 info);
     }

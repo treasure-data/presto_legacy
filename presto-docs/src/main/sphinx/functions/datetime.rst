@@ -167,7 +167,7 @@ Specifier Description
 ``%D``    Day of the month with English suffix (``0th``, ``1st``, ``2nd``, ``3rd``, ...)
 ``%d``    Day of the month, numeric (``00`` .. ``31``)
 ``%e``    Day of the month, numeric (``0`` .. ``31``)
-``%f``    Microseconds (``000000`` .. ``999999``)
+``%f``    Fraction of second (1 - 9 digits: ``0`` .. ``999999999``)
 ``%H``    Hour (``00`` .. ``23``)
 ``%h``    Hour (``01`` .. ``12``)
 ``%I``    Hour (``01`` .. ``12``)
@@ -196,7 +196,15 @@ Specifier Description
 ``%x``    ``x``, for any ``x`` not listed above
 ========= ===========
 
+.. warning:: Two-digit year format assumes range 1970 .. 2069, so "70" will result in year 1970 but "69" will produce 2069.
+
 .. warning:: The following specifiers are not currently supported: ``%D %U %u %V %X``
+
+.. warning:: Timestamp is truncated to milliseconds
+
+.. note:: ``Fraction of second`` behaves the same way as ``Microseconds`` from the MySQL reference manual (for the ``date_format`` function)
+    Similarly to MySQL, it accepts between 1 and 9 digits of input.
+    Timestamps in Presto have millisecond precision, so "12" will result in "120" milliseconds, "1234" will produce "123" because of truncation.
 
 .. function:: date_format(timestamp, format) -> varchar
 
@@ -210,9 +218,9 @@ Java Date Functions
 -------------------
 
 The functions in this section use a format string that is compatible with
-the Java `SimpleDateFormat`_ pattern format.
+JodaTime's `DateTimeFormat`_ pattern format.
 
-.. _SimpleDateFormat: http://docs.oracle.com/javase/7/docs/api/java/text/SimpleDateFormat.html
+.. _DateTimeFormat: http://joda-time.sourceforge.net/apidocs/org/joda/time/format/DateTimeFormat.html
 
 .. function:: format_datetime(timestamp, format) -> varchar
 

@@ -18,11 +18,12 @@ import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.StandardTypes;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
+import static com.facebook.presto.testing.AggregationTestUtils.generateInternalAggregationFunction;
 
 @AggregationFunction("count")
 public final class CountAggregation
 {
-    public static final InternalAggregationFunction COUNT = new AggregationCompiler().generateAggregationFunction(CountAggregation.class);
+    public static final InternalAggregationFunction COUNT = generateInternalAggregationFunction(CountAggregation.class);
 
     private CountAggregation()
     {
