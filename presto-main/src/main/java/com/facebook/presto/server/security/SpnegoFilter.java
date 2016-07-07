@@ -53,7 +53,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-import static java.lang.String.format;
 import static javax.security.auth.login.AppConfigurationEntry.LoginModuleControlFlag.REQUIRED;
 import static javax.servlet.http.HttpServletResponse.SC_UNAUTHORIZED;
 import static org.ietf.jgss.GSSCredential.ACCEPT_ONLY;
@@ -144,13 +143,11 @@ public class SpnegoFilter
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
 
         boolean includeRealm = "true".equalsIgnoreCase(request.getHeader(INCLUDE_REALM_HEADER));
-        String requestSpnegoToken = null;
 
         if (header != null) {
             String[] parts = header.split("\\s+");
             if (parts.length == 2 && parts[0].equals(NEGOTIATE_SCHEME)) {
                 try {
-                    requestSpnegoToken = parts[1];
                     Optional<Result> authentication = authenticate(parts[1]);
                     if (authentication.isPresent()) {
                         authentication.get()
@@ -168,13 +165,13 @@ public class SpnegoFilter
                         return;
                     }
                 }
-                catch (GSSException | RuntimeException e) {
-                    throw new RuntimeException("Authentication error for token: " + parts[1], e);
+                catch (GSSException e) {
+                    throw Throwables.propagate(e);
                 }
             }
         }
 
-        sendChallenge(response, includeRealm, requestSpnegoToken);
+        sendChallenge(response, includeRealm);
     }
 
     private Optional<Result> authenticate(String token)
@@ -211,15 +208,9 @@ public class SpnegoFilter
         return Optional.empty();
     }
 
-    private static void sendChallenge(HttpServletResponse response, boolean includeRealm, String invalidSpnegoToken)
-        throws IOException
+    private static void sendChallenge(HttpServletResponse response, boolean includeRealm)
     {
-        if (invalidSpnegoToken != null) {
-            response.sendError(SC_UNAUTHORIZED, format("Authentication failed for token %s", invalidSpnegoToken));
-        }
-        else {
-            response.setStatus(SC_UNAUTHORIZED);
-        }
+        response.setStatus(SC_UNAUTHORIZED);
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, formatAuthenticationHeader(includeRealm, Optional.empty()));
     }
 

@@ -32,7 +32,6 @@ import com.facebook.presto.operator.LookupJoinOperators.JoinType;
 import com.facebook.presto.operator.LookupSource;
 import com.facebook.presto.operator.LookupSourceSupplier;
 import com.facebook.presto.operator.OperatorFactory;
-import com.facebook.presto.operator.SimpleJoinProbe;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.Block;
@@ -78,7 +77,7 @@ public class JoinProbeCompiler
                 public HashJoinOperatorFactoryFactory load(JoinOperatorCacheKey key)
                         throws Exception
                 {
-                    return internalCompileJoinOperatorFactory(key.getTypes(), key.getProbeChannels(), key.getProbeHashChannel(), key.isFilterFunctionPresent());
+                    return internalCompileJoinOperatorFactory(key.getTypes(), key.getProbeChannels(), key.getProbeHashChannel());
                 }
             });
 
@@ -88,11 +87,10 @@ public class JoinProbeCompiler
             List<? extends Type> probeTypes,
             List<Integer> probeJoinChannel,
             Optional<Integer> probeHashChannel,
-            JoinType joinType,
-            boolean filterFunctionPresent)
+            JoinType joinType)
     {
         try {
-            HashJoinOperatorFactoryFactory operatorFactoryFactory = joinProbeFactories.get(new JoinOperatorCacheKey(probeTypes, probeJoinChannel, probeHashChannel, joinType, filterFunctionPresent));
+            HashJoinOperatorFactoryFactory operatorFactoryFactory = joinProbeFactories.get(new JoinOperatorCacheKey(probeTypes, probeJoinChannel, probeHashChannel, joinType));
             return operatorFactoryFactory.createHashJoinOperatorFactory(operatorId, planNodeId, lookupSourceSupplier, probeTypes, probeJoinChannel, joinType);
         }
         catch (ExecutionException | UncheckedExecutionException | ExecutionError e) {
@@ -100,7 +98,7 @@ public class JoinProbeCompiler
         }
     }
 
-    public HashJoinOperatorFactoryFactory internalCompileJoinOperatorFactory(List<Type> types, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, boolean filterFunctionPresent)
+    public HashJoinOperatorFactoryFactory internalCompileJoinOperatorFactory(List<Type> types, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel)
     {
         Class<? extends JoinProbe> joinProbeClass = compileJoinProbe(types, probeJoinChannel, probeHashChannel);
 
@@ -125,21 +123,13 @@ public class JoinProbeCompiler
                 .retObject();
 
         DynamicClassLoader classLoader = new DynamicClassLoader(joinProbeClass.getClassLoader());
-
+        Class<? extends JoinProbeFactory> joinProbeFactoryClass = defineClass(classDefinition, JoinProbeFactory.class, classLoader);
         JoinProbeFactory joinProbeFactory;
-        if (filterFunctionPresent || probeJoinChannel.isEmpty()) {
-            // todo temporary until supported in compiled version
-            // see comment in PagesIndex#createLookupSource
-            joinProbeFactory = new SimpleJoinProbe.SimpleJoinProbeFactory(types, probeJoinChannel, probeHashChannel);
+        try {
+            joinProbeFactory = joinProbeFactoryClass.newInstance();
         }
-        else {
-            Class<? extends JoinProbeFactory> joinProbeFactoryClass = defineClass(classDefinition, JoinProbeFactory.class, classLoader);
-            try {
-                joinProbeFactory = joinProbeFactoryClass.newInstance();
-            }
-            catch (Exception e) {
-                throw Throwables.propagate(e);
-            }
+        catch (Exception e) {
+            throw Throwables.propagate(e);
         }
 
         Class<? extends OperatorFactory> operatorFactoryClass = IsolatedClass.isolateClass(
@@ -191,8 +181,6 @@ public class JoinProbeCompiler
         generateAdvanceNextPosition(classDefinition, positionField, positionCountField);
         generateGetCurrentJoinPosition(classDefinition, callSiteBinder, lookupSourceField, probePageField, probeHashChannel, probeHashBlockField, positionField);
         generateCurrentRowContainsNull(classDefinition, probeBlockFields, positionField);
-        generateGetPosition(classDefinition);
-        generateGetPage(classDefinition);
 
         return defineClass(classDefinition, JoinProbe.class, callSiteBinder.getBindings(), getClass().getClassLoader());
     }
@@ -366,13 +354,12 @@ public class JoinProbeCompiler
                         .ifTrue(constantLong(-1).ret()));
 
         BytecodeExpression position = thisVariable.getField(positionField);
-        BytecodeExpression hashChannelsPage = thisVariable.getField(probePageField);
+        BytecodeExpression page = thisVariable.getField(probePageField);
         BytecodeExpression probeHashBlock = thisVariable.getField(probeHashBlockField);
         if (probeHashChannel.isPresent()) {
             body.append(thisVariable.getField(lookupSourceField).invoke("getJoinPosition", long.class,
                     position,
-                    hashChannelsPage,
-                    hashChannelsPage, // todo: we do not use allChannelsPage in compiled operators for now.
+                    page,
                     constantType(callSiteBinder, BigintType.BIGINT).invoke("getLong",
                             long.class,
                             probeHashBlock,
@@ -380,8 +367,7 @@ public class JoinProbeCompiler
                     .retLong();
         }
         else {
-            // todo: we do not use allChannelsPage in compiled operators for now.
-            body.append(thisVariable.getField(lookupSourceField).invoke("getJoinPosition", long.class, position, hashChannelsPage, hashChannelsPage)).retLong();
+            body.append(thisVariable.getField(lookupSourceField).invoke("getJoinPosition", long.class, position, page)).retLong();
         }
     }
 
@@ -406,28 +392,6 @@ public class JoinProbeCompiler
         method.getBody()
                 .push(false)
                 .retInt();
-    }
-
-    private void generateGetPosition(ClassDefinition classDefinition)
-    {
-        // dummy implementation for now
-        // compiled class is used only in usecase case when result of this method is ignored.
-        MethodDefinition method = classDefinition.declareMethod(
-                a(PUBLIC),
-                "getPosition",
-                type(int.class));
-        method.getBody().push(-1).retInt();
-    }
-
-    private void generateGetPage(ClassDefinition classDefinition)
-    {
-        // dummy implementation for now
-        // compiled class is used only in usecase case when result of this method is ignored.
-        MethodDefinition method = classDefinition.declareMethod(
-                a(PUBLIC),
-                "getPage",
-                type(Page.class));
-        method.getBody().pushNull().ret(Page.class);
     }
 
     public static class ReflectionJoinProbeFactory
@@ -463,19 +427,16 @@ public class JoinProbeCompiler
         private final List<Integer> probeChannels;
         private final JoinType joinType;
         private final Optional<Integer> probeHashChannel;
-        private final boolean filterFunctionPresent;
 
         private JoinOperatorCacheKey(List<? extends Type> types,
                 List<Integer> probeChannels,
                 Optional<Integer> probeHashChannel,
-                JoinType joinType,
-                boolean filterFunctionPresent)
+                JoinType joinType)
         {
             this.probeHashChannel = probeHashChannel;
             this.types = ImmutableList.copyOf(types);
             this.probeChannels = ImmutableList.copyOf(probeChannels);
             this.joinType = joinType;
-            this.filterFunctionPresent = filterFunctionPresent;
         }
 
         private List<Type> getTypes()
@@ -493,15 +454,10 @@ public class JoinProbeCompiler
             return probeHashChannel;
         }
 
-        private boolean isFilterFunctionPresent()
-        {
-            return filterFunctionPresent;
-        }
-
         @Override
         public int hashCode()
         {
-            return Objects.hash(types, probeChannels, joinType, filterFunctionPresent);
+            return Objects.hash(types, probeChannels, joinType);
         }
 
         @Override
@@ -517,8 +473,7 @@ public class JoinProbeCompiler
             return Objects.equals(this.types, other.types) &&
                     Objects.equals(this.probeChannels, other.probeChannels) &&
                     Objects.equals(this.probeHashChannel, other.probeHashChannel) &&
-                    Objects.equals(this.joinType, other.joinType) &&
-                    Objects.equals(this.filterFunctionPresent, other.filterFunctionPresent);
+                    Objects.equals(this.joinType, other.joinType);
         }
     }
 

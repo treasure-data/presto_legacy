@@ -69,12 +69,6 @@ public class Rollup
     }
 
     @Override
-    protected <R, C> R accept(AstVisitor<R, C> visitor, C context)
-    {
-        return visitor.visitRollup(this, context);
-    }
-
-    @Override
     public boolean equals(Object o)
     {
         if (this == o) {

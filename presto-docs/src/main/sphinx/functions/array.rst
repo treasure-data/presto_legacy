@@ -25,6 +25,10 @@ Array Functions
 
     Remove duplicate values from the array ``x``.
 
+.. function:: flatten(x) -> array
+
+    Flattens an ``array(array(T))`` to an ``array(T)`` by concatenating the contained arrays.
+
 .. function:: array_intersect(x, y) -> array
 
     Returns an array of the elements in the intersection of ``x`` and ``y``, without duplicates.
@@ -73,33 +77,21 @@ Array Functions
     If ``index`` >= 0, this function provides the same functionality as the SQL-standard subscript operator (``[]``).
     If ``index`` < 0, ``element_at`` accesses elements from the last to the first.
 
-.. function:: flatten(x) -> array
-
-    Flattens an ``array(array(T))`` to an ``array(T)`` by concatenating the contained arrays.
-
-.. function:: sequence(start, stop) -> array<bigint>
-
-    Generate a sequence of integers from ``start`` to ``stop``, incrementing
-    by ``1`` if ``start`` is less than or equal to ``stop``, otherwise ``-1``.
-
-.. function:: sequence(start, stop, step) -> array<bigint>
-
-    Generate a sequence of integers from ``start`` to ``stop``, incrementing by ``step``.
-
-.. function:: sequence(start, stop, step) -> array<timestamp>
-
-    Generate a sequence of timestamps from ``start`` to ``stop``, incrementing by ``step``.
-    The type of ``step`` can be either ``INTERVAL DAY TO SECOND`` or ``INTERVAL YEAR TO MONTH``.
-
 .. function:: slice(x, start, length) -> array
 
-    Subsets array ``x`` starting from index ``start`` (or starting from the end
-    if ``start`` is negative) with a length of ``length``.
+    Subsets array ``x`` starting from index ``start`` (or starting from the end if ``start`` is negative) with a length
+    of ``length``.
 
-.. function:: zip(array1, array2[, ...]) -> array<row>
+.. function:: sequence(start bigint, stop bigint) -> array<bigint>
 
-    Merges the given arrays, element-wise, into a single array of rows. The M-th element of
-    the N-th argument will be the N-th field of the M-th output element.
-    If the arguments have an uneven length, missing values are filled with ``NULL``. ::
+    Generate a sequence of integers from ``start`` to ``stop``, incrementing by 1 if ``start <= stop`` and -1 if
+    ``start > stop``.
 
-        SELECT zip(ARRAY[1, 2], ARRAY['1b', null, '3b']); => [ROW(1, '1b'), ROW(2, null), ROW(null, '3b')]
+.. function:: sequence(start bigint, stop bigint, step bigint) -> array<bigint>
+
+    Generate a sequence of integers from ``start`` to ``stop`` incrementing by ``step``.
+
+.. function:: sequence(start timestamp, stop timestamp, step interval) -> array<timestamp>
+
+    Generate a sequence of timestamps from ``start`` to ``stop`` incrementing by ``step``. The type of the ``step``
+    parameter can be either ``INTERVAL DAY TO SECOND`` or ``INTERVAL YEAR TO MONTH``.

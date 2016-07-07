@@ -15,14 +15,12 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
 
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -41,7 +39,6 @@ public class ParallelHashBuildOperator
         private final PartitionedLookupSourceSupplier lookupSourceSupplier;
         private final List<Integer> hashChannels;
         private final Optional<Integer> preComputedHashChannel;
-        private final Optional<JoinFilterFunction> filterFunction;
 
         private final int expectedPositions;
 
@@ -52,11 +49,9 @@ public class ParallelHashBuildOperator
                 int operatorId,
                 PlanNodeId planNodeId,
                 List<Type> types,
-                Map<Symbol, Integer> layout,
                 List<Integer> hashChannels,
                 Optional<Integer> preComputedHashChannel,
                 boolean outer,
-                Optional<JoinFilterFunction> filterFunction,
                 int expectedPositions,
                 int partitionCount)
         {
@@ -64,17 +59,11 @@ public class ParallelHashBuildOperator
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
 
             checkArgument(Integer.bitCount(partitionCount) == 1, "partitionCount must be a power of 2");
-            lookupSourceSupplier = new PartitionedLookupSourceSupplier(
-                    types,
-                    hashChannels,
-                    partitionCount,
-                    requireNonNull(layout, "layout is null"),
-                    outer);
+            lookupSourceSupplier = new PartitionedLookupSourceSupplier(types, hashChannels, partitionCount, outer);
 
             checkArgument(!hashChannels.isEmpty(), "hashChannels is empty");
             this.hashChannels = ImmutableList.copyOf(requireNonNull(hashChannels, "hashChannels is null"));
             this.preComputedHashChannel = requireNonNull(preComputedHashChannel, "preComputedHashChannel is null");
-            this.filterFunction = requireNonNull(filterFunction, "filterFunction is null");
 
             this.expectedPositions = expectedPositions;
         }
@@ -101,7 +90,6 @@ public class ParallelHashBuildOperator
                     partitionIndex,
                     hashChannels,
                     preComputedHashChannel,
-                    filterFunction,
                     expectedPositions);
 
             partitionIndex++;
@@ -127,7 +115,6 @@ public class ParallelHashBuildOperator
 
     private final List<Integer> hashChannels;
     private final Optional<Integer> preComputedHashChannel;
-    private final Optional<JoinFilterFunction> filterFunction;
 
     private final PagesIndex index;
 
@@ -139,12 +126,10 @@ public class ParallelHashBuildOperator
             int partitionIndex,
             List<Integer> hashChannels,
             Optional<Integer> preComputedHashChannel,
-            Optional<JoinFilterFunction> filterFunction,
             int expectedPositions)
     {
         this.operatorContext = operatorContext;
         this.partitionIndex = partitionIndex;
-        this.filterFunction = filterFunction;
 
         this.index = new PagesIndex(lookupSourceSupplier.getTypes(), expectedPositions);
         this.lookupSourceSupplier = lookupSourceSupplier;
@@ -174,7 +159,7 @@ public class ParallelHashBuildOperator
         finished = true;
 
         // After this point the SharedLookupSource will take over our memory reservation, and ours will be zero
-        LookupSource lookupSource = index.createLookupSource(hashChannels, preComputedHashChannel, filterFunction);
+        LookupSource lookupSource = index.createLookupSource(hashChannels, preComputedHashChannel);
         lookupSourceSupplier.setLookupSource(partitionIndex, lookupSource, operatorContext);
     }
 

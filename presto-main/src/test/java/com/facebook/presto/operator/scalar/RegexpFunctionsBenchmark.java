@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.operator.scalar;
 
-import com.facebook.presto.type.Re2JRegexp;
 import io.airlift.joni.Regex;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
@@ -37,6 +36,7 @@ import org.openjdk.jmh.runner.options.VerboseMode;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.IntStream;
 
+import static com.facebook.presto.operator.scalar.RegexpFunctions.regexpLike;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static org.openjdk.jmh.annotations.Mode.AverageTime;
@@ -51,64 +51,51 @@ import static org.openjdk.jmh.annotations.Scope.Thread;
 public class RegexpFunctionsBenchmark
 {
     @Benchmark
-    public boolean benchmarkLikeJoni(DotStarAroundData data)
+    public boolean benchmarkLike(DotStarAroundData data)
     {
-        return JoniRegexpFunctions.regexpLike(data.getSource(), data.getJoniPattern());
-    }
-
-    @Benchmark
-    public boolean benchmarkLikeRe2J(DotStarAroundData data)
-    {
-        return Re2JRegexpFunctions.regexpLike(data.getSource(), data.getRe2JPattern());
+        return regexpLike(data.getSource(), data.getPattern());
     }
 
     @State(Thread)
     public static class DotStarAroundData
     {
-        @Param({".*x.*", ".*(x|y).*", "longdotstar", "phone", "literal"})
+        @Param({ ".*x.*", ".*(x|y).*", "longdotstar", "phone", "literal" })
         private String patternString;
 
-        @Param({"1024", "32768"})
+        @Param({ "1024", "32768" })
         private int sourceLength;
 
-        private Regex joniPattern;
-        private Re2JRegexp re2JPattern;
+        private Regex pattern;
         private Slice source;
 
         @Setup
         public void setup()
         {
             SliceOutput sliceOutput = new DynamicSliceOutput(sourceLength);
-            Slice pattern;
             switch (patternString) {
                 case ".*x.*":
-                    pattern = Slices.utf8Slice(".*x.*");
+                    pattern = RegexpFunctions.castToRegexp(Slices.utf8Slice(".*x.*"));
                     IntStream.generate(() -> 97).limit(sourceLength).forEach(sliceOutput::appendByte);
                     break;
                 case ".*(x|y).*":
-                    pattern = Slices.utf8Slice(".*(x|y).*");
+                    pattern = RegexpFunctions.castToRegexp(Slices.utf8Slice(".*(x|y).*"));
                     IntStream.generate(() -> 97).limit(sourceLength).forEach(sliceOutput::appendByte);
                     break;
                 case "longdotstar":
-                    pattern = Slices.utf8Slice(".*coolfunctionname.*");
+                    pattern = RegexpFunctions.castToRegexp(Slices.utf8Slice(".*coolfunctionname.*"));
                     ThreadLocalRandom.current().ints(97, 123).limit(sourceLength).forEach(sliceOutput::appendByte);
                     break;
                 case "phone":
-                    pattern = Slices.utf8Slice("\\d{3}/\\d{3}/\\d{4}");
+                    pattern = RegexpFunctions.castToRegexp(Slices.utf8Slice("\\d{3}/\\d{3}/\\d{4}"));
                     // 47: '/', 48-57: '0'-'9'
                     ThreadLocalRandom.current().ints(47, 58).limit(sourceLength).forEach(sliceOutput::appendByte);
                     break;
                 case "literal":
-                    pattern = Slices.utf8Slice("literal");
+                    pattern = RegexpFunctions.castToRegexp(Slices.utf8Slice("literal"));
                     // 97-122: 'a'-'z'
                     ThreadLocalRandom.current().ints(97, 123).limit(sourceLength).forEach(sliceOutput::appendByte);
                     break;
-                default:
-                    throw new IllegalArgumentException("pattern: " + patternString + " not supported");
             }
-
-            joniPattern = JoniRegexpFunctions.castToRegexp(pattern);
-            re2JPattern = castToRe2JRegexp(pattern);
             source = sliceOutput.slice();
             checkState(source.length() == sourceLength, "source.length=%s, sourceLength=%s", source.length(), sourceLength);
         }
@@ -118,20 +105,10 @@ public class RegexpFunctionsBenchmark
             return source;
         }
 
-        public Regex getJoniPattern()
+        public Regex getPattern()
         {
-            return joniPattern;
+            return pattern;
         }
-
-        public Re2JRegexp getRe2JPattern()
-        {
-            return re2JPattern;
-        }
-    }
-
-    private static Re2JRegexp castToRe2JRegexp(Slice pattern)
-    {
-        return new Re2JRegexp(Integer.MAX_VALUE, 5, pattern);
     }
 
     public static void main(String[] args)

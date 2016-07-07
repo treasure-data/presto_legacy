@@ -109,7 +109,7 @@ public class TestJoinProbeCompiler
             hashChannel = Optional.of(1);
             channels = ImmutableList.of(channel, hashChannelBuilder.build());
         }
-        LookupSource lookupSource = lookupSourceFactoryFactory.createLookupSource(addresses, channels, hashChannel);
+        LookupSource lookupSource = lookupSourceFactoryFactory.createLookupSource(addresses, channels, hashChannel, 1);
 
         JoinProbeCompiler joinProbeCompiler = new JoinProbeCompiler();
         JoinProbeFactory probeFactory = joinProbeCompiler.internalCompileJoinProbe(types, Ints.asList(0), hashChannel);
@@ -130,7 +130,7 @@ public class TestJoinProbeCompiler
             pageBuilder.declarePosition();
             joinProbe.appendTo(pageBuilder);
 
-            assertEquals(joinProbe.getCurrentJoinPosition(), lookupSource.getJoinPosition(position, page, page));
+            assertEquals(joinProbe.getCurrentJoinPosition(), lookupSource.getJoinPosition(position, page));
         }
         assertFalse(joinProbe.advanceNextPosition());
         assertPageEquals(types, pageBuilder.build(), page);

@@ -21,16 +21,13 @@ public class ColumnStatistics
     private final DoubleStatistics doubleStatistics;
     private final StringStatistics stringStatistics;
     private final DateStatistics dateStatistics;
-    private final DecimalStatistics decimalStatistics;
 
-    public ColumnStatistics(
-            Long numberOfValues,
+    public ColumnStatistics(Long numberOfValues,
             BooleanStatistics booleanStatistics,
             IntegerStatistics integerStatistics,
             DoubleStatistics doubleStatistics,
             StringStatistics stringStatistics,
-            DateStatistics dateStatistics,
-            DecimalStatistics decimalStatistics)
+            DateStatistics dateStatistics)
     {
         this.numberOfValues = numberOfValues;
         this.booleanStatistics = booleanStatistics;
@@ -38,7 +35,6 @@ public class ColumnStatistics
         this.doubleStatistics = doubleStatistics;
         this.stringStatistics = stringStatistics;
         this.dateStatistics = dateStatistics;
-        this.decimalStatistics = decimalStatistics;
     }
 
     public boolean hasNumberOfValues()
@@ -74,10 +70,5 @@ public class ColumnStatistics
     public StringStatistics getStringStatistics()
     {
         return stringStatistics;
-    }
-
-    public DecimalStatistics getDecimalStatistics()
-    {
-        return decimalStatistics;
     }
 }

@@ -120,10 +120,4 @@ public class LegacyConnectorAccessControl
     {
         accessControl.checkCanGrantTablePrivilege(identity, privilege, tableName);
     }
-
-    @Override
-    public void checkCanRevokeTablePrivilege(Identity identity, Privilege privilege, SchemaTableName tableName)
-    {
-        accessControl.checkCanRevokeTablePrivilege(identity, privilege, tableName);
-    }
 }

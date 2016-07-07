@@ -42,7 +42,6 @@ import static org.apache.hadoop.io.SequenceFile.CompressionType.BLOCK;
 public class HdfsConfigurationUpdater
 {
     private final HostAndPort socksProxy;
-    private final Duration ipcPingInterval;
     private final Duration dfsTimeout;
     private final Duration dfsConnectTimeout;
     private final int dfsConnectMaxRetries;
@@ -73,7 +72,6 @@ public class HdfsConfigurationUpdater
         checkArgument(hiveClientConfig.getDfsTimeout().toMillis() >= 1, "dfsTimeout must be at least 1 ms");
 
         this.socksProxy = hiveClientConfig.getMetastoreSocksProxy();
-        this.ipcPingInterval = hiveClientConfig.getIpcPingInterval();
         this.dfsTimeout = hiveClientConfig.getDfsTimeout();
         this.dfsConnectTimeout = hiveClientConfig.getDfsConnectTimeout();
         this.dfsConnectMaxRetries = hiveClientConfig.getDfsConnectMaxRetries();
@@ -124,7 +122,7 @@ public class HdfsConfigurationUpdater
         }
 
         config.setInt("dfs.socket.timeout", Ints.checkedCast(dfsTimeout.toMillis()));
-        config.setInt("ipc.ping.interval", Ints.checkedCast(ipcPingInterval.toMillis()));
+        config.setInt("ipc.ping.interval", Ints.checkedCast(dfsTimeout.toMillis()));
         config.setInt("ipc.client.connect.timeout", Ints.checkedCast(dfsConnectTimeout.toMillis()));
         config.setInt("ipc.client.connect.max.retries", dfsConnectMaxRetries);
 

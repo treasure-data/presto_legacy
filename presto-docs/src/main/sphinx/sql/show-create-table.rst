@@ -19,10 +19,7 @@ Examples
 
 Show the SQL that can be run to create the ``orders`` table::
 
-    SHOW CREATE TABLE sf1.orders;
-
-.. code-block:: none
-
+    presto> SHOW CREATE TABLE sf1.orders;
                   Create Table
     -----------------------------------------
      CREATE TABLE tpch.sf1.orders (
@@ -35,4 +32,3 @@ Show the SQL that can be run to create the ``orders`` table::
         format = 'ORC',
         partitioned_by = ARRAY['orderdate']
      )
-    (1 row)

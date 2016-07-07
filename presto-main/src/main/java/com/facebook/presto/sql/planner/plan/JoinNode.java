@@ -14,7 +14,6 @@
 package com.facebook.presto.sql.planner.plan;
 
 import com.facebook.presto.sql.planner.Symbol;
-import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Join;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -35,7 +34,6 @@ public class JoinNode
     private final PlanNode left;
     private final PlanNode right;
     private final List<EquiJoinClause> criteria;
-    private final Optional<Expression> filter;
     private final Optional<Symbol> leftHashSymbol;
     private final Optional<Symbol> rightHashSymbol;
 
@@ -45,7 +43,6 @@ public class JoinNode
             @JsonProperty("left") PlanNode left,
             @JsonProperty("right") PlanNode right,
             @JsonProperty("criteria") List<EquiJoinClause> criteria,
-            @JsonProperty("filter") Optional<Expression> filter,
             @JsonProperty("leftHashSymbol") Optional<Symbol> leftHashSymbol,
             @JsonProperty("rightHashSymbol") Optional<Symbol> rightHashSymbol)
     {
@@ -54,7 +51,6 @@ public class JoinNode
         requireNonNull(left, "left is null");
         requireNonNull(right, "right is null");
         requireNonNull(criteria, "criteria is null");
-        requireNonNull(filter, "filter is null");
         requireNonNull(leftHashSymbol, "leftHashSymbol is null");
         requireNonNull(rightHashSymbol, "rightHashSymbol is null");
 
@@ -62,7 +58,6 @@ public class JoinNode
         this.left = left;
         this.right = right;
         this.criteria = ImmutableList.copyOf(criteria);
-        this.filter = filter;
         this.leftHashSymbol = leftHashSymbol;
         this.rightHashSymbol = rightHashSymbol;
     }
@@ -128,12 +123,6 @@ public class JoinNode
     public List<EquiJoinClause> getCriteria()
     {
         return criteria;
-    }
-
-    @JsonProperty("filter")
-    public Optional<Expression> getFilter()
-    {
-        return filter;
     }
 
     @JsonProperty("leftHashSymbol")

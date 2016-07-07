@@ -58,10 +58,8 @@ import static com.facebook.presto.bytecode.expression.BytecodeExpressions.newIns
 import static com.facebook.presto.metadata.OperatorType.CAST;
 import static com.facebook.presto.metadata.Signature.internalOperator;
 import static com.facebook.presto.metadata.Signature.withVariadicBound;
-import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.sql.gen.InvokeFunctionBytecodeExpression.invokeFunction;
 import static com.facebook.presto.sql.gen.SqlTypeBytecodeExpression.constantType;
-import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.facebook.presto.util.Reflection.methodHandle;
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -72,7 +70,7 @@ public class RowToRowCast
 
     private RowToRowCast()
     {
-        super(CAST, ImmutableList.of(withVariadicBound("F", "row"), withVariadicBound("T", "row")), ImmutableList.of(), parseTypeSignature("T"), ImmutableList.of(parseTypeSignature("F")));
+        super(CAST, ImmutableList.of(withVariadicBound("F", "row"), withVariadicBound("T", "row")), ImmutableList.of(), "T", ImmutableList.of("F"));
     }
 
     @Override
@@ -141,12 +139,7 @@ public class RowToRowCast
                     toTypes.get(i).getTypeSignature(),
                     ImmutableList.of(fromTypes.get(i).getTypeSignature()));
             ScalarFunctionImplementation function = functionRegistry.getScalarFunctionImplementation(signature);
-            Type currentFromType = fromTypes.get(i);
-            if (currentFromType.equals(UNKNOWN)) {
-                body.append(blockBuilder.invoke("appendNull", BlockBuilder.class).pop());
-                continue;
-            }
-            BytecodeExpression fromElement = constantType(binder, currentFromType).getValue(value, constantInt(i));
+            BytecodeExpression fromElement = constantType(binder, fromTypes.get(i)).getValue(value, constantInt(i));
             BytecodeExpression toElement = invokeFunction(scope, cachedInstanceBinder, signature.getName(), function, fromElement);
             IfStatement ifElementNull = new IfStatement("if the element in the row type is null...");
 

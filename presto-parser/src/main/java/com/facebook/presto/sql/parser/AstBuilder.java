@@ -37,7 +37,6 @@ import com.facebook.presto.sql.tree.CreateTableAsSelect;
 import com.facebook.presto.sql.tree.CreateView;
 import com.facebook.presto.sql.tree.Cube;
 import com.facebook.presto.sql.tree.CurrentTime;
-import com.facebook.presto.sql.tree.Deallocate;
 import com.facebook.presto.sql.tree.DecimalLiteral;
 import com.facebook.presto.sql.tree.Delete;
 import com.facebook.presto.sql.tree.DereferenceExpression;
@@ -45,7 +44,6 @@ import com.facebook.presto.sql.tree.DoubleLiteral;
 import com.facebook.presto.sql.tree.DropTable;
 import com.facebook.presto.sql.tree.DropView;
 import com.facebook.presto.sql.tree.Except;
-import com.facebook.presto.sql.tree.Execute;
 import com.facebook.presto.sql.tree.ExistsPredicate;
 import com.facebook.presto.sql.tree.Explain;
 import com.facebook.presto.sql.tree.ExplainFormat;
@@ -83,7 +81,6 @@ import com.facebook.presto.sql.tree.NodeLocation;
 import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
-import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.sql.tree.Query;
@@ -93,7 +90,6 @@ import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.RenameColumn;
 import com.facebook.presto.sql.tree.RenameTable;
 import com.facebook.presto.sql.tree.ResetSession;
-import com.facebook.presto.sql.tree.Revoke;
 import com.facebook.presto.sql.tree.Rollback;
 import com.facebook.presto.sql.tree.Rollup;
 import com.facebook.presto.sql.tree.Row;
@@ -326,27 +322,6 @@ class AstBuilder
                 getLocation(context),
                 getQualifiedName(context.qualifiedName()),
                 visit(context.callArgument(), CallArgument.class));
-    }
-
-    @Override
-    public Node visitPrepare(SqlBaseParser.PrepareContext context)
-    {
-        String name = context.identifier().getText();
-        return new Prepare(getLocation(context), name, (Statement) visit(context.statement()));
-    }
-
-    @Override
-    public Node visitDeallocate(SqlBaseParser.DeallocateContext context)
-    {
-        String name = context.identifier().getText();
-        return new Deallocate(getLocation(context), name);
-    }
-
-    @Override
-    public Node visitExecute(SqlBaseParser.ExecuteContext context)
-    {
-        String name = context.identifier().getText();
-        return new Execute(getLocation(context), name);
     }
 
     // ********************** query expressions ********************
@@ -672,27 +647,6 @@ class AstBuilder
                 context.OPTION() != null);
     }
 
-    @Override
-    public Node visitRevoke(SqlBaseParser.RevokeContext context)
-    {
-        Optional<List<String>> privileges;
-        if (context.ALL() != null) {
-            privileges = Optional.empty();
-        }
-        else {
-            privileges = Optional.of(context.privilege().stream()
-                    .map(SqlBaseParser.PrivilegeContext::getText)
-                    .collect(toList()));
-        }
-        return new Revoke(
-                getLocation(context),
-                context.OPTION() != null,
-                privileges,
-                context.TABLE() != null,
-                getQualifiedName(context.qualifiedName()),
-                context.grantee.getText());
-    }
-
     // ***************** boolean expressions ******************
 
     @Override
@@ -974,7 +928,7 @@ class AstBuilder
     {
         return new FunctionCall(
                 getLocation(context.CONCAT()),
-                QualifiedName.of("concat"), ImmutableList.of(
+                new QualifiedName("concat"), ImmutableList.of(
                 (Expression) visit(context.left),
                 (Expression) visit(context.right)));
     }
@@ -1056,14 +1010,14 @@ class AstBuilder
     @Override
     public Node visitSubstring(SqlBaseParser.SubstringContext context)
     {
-        return new FunctionCall(getLocation(context), QualifiedName.of("substr"), visit(context.valueExpression(), Expression.class));
+        return new FunctionCall(getLocation(context), new QualifiedName("substr"), visit(context.valueExpression(), Expression.class));
     }
 
     @Override
     public Node visitPosition(SqlBaseParser.PositionContext context)
     {
         List<Expression> arguments = Lists.reverse(visit(context.valueExpression(), Expression.class));
-        return new FunctionCall(getLocation(context), QualifiedName.of("strpos"), arguments);
+        return new FunctionCall(getLocation(context), new QualifiedName("strpos"), arguments);
     }
 
     @Override
@@ -1071,7 +1025,7 @@ class AstBuilder
     {
         Expression str = (Expression) visit(context.valueExpression());
         String normalForm = Optional.ofNullable(context.normalForm()).map(ParserRuleContext::getText).orElse("NFC");
-        return new FunctionCall(getLocation(context), QualifiedName.of("normalize"), ImmutableList.of(str, new StringLiteral(getLocation(context), normalForm)));
+        return new FunctionCall(getLocation(context), new QualifiedName("normalize"), ImmutableList.of(str, new StringLiteral(getLocation(context), normalForm)));
     }
 
     @Override
@@ -1095,7 +1049,7 @@ class AstBuilder
     @Override
     public Node visitColumnReference(SqlBaseParser.ColumnReferenceContext context)
     {
-        return new QualifiedNameReference(getLocation(context), QualifiedName.of(context.getText()));
+        return new QualifiedNameReference(getLocation(context), new QualifiedName(context.getText()));
     }
 
     @Override
@@ -1387,7 +1341,7 @@ class AstBuilder
                 .map(ParseTree::getText)
                 .collect(toList());
 
-        return QualifiedName.of(parts);
+        return new QualifiedName(parts);
     }
 
     private static boolean isDistinct(SqlBaseParser.SetQuantifierContext setQuantifier)

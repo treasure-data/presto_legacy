@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.hive.rcfile;
 
-import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePageSourceFactory;
 import com.facebook.presto.hive.HivePartitionKey;
@@ -48,13 +47,11 @@ public class RcFilePageSourceFactory
         implements HivePageSourceFactory
 {
     private final TypeManager typeManager;
-    private final HdfsEnvironment hdfsEnvironment;
 
     @Inject
-    public RcFilePageSourceFactory(TypeManager typeManager, HdfsEnvironment hdfsEnvironment)
+    public RcFilePageSourceFactory(TypeManager typeManager)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
     }
 
     @Override
@@ -104,7 +101,7 @@ public class RcFilePageSourceFactory
 
         RCFile.Reader recordReader;
         try {
-            FileSystem fileSystem = hdfsEnvironment.getFileSystem(session.getUser(), path, configuration);
+            FileSystem fileSystem = path.getFileSystem(configuration);
             recordReader = new RCFile.Reader(fileSystem, path, configuration);
         }
         catch (Exception e) {

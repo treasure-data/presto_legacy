@@ -66,6 +66,7 @@ import static com.facebook.presto.execution.StageState.RUNNING;
 import static com.facebook.presto.execution.StageState.SCHEDULED;
 import static com.facebook.presto.spi.StandardErrorCode.INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.NO_NODES_AVAILABLE;
+import static com.facebook.presto.spi.StandardErrorCode.USER_CANCELED;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_BROADCAST_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
 import static com.facebook.presto.util.Failures.checkCondition;
@@ -149,7 +150,7 @@ public class SqlQueryScheduler
             }
             else if (state == CANCELED) {
                 // output stage was canceled
-                queryStateMachine.transitionToCanceled();
+                queryStateMachine.transitionToFailed(new PrestoException(USER_CANCELED, "Query was canceled"));
             }
         });
 
@@ -426,7 +427,7 @@ public class SqlQueryScheduler
             this.parent = parent;
             this.childOutputBufferManagers = children.stream()
                     .map(childStage -> {
-                        if (childStage.getFragment().getPartitioningScheme().getPartitioning().getHandle().equals(FIXED_BROADCAST_DISTRIBUTION)) {
+                        if (childStage.getFragment().getPartitionFunction().getPartitioningHandle().equals(FIXED_BROADCAST_DISTRIBUTION)) {
                             return new BroadcastOutputBufferManager(childStage::setOutputBuffers);
                         }
                         else {

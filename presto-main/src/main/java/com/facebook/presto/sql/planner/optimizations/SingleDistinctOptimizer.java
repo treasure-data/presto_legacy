@@ -26,6 +26,7 @@ import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -118,7 +119,8 @@ public class SingleDistinctOptimizer
 
                 ImmutableMap.Builder<Symbol, Expression> outputSymbols = ImmutableMap.builder();
                 for (Symbol symbol : aggregationNode.getOutputSymbols()) {
-                    outputSymbols.put(symbol, symbol.toSymbolReference());
+                    Expression expression = new QualifiedNameReference(symbol.toQualifiedName());
+                    outputSymbols.put(symbol, expression);
                 }
 
                 // add null assignment for mask

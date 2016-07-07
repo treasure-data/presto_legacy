@@ -55,21 +55,21 @@ public class NodePartitioningManager
 
     public PartitionFunction getPartitionFunction(
             Session session,
-            PartitioningScheme partitioningScheme,
+            PartitionFunctionBinding functionBinding,
             List<Type> partitionChannelTypes)
     {
-        Optional<int[]> bucketToPartition = partitioningScheme.getBucketToPartition();
+        Optional<int[]> bucketToPartition = functionBinding.getBucketToPartition();
         checkArgument(bucketToPartition.isPresent(), "Bucket to partition must be set before a partition function can be created");
 
-        PartitioningHandle partitioningHandle = partitioningScheme.getPartitioning().getHandle();
+        PartitioningHandle partitioningHandle = functionBinding.getPartitioningHandle();
         BucketFunction bucketFunction;
         if (partitioningHandle.getConnectorHandle() instanceof SystemPartitioningHandle) {
-            checkArgument(partitioningScheme.getBucketToPartition().isPresent(), "Bucket to partition must be set before a partition function can be created");
+            checkArgument(functionBinding.getBucketToPartition().isPresent(), "Bucket to partition must be set before a partition function can be created");
 
             return ((SystemPartitioningHandle) partitioningHandle.getConnectorHandle()).getPartitionFunction(
                     partitionChannelTypes,
-                    partitioningScheme.getHashColumn().isPresent(),
-                    partitioningScheme.getBucketToPartition().get());
+                    functionBinding.getHashColumn().isPresent(),
+                    functionBinding.getBucketToPartition().get());
         }
         else {
             ConnectorNodePartitioningProvider partitioningProvider = partitioningProviders.get(partitioningHandle.getConnectorId().get());
@@ -84,7 +84,7 @@ public class NodePartitioningManager
 
             checkArgument(bucketFunction != null, "No function %s", partitioningHandle);
         }
-        return new PartitionFunction(bucketFunction, partitioningScheme.getBucketToPartition().get());
+        return new PartitionFunction(bucketFunction, functionBinding.getBucketToPartition().get());
     }
 
     public NodePartitionMap getNodePartitioningMap(Session session, PartitioningHandle partitioningHandle)

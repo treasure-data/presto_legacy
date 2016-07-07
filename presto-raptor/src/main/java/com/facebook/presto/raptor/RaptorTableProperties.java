@@ -15,7 +15,6 @@ package com.facebook.presto.raptor;
 
 import com.facebook.presto.spi.session.PropertyMetadata;
 import com.facebook.presto.spi.type.TypeManager;
-import com.facebook.presto.spi.type.TypeSignatureParameter;
 import com.google.common.collect.ImmutableList;
 
 import javax.inject.Inject;
@@ -26,7 +25,7 @@ import java.util.OptionalInt;
 
 import static com.facebook.presto.spi.session.PropertyMetadata.integerSessionProperty;
 import static com.facebook.presto.spi.type.StandardTypes.ARRAY;
-import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
+import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static java.util.Locale.ENGLISH;
 import static java.util.stream.Collectors.toList;
 
@@ -102,7 +101,7 @@ public class RaptorTableProperties
         return new PropertyMetadata<>(
                 name,
                 description,
-                createUnboundedVarcharType(),
+                VARCHAR,
                 String.class,
                 null,
                 false,
@@ -115,7 +114,7 @@ public class RaptorTableProperties
         return new PropertyMetadata<>(
                 name,
                 description,
-                typeManager.getParameterizedType(ARRAY, ImmutableList.of(TypeSignatureParameter.of(createUnboundedVarcharType().getTypeSignature()))),
+                typeManager.getParameterizedType(ARRAY, ImmutableList.of(VARCHAR.getTypeSignature()), ImmutableList.of()),
                 List.class,
                 ImmutableList.of(),
                 false,

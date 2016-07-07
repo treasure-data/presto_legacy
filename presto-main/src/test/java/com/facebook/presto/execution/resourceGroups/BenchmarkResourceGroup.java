@@ -84,7 +84,7 @@ public class BenchmarkResourceGroup
                 group.setMaxRunningQueries(queries);
             }
             for (int i = 0; i < queries; i++) {
-                group.run(new MockQueryExecution(10));
+                group.add(new MockQueryExecution(10));
             }
         }
 

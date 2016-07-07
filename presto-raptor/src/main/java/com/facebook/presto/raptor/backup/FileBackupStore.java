@@ -58,7 +58,7 @@ public class FileBackupStore
     @Override
     public void backupShard(UUID uuid, File source)
     {
-        File backupFile = getBackupFile(uuid);
+        File backupFile = getFileSystemPath(baseDir, uuid);
         createDirectories(backupFile.getParentFile());
 
         try {

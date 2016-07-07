@@ -21,42 +21,37 @@ public interface BlockBuilder
     /**
      * Write a byte to the current entry;
      */
-    default BlockBuilder writeByte(int value)
-    {
-        throw new UnsupportedOperationException();
-    }
+    BlockBuilder writeByte(int value);
 
     /**
      * Write a short to the current entry;
      */
-    default BlockBuilder writeShort(int value)
-    {
-        throw new UnsupportedOperationException();
-    }
+    BlockBuilder writeShort(int value);
 
     /**
      * Write a int to the current entry;
      */
-    default BlockBuilder writeInt(int value)
-    {
-        throw new UnsupportedOperationException();
-    }
+    BlockBuilder writeInt(int value);
 
     /**
      * Write a long to the current entry;
      */
-    default BlockBuilder writeLong(long value)
-    {
-        throw new UnsupportedOperationException();
-    }
+    BlockBuilder writeLong(long value);
+
+    /**
+     * Write a float to the current entry;
+     */
+    BlockBuilder writeFloat(float v);
+
+    /**
+     * Write a double to the current entry;
+     */
+    BlockBuilder writeDouble(double value);
 
     /**
      * Write a byte sequences to the current entry;
      */
-    default BlockBuilder writeBytes(Slice source, int sourceIndex, int length)
-    {
-        throw new UnsupportedOperationException();
-    }
+    BlockBuilder writeBytes(Slice source, int sourceIndex, int length);
 
     /**
      * Write an object to the current entry;
@@ -89,9 +84,4 @@ public interface BlockBuilder
      * Builds the block. This method can be called multiple times.
      */
     Block build();
-
-    /**
-     * Resets the block builder, clearing all of the data.
-     */
-    void reset(BlockBuilderStatus blockBuilderStatus);
 }

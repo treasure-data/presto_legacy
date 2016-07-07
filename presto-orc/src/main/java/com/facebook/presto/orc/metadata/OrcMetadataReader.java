@@ -19,7 +19,6 @@ import com.facebook.presto.orc.metadata.OrcType.OrcTypeKind;
 import com.facebook.presto.orc.metadata.Stream.StreamKind;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
 import io.airlift.slice.Slice;
@@ -29,9 +28,7 @@ import org.apache.hadoop.hive.ql.io.orc.OrcProto.RowIndexEntry;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static com.facebook.presto.orc.metadata.CompressionKind.SNAPPY;
@@ -90,8 +87,7 @@ public class OrcMetadataReader
                 footer.getRowIndexStride(),
                 toStripeInformation(footer.getStripesList()),
                 toType(footer.getTypesList()),
-                toColumnStatistics(footer.getStatisticsList(), false),
-                toUserMetadata(footer.getMetadataList()));
+                toColumnStatistics(footer.getStatisticsList(), false));
     }
 
     private static List<StripeInformation> toStripeInformation(List<OrcProto.StripeInformation> types)
@@ -170,8 +166,7 @@ public class OrcMetadataReader
                 toIntegerStatistics(statistics.getIntStatistics()),
                 toDoubleStatistics(statistics.getDoubleStatistics()),
                 toStringStatistics(statistics.getStringStatistics(), isRowGroup),
-                toDateStatistics(statistics.getDateStatistics(), isRowGroup),
-                toDecimalStatistics(statistics.getDecimalStatistics()));
+                toDateStatistics(statistics.getDateStatistics(), isRowGroup));
     }
 
     private static List<ColumnStatistics> toColumnStatistics(List<OrcProto.ColumnStatistics> columnStatistics, final boolean isRowGroup)
@@ -180,15 +175,6 @@ public class OrcMetadataReader
             return ImmutableList.of();
         }
         return ImmutableList.copyOf(Iterables.transform(columnStatistics, statistics -> toColumnStatistics(statistics, isRowGroup)));
-    }
-
-    private Map<String, Slice> toUserMetadata(List<OrcProto.UserMetadataItem> metadataList)
-    {
-        ImmutableMap.Builder<String, Slice> mapBuilder = ImmutableMap.builder();
-        for (OrcProto.UserMetadataItem item : metadataList) {
-            mapBuilder.put(item.getName(), Slices.wrappedBuffer(item.getValue().toByteArray()));
-        }
-        return mapBuilder.build();
     }
 
     private static BooleanStatistics toBooleanStatistics(OrcProto.BucketStatistics bucketStatistics)
@@ -267,18 +253,6 @@ public class OrcMetadataReader
         Slice maximum = stringStatistics.hasMaximum() ? getMaxSlice(stringStatistics.getMaximum()) : null;
 
         return new StringStatistics(minimum, maximum);
-    }
-
-    private static DecimalStatistics toDecimalStatistics(OrcProto.DecimalStatistics decimalStatistics)
-    {
-        if (!decimalStatistics.hasMinimum() && !decimalStatistics.hasMaximum()) {
-            return null;
-        }
-
-        BigDecimal minimum = decimalStatistics.hasMinimum() ? new BigDecimal(decimalStatistics.getMinimum()) : null;
-        BigDecimal maximum = decimalStatistics.hasMaximum() ? new BigDecimal(decimalStatistics.getMaximum()) : null;
-
-        return new DecimalStatistics(minimum, maximum);
     }
 
     @VisibleForTesting

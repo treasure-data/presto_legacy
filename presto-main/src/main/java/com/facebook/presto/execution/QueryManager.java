@@ -37,6 +37,4 @@ public interface QueryManager
     void cancelQuery(QueryId queryId);
 
     void cancelStage(StageId stageId);
-
-    SqlQueryManagerStats getStats();
 }

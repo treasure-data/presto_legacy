@@ -32,10 +32,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.primitives.Ints;
-import io.airlift.slice.Slice;
-import io.airlift.slice.Slices;
 import io.airlift.units.DataSize;
 import org.joda.time.DateTimeZone;
 
@@ -81,8 +78,6 @@ public class OrcRecordReader
     private long currentGroupRowCount;
     private long nextRowInGroup;
 
-    private final Map<String, Slice> userMetadata;
-
     private final AbstractAggregatedMemoryContext systemMemoryUsage;
 
     public OrcRecordReader(
@@ -103,7 +98,6 @@ public class OrcRecordReader
             MetadataReader metadataReader,
             DataSize maxMergeDistance,
             DataSize maxReadSize,
-            Map<String, Slice> userMetadata,
             AbstractAggregatedMemoryContext systemMemoryUsage)
             throws IOException
     {
@@ -115,7 +109,6 @@ public class OrcRecordReader
         requireNonNull(types, "types is null");
         requireNonNull(compressionKind, "compressionKind is null");
         requireNonNull(hiveStorageTimeZone, "hiveStorageTimeZone is null");
-        requireNonNull(userMetadata, "userMetadata is null");
 
         // reduce the included columns to the set that is also present
         ImmutableSet.Builder<Integer> presentColumns = ImmutableSet.builder();
@@ -174,8 +167,6 @@ public class OrcRecordReader
                 .map(StripeInfo::getStripe)
                 .mapToLong(StripeInformation::getNumberOfRows)
                 .sum();
-
-        this.userMetadata = ImmutableMap.copyOf(Maps.transformValues(userMetadata, Slices::copyOf));
 
         this.systemMemoryUsage = requireNonNull(systemMemoryUsage, "systemMemoryUsage is null").newAggregatedMemoryContext();
         this.currentStripeSystemMemoryContext = systemMemoryUsage.newAggregatedMemoryContext();
@@ -324,11 +315,6 @@ public class OrcRecordReader
     {
         checkArgument(index < streamReaders.length, "index does not exist");
         return streamReaders[index];
-    }
-
-    public Map<String, Slice> getUserMetadata()
-    {
-        return ImmutableMap.copyOf(Maps.transformValues(userMetadata, Slices::copyOf));
     }
 
     private boolean advanceToNextRowGroup()

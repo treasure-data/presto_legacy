@@ -62,8 +62,7 @@ import static com.facebook.presto.connector.informationSchema.InformationSchemaM
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.TABLE_TABLES;
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.TABLE_VIEWS;
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.informationSchemaTableColumns;
-import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
-import static com.facebook.presto.spi.type.Varchars.isVarcharType;
+import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.util.Types.checkType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Sets.union;
@@ -255,7 +254,7 @@ public class InformationSchemaPageSourceProvider
             for (ColumnHandle columnHandle : columnHandles.keySet()) {
                 try {
                     ColumnMetadata columnMetadata = metadata.getColumnMetadata(session, tableHandle.get(), columnHandle);
-                    Signature operator = metadata.getFunctionRegistry().getCoercion(columnMetadata.getType(), createUnboundedVarcharType());
+                    Signature operator = metadata.getFunctionRegistry().getCoercion(columnMetadata.getType(), VARCHAR);
                     MethodHandle methodHandle = metadata.getFunctionRegistry().getScalarFunctionImplementation(operator).getMethodHandle();
                     methodHandles.put(columnHandle, methodHandle);
                 }
@@ -326,7 +325,7 @@ public class InformationSchemaPageSourceProvider
         if (value == null || value.getValue() == null) {
             return Optional.empty();
         }
-        if (isVarcharType(value.getType())) {
+        if (value.getType().equals(VARCHAR)) {
             return Optional.of(((Slice) value.getValue()).toStringUtf8().toLowerCase(ENGLISH));
         }
         return Optional.empty();

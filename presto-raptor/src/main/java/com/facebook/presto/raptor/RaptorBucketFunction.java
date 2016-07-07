@@ -37,8 +37,7 @@ public class RaptorBucketFunction
     public int getBucket(Page page, int position)
     {
         long hash = 0;
-        for (int i = 0; i < page.getChannelCount(); i++) {
-            Block block = page.getBlock(i);
+        for (Block block : page.getBlocks()) {
             long value = BIGINT.getLong(block, position);
             hash = (hash * 31) + XxHash64.hash(value);
         }

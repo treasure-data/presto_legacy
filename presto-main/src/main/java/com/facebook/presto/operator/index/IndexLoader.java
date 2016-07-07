@@ -390,19 +390,19 @@ public class IndexLoader
         }
 
         @Override
-        public long getJoinPosition(int position, Page page, Page allChannelsPage, long rawHash)
+        public long getJoinPosition(int position, Page page, long rawHash)
         {
             return IndexSnapshot.UNLOADED_INDEX_KEY;
         }
 
         @Override
-        public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage)
+        public long getJoinPosition(int position, Page page)
         {
             return IndexSnapshot.UNLOADED_INDEX_KEY;
         }
 
         @Override
-        public long getNextJoinPosition(long currentJoinPosition, int probePosition, Page allProbeChannelsPage)
+        public long getNextJoinPosition(long currentPosition)
         {
             return IndexSnapshot.UNLOADED_INDEX_KEY;
         }

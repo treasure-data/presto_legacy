@@ -38,19 +38,13 @@ public final class TpchQueryRunner
     public static DistributedQueryRunner createQueryRunner(Map<String, String> extraProperties)
             throws Exception
     {
-        return createQueryRunner(extraProperties, ImmutableMap.of());
-    }
-
-    public static DistributedQueryRunner createQueryRunner(Map<String, String> extraProperties, Map<String, String> coordinatorProperties)
-            throws Exception
-    {
         Session session = testSessionBuilder()
                 .setSource("test")
                 .setCatalog("tpch")
                 .setSchema("tiny")
                 .build();
 
-        DistributedQueryRunner queryRunner = new DistributedQueryRunner(session, 4, extraProperties, coordinatorProperties);
+        DistributedQueryRunner queryRunner = new DistributedQueryRunner(session, 4, extraProperties);
 
         try {
             queryRunner.installPlugin(new TpchPlugin());

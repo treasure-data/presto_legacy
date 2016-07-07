@@ -21,14 +21,13 @@ import org.openjdk.jol.info.ClassLayout;
 
 import java.util.List;
 
-import static com.facebook.presto.spi.block.BlockUtil.calculateBlockResetSize;
-import static com.facebook.presto.spi.block.BlockUtil.checkValidPositions;
-import static com.facebook.presto.spi.block.BlockUtil.intSaturatedCast;
+import static com.facebook.presto.spi.block.BlockValidationUtil.checkValidPositions;
 import static io.airlift.slice.SizeOf.SIZE_OF_BYTE;
+import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
+import static io.airlift.slice.SizeOf.SIZE_OF_FLOAT;
 import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static io.airlift.slice.SizeOf.SIZE_OF_SHORT;
-import static java.util.Objects.requireNonNull;
 
 public class FixedWidthBlockBuilder
         extends AbstractFixedWidthBlock
@@ -36,9 +35,9 @@ public class FixedWidthBlockBuilder
 {
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(FixedWidthBlockBuilder.class).instanceSize() + BlockBuilderStatus.INSTANCE_SIZE;
 
-    private BlockBuilderStatus blockBuilderStatus;
-    private SliceOutput sliceOutput;
-    private SliceOutput valueIsNull;
+    private final BlockBuilderStatus blockBuilderStatus;
+    private final SliceOutput sliceOutput;
+    private final SliceOutput valueIsNull;
     private int positionCount;
 
     private int currentEntrySize;
@@ -79,13 +78,21 @@ public class FixedWidthBlockBuilder
     @Override
     public int getSizeInBytes()
     {
-        return intSaturatedCast(sliceOutput.size() + valueIsNull.size());
+        long size = sliceOutput.size() + valueIsNull.size();
+        if (size > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) size;
     }
 
     @Override
     public int getRetainedSizeInBytes()
     {
-        return intSaturatedCast(INSTANCE_SIZE + sliceOutput.getRetainedSize() + valueIsNull.getRetainedSize());
+        long size = INSTANCE_SIZE + sliceOutput.getRetainedSize() + valueIsNull.getRetainedSize();
+        if (size > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) size;
     }
 
     @Override
@@ -132,6 +139,22 @@ public class FixedWidthBlockBuilder
     {
         sliceOutput.writeLong(value);
         currentEntrySize += SIZE_OF_LONG;
+        return this;
+    }
+
+    @Override
+    public BlockBuilder writeFloat(float value)
+    {
+        sliceOutput.writeFloat(value);
+        currentEntrySize += SIZE_OF_FLOAT;
+        return this;
+    }
+
+    @Override
+    public BlockBuilder writeDouble(double value)
+    {
+        sliceOutput.writeDouble(value);
+        currentEntrySize += SIZE_OF_DOUBLE;
         return this;
     }
 
@@ -217,19 +240,6 @@ public class FixedWidthBlockBuilder
             throw new IllegalStateException("Current entry must be closed before the block can be built");
         }
         return new FixedWidthBlock(fixedSize, positionCount, sliceOutput.slice(), valueIsNull.slice());
-    }
-
-    @Override
-    public void reset(BlockBuilderStatus blockBuilderStatus)
-    {
-        this.blockBuilderStatus = requireNonNull(blockBuilderStatus, "blockBuilderStatus is null");
-
-        int newSize = calculateBlockResetSize(positionCount);
-        valueIsNull = new DynamicSliceOutput(newSize);
-        sliceOutput = new DynamicSliceOutput(newSize * getFixedSize());
-
-        positionCount = 0;
-        currentEntrySize = 0;
     }
 
     @Override

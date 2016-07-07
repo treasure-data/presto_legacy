@@ -16,9 +16,6 @@ package com.facebook.presto.spi;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
 
-/**
- * Exactly one of {@link #cursor} or {@link #pageSource} must be implemented.
- */
 public interface SystemTable
 {
     enum Distribution
@@ -36,19 +33,5 @@ public interface SystemTable
      * @param session the session to use for creating the data
      * @param constraint the constraints for the table columns (indexed from 0)
      */
-    default RecordCursor cursor(ConnectorTransactionHandle transactionHandle, ConnectorSession session, TupleDomain<Integer> constraint)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Create a page source for the data in this table.
-     *
-     * @param session the session to use for creating the data
-     * @param constraint the constraints for the table columns (indexed from 0)
-     */
-    default ConnectorPageSource pageSource(ConnectorTransactionHandle transactionHandle, ConnectorSession session, TupleDomain<Integer> constraint)
-    {
-        throw new UnsupportedOperationException();
-    }
+    RecordCursor cursor(ConnectorTransactionHandle transactionHandle, ConnectorSession session, TupleDomain<Integer> constraint);
 }

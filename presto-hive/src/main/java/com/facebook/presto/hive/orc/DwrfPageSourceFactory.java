@@ -14,7 +14,6 @@
 package com.facebook.presto.hive.orc;
 
 import com.facebook.hive.orc.OrcSerde;
-import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePageSourceFactory;
 import com.facebook.presto.hive.HivePartitionKey;
@@ -44,13 +43,11 @@ public class DwrfPageSourceFactory
         implements HivePageSourceFactory
 {
     private final TypeManager typeManager;
-    private final HdfsEnvironment hdfsEnvironment;
 
     @Inject
-    public DwrfPageSourceFactory(TypeManager typeManager, HdfsEnvironment hdfsEnvironment)
+    public DwrfPageSourceFactory(TypeManager typeManager)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
     }
 
     @Override
@@ -71,8 +68,6 @@ public class DwrfPageSourceFactory
 
         return Optional.of(createOrcPageSource(
                 new DwrfMetadataReader(),
-                hdfsEnvironment,
-                session.getUser(),
                 configuration,
                 path,
                 start,

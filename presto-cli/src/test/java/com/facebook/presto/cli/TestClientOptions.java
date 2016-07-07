@@ -144,26 +144,22 @@ public class TestClientOptions
         SqlParser sqlParser = new SqlParser();
 
         ImmutableMap<String, String> existingProperties = ImmutableMap.of("query_max_memory", "10GB", "distributed_join", "true");
-        ImmutableMap<String, String> preparedStatements = ImmutableMap.of("my_query", "select * from foo");
-        session = Console.processSessionParameterChange(sqlParser.createStatement("USE test_catalog.test_schema"), session, existingProperties, preparedStatements);
+        session = Console.processSessionParameterChange(sqlParser.createStatement("USE test_catalog.test_schema"), session, existingProperties);
         assertEquals(session.getCatalog(), "test_catalog");
         assertEquals(session.getSchema(), "test_schema");
         assertEquals(session.getProperties().get("query_max_memory"), "10GB");
         assertEquals(session.getProperties().get("distributed_join"), "true");
-        assertEquals(session.getPreparedStatements().get("my_query"), "select * from foo");
 
-        session = Console.processSessionParameterChange(sqlParser.createStatement("USE test_schema_b"), session, existingProperties, preparedStatements);
+        session = Console.processSessionParameterChange(sqlParser.createStatement("USE test_schema_b"), session, existingProperties);
         assertEquals(session.getCatalog(), "test_catalog");
         assertEquals(session.getSchema(), "test_schema_b");
         assertEquals(session.getProperties().get("query_max_memory"), "10GB");
         assertEquals(session.getProperties().get("distributed_join"), "true");
-        assertEquals(session.getPreparedStatements().get("my_query"), "select * from foo");
 
-        session = Console.processSessionParameterChange(sqlParser.createStatement("USE test_catalog_2.test_schema"), session, existingProperties, preparedStatements);
+        session = Console.processSessionParameterChange(sqlParser.createStatement("USE test_catalog_2.test_schema"), session, existingProperties);
         assertEquals(session.getCatalog(), "test_catalog_2");
         assertEquals(session.getSchema(), "test_schema");
         assertEquals(session.getProperties().get("query_max_memory"), "10GB");
         assertEquals(session.getProperties().get("distributed_join"), "true");
-        assertEquals(session.getPreparedStatements().get("my_query"), "select * from foo");
     }
 }

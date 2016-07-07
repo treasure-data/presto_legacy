@@ -56,12 +56,6 @@ public class GroupBy
     }
 
     @Override
-    protected <R, C> R accept(AstVisitor<R, C> visitor, C context)
-    {
-        return visitor.visitGroupBy(this, context);
-    }
-
-    @Override
     public boolean equals(Object o)
     {
         if (this == o) {

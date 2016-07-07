@@ -46,8 +46,6 @@ import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
 import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
-import static java.lang.Double.doubleToLongBits;
-import static java.lang.Double.longBitsToDouble;
 import static java.util.Arrays.asList;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -81,8 +79,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMinNull()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("min_by", AGGREGATE, parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("min_by", AGGREGATE, StandardTypes.DOUBLE, StandardTypes.DOUBLE, StandardTypes.DOUBLE));
         assertAggregation(
                 function,
                 1.0,
@@ -94,8 +91,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMaxNull()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("max_by", AGGREGATE, parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("max_by", AGGREGATE, StandardTypes.DOUBLE, StandardTypes.DOUBLE, StandardTypes.DOUBLE));
         assertAggregation(
                 function,
                 1.0,
@@ -108,8 +104,7 @@ public class TestMinMaxByAggregation
     public void testMinDoubleDouble()
             throws Exception
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("min_by", AGGREGATE, parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("min_by", AGGREGATE, StandardTypes.DOUBLE, StandardTypes.DOUBLE, StandardTypes.DOUBLE));
         assertAggregation(
                 function,
                 1.0,
@@ -128,8 +123,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMaxDoubleDouble()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("max_by", AGGREGATE, parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("max_by", AGGREGATE, StandardTypes.DOUBLE, StandardTypes.DOUBLE, StandardTypes.DOUBLE));
         assertAggregation(
                 function,
                 1.0,
@@ -148,8 +142,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMinDoubleVarchar()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("min_by", AGGREGATE, parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(StandardTypes.DOUBLE)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("min_by", AGGREGATE, StandardTypes.VARCHAR, StandardTypes.VARCHAR, StandardTypes.DOUBLE));
         assertAggregation(
                 function,
                 1.0,
@@ -168,8 +161,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMaxDoubleVarchar()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("max_by", AGGREGATE, parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(StandardTypes.DOUBLE)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("max_by", AGGREGATE, StandardTypes.VARCHAR, StandardTypes.VARCHAR, StandardTypes.DOUBLE));
         assertAggregation(
                 function,
                 1.0,
@@ -188,8 +180,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMinLongLongArray()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("min_by", AGGREGATE, parseTypeSignature("array(bigint)"), parseTypeSignature("array(bigint)"), parseTypeSignature(StandardTypes.BIGINT)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("min_by", AGGREGATE, "array(bigint)", "array(bigint)", StandardTypes.BIGINT));
         assertAggregation(
                 function,
                 1.0,
@@ -208,8 +199,7 @@ public class TestMinMaxByAggregation
     @Test
     public void testMaxLongLongArray()
     {
-        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(
-                new Signature("max_by", AGGREGATE, parseTypeSignature("array(bigint)"), parseTypeSignature("array(bigint)"), parseTypeSignature(StandardTypes.BIGINT)));
+        InternalAggregationFunction function = METADATA.getFunctionRegistry().getAggregateFunctionImplementation(new Signature("max_by", AGGREGATE, "array(bigint)", "array(bigint)", StandardTypes.BIGINT));
         assertAggregation(
                 function,
                 1.0,
@@ -286,7 +276,7 @@ public class TestMinMaxByAggregation
             if (block.isNull(position)) {
                 return null;
             }
-            return longBitsToDouble(block.getLong(position, 0));
+            return block.getDouble(position, 0);
         }
 
         @Override
@@ -300,14 +290,15 @@ public class TestMinMaxByAggregation
         @Override
         public long hash(Block block, int position)
         {
-            return block.getLong(position, 0);
+            long value = block.getLong(position, 0);
+            return (int) (value ^ (value >>> 32));
         }
 
         @Override
         public int compareTo(Block leftBlock, int leftPosition, Block rightBlock, int rightPosition)
         {
-            double leftValue = longBitsToDouble(leftBlock.getLong(leftPosition, 0));
-            double rightValue = longBitsToDouble(rightBlock.getLong(rightPosition, 0));
+            double leftValue = leftBlock.getDouble(leftPosition, 0);
+            double rightValue = rightBlock.getDouble(rightPosition, 0);
             return Double.compare(leftValue, rightValue);
         }
 
@@ -318,20 +309,20 @@ public class TestMinMaxByAggregation
                 blockBuilder.appendNull();
             }
             else {
-                blockBuilder.writeLong(block.getLong(position, 0)).closeEntry();
+                blockBuilder.writeDouble(block.getDouble(position, 0)).closeEntry();
             }
         }
 
         @Override
         public double getDouble(Block block, int position)
         {
-            return longBitsToDouble(block.getLong(position, 0));
+            return block.getDouble(position, 0);
         }
 
         @Override
         public void writeDouble(BlockBuilder blockBuilder, double value)
         {
-            blockBuilder.writeLong(doubleToLongBits(value)).closeEntry();
+            blockBuilder.writeDouble(value).closeEntry();
         }
     }
 }

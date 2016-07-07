@@ -40,15 +40,13 @@ public class InterleavedBlockEncoding
     public void writeBlock(SliceOutput sliceOutput, Block block)
     {
         AbstractInterleavedBlock interleavedBlock = (AbstractInterleavedBlock) block;
-
         if (interleavedBlock.getBlockCount() != individualBlockEncodings.length) {
             throw new IllegalArgumentException(
                     "argument block differs in length (" + interleavedBlock.getBlockCount() + ") with this encoding (" + individualBlockEncodings.length + ")");
         }
 
-        Block[] subBlocks = interleavedBlock.computeSerializableSubBlocks();
-        for (int i = 0; i < subBlocks.length; i++) {
-            individualBlockEncodings[i].writeBlock(sliceOutput, subBlocks[i]);
+        for (int i = 0; i < individualBlockEncodings.length; i++) {
+            individualBlockEncodings[i].writeBlock(sliceOutput, interleavedBlock.getBlock(i));
         }
     }
 

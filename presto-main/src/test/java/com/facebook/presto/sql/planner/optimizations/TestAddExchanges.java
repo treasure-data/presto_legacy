@@ -17,6 +17,7 @@ import com.facebook.presto.spi.ConstantProperty;
 import com.facebook.presto.spi.GroupingProperty;
 import com.facebook.presto.spi.SortingProperty;
 import com.facebook.presto.spi.block.SortOrder;
+import com.facebook.presto.sql.planner.PartitionFunctionBinding.PartitionFunctionArgumentBinding;
 import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.optimizations.ActualProperties.Global;
 import com.google.common.collect.ImmutableList;
@@ -765,12 +766,17 @@ public class TestAddExchanges
 
     public static Global singleStream()
     {
-        return Global.streamPartitionedOn(ImmutableList.of());
+        return streamPartitionedOn(ImmutableList.of());
     }
 
     private static Global streamPartitionedOn(String... columnNames)
     {
-        return Global.streamPartitionedOn(arguments(columnNames));
+        return streamPartitionedOn(arguments(columnNames));
+    }
+
+    public static Global streamPartitionedOn(List<PartitionFunctionArgumentBinding> partitionColumns)
+    {
+        return Global.streamPartitionedOn(partitionColumns);
     }
 
     private static ConstantProperty<Symbol> constant(String column)
@@ -793,10 +799,11 @@ public class TestAddExchanges
         return new Symbol(name);
     }
 
-    private static List<Symbol> arguments(String[] columnNames)
+    private static List<PartitionFunctionArgumentBinding> arguments(String[] columnNames)
     {
         return Arrays.asList(columnNames).stream()
                 .map(Symbol::new)
+                .map(PartitionFunctionArgumentBinding::new)
                 .collect(toImmutableList());
     }
 }

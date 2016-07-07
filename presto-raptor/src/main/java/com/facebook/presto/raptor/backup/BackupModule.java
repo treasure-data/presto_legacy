@@ -43,7 +43,6 @@ public class BackupModule
     {
         this.providers = ImmutableMap.<String, Module>builder()
                 .put("file", new FileBackupModule())
-                .put("http", new HttpBackupModule())
                 .putAll(providers)
                 .build();
     }

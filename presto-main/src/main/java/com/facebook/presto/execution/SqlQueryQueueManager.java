@@ -32,7 +32,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 
 import static com.facebook.presto.execution.QueuedExecution.createQueuedExecution;
-import static com.facebook.presto.spi.StandardErrorCode.QUERY_QUEUE_FULL;
 import static com.facebook.presto.spi.StandardErrorCode.QUERY_REJECTED;
 import static java.util.Objects.requireNonNull;
 
@@ -52,31 +51,24 @@ public class SqlQueryQueueManager
     }
 
     @Override
-    public void submit(Statement statement, QueryExecution queryExecution, Executor executor)
+    public boolean submit(Statement statement, QueryExecution queryExecution, Executor executor, SqlQueryManagerStats stats)
     {
-        List<QueryQueue> queues;
-        try {
-            queues = selectQueues(queryExecution.getSession(), executor);
-        }
-        catch (PrestoException e) {
-            queryExecution.fail(e);
-            return;
-        }
+        List<QueryQueue> queues = selectQueues(statement, queryExecution.getSession(), executor);
 
         for (QueryQueue queue : queues) {
             if (!queue.reserve(queryExecution)) {
                 // Reject query if we couldn't acquire a permit to enter the queue.
                 // The permits will be released when this query fails.
-                queryExecution.fail(new PrestoException(QUERY_QUEUE_FULL, "Too many queued queries!"));
-                return;
+                return false;
             }
         }
 
-        queues.get(0).enqueue(createQueuedExecution(queryExecution, queues.subList(1, queues.size()), executor));
+        queues.get(0).enqueue(createQueuedExecution(queryExecution, queues.subList(1, queues.size()), executor, stats));
+        return true;
     }
 
     // Queues returned have already been created and added queryQueues
-    private List<QueryQueue> selectQueues(Session session, Executor executor)
+    private List<QueryQueue> selectQueues(Statement statement, Session session, Executor executor)
     {
         for (QueryQueueRule rule : rules) {
             Optional<List<QueryQueueDefinition>> queues = rule.match(session.toSessionRepresentation());

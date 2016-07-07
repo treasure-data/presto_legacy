@@ -91,12 +91,6 @@ public class InterleavedBlockBuilder
     }
 
     @Override
-    protected int computePosition(int position)
-    {
-        return position;
-    }
-
-    @Override
     public InterleavedBlockEncoding getEncoding()
     {
         return blockEncoding;
@@ -163,6 +157,24 @@ public class InterleavedBlockBuilder
         BlockBuilder blockBuilder = blockBuilders[currentBlockIndex];
         recordStartSizesIfNecessary(blockBuilder);
         blockBuilder.writeLong(value);
+        return this;
+    }
+
+    @Override
+    public BlockBuilder writeFloat(float value)
+    {
+        BlockBuilder blockBuilder = blockBuilders[currentBlockIndex];
+        recordStartSizesIfNecessary(blockBuilder);
+        blockBuilder.writeFloat(value);
+        return this;
+    }
+
+    @Override
+    public BlockBuilder writeDouble(double value)
+    {
+        BlockBuilder blockBuilder = blockBuilders[currentBlockIndex];
+        recordStartSizesIfNecessary(blockBuilder);
+        blockBuilder.writeDouble(value);
         return this;
     }
 
@@ -236,13 +248,6 @@ public class InterleavedBlockBuilder
     }
 
     @Override
-    public Block getRegion(int position, int length)
-    {
-        validateRange(position, length);
-        return sliceRange(position, length, false);
-    }
-
-    @Override
     public InterleavedBlock build()
     {
         Block[] blocks = new Block[getBlockCount()];
@@ -250,23 +255,6 @@ public class InterleavedBlockBuilder
             blocks[i] = blockBuilders[i].build();
         }
         return new InterleavedBlock(blocks);
-    }
-
-    @Override
-    public void reset(BlockBuilderStatus blockBuilderStatus)
-    {
-        this.positionCount = 0;
-
-        this.sizeInBytes = 0;
-        this.retainedSizeInBytes = INSTANCE_SIZE;
-        for (BlockBuilder blockBuilder : blockBuilders) {
-            blockBuilder.reset(blockBuilderStatus);
-            this.sizeInBytes += blockBuilder.getSizeInBytes();
-            this.retainedSizeInBytes += blockBuilder.getRetainedSizeInBytes();
-        }
-
-        this.startSize = -1;
-        this.startRetainedSize = -1;
     }
 
     @Override

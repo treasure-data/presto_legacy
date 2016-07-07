@@ -14,7 +14,7 @@
 package com.facebook.presto.sql.planner.plan;
 
 import com.facebook.presto.sql.planner.Symbol;
-import com.facebook.presto.sql.tree.SymbolReference;
+import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Function;
@@ -106,11 +106,11 @@ public abstract class SetOperationNode
     /**
      * Returns the output to input symbol mapping for the given source channel
      */
-    public Map<Symbol, SymbolReference> sourceSymbolMap(int sourceIndex)
+    public Map<Symbol, QualifiedNameReference> sourceSymbolMap(int sourceIndex)
     {
-        ImmutableMap.Builder<Symbol, SymbolReference> builder = ImmutableMap.builder();
+        ImmutableMap.Builder<Symbol, QualifiedNameReference> builder = ImmutableMap.<Symbol, QualifiedNameReference>builder();
         for (Map.Entry<Symbol, Collection<Symbol>> entry : outputToInputs.asMap().entrySet()) {
-            builder.put(entry.getKey(), Iterables.get(entry.getValue(), sourceIndex).toSymbolReference());
+            builder.put(entry.getKey(), Iterables.get(entry.getValue(), sourceIndex).toQualifiedNameReference());
         }
 
         return builder.build();
@@ -120,12 +120,12 @@ public abstract class SetOperationNode
      * Returns the input to output symbol mapping for the given source channel.
      * A single input symbol can map to multiple output symbols, thus requiring a Multimap.
      */
-    public Multimap<Symbol, SymbolReference> outputSymbolMap(int sourceIndex)
+    public Multimap<Symbol, QualifiedNameReference> outputSymbolMap(int sourceIndex)
     {
         return Multimaps.transformValues(FluentIterable.from(getOutputSymbols())
                 .toMap(outputToSourceSymbolFunction(sourceIndex))
                 .asMultimap()
-                .inverse(), Symbol::toSymbolReference);
+                .inverse(), Symbol::toQualifiedNameReference);
     }
 
     private Function<Symbol, Symbol> outputToSourceSymbolFunction(final int sourceIndex)

@@ -22,13 +22,14 @@ import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
 import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.google.common.base.Preconditions;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static com.facebook.presto.type.TypeRegistry.isTypeOnlyCoercion;
 import static com.google.common.base.Preconditions.checkState;
 
 /**
@@ -44,8 +45,7 @@ class TranslationMap
     private final Symbol[] fieldSymbols;
 
     // current mappings of sub-expressions -> symbol
-    private final Map<Expression, Symbol> expressionToSymbols = new HashMap<>();
-    private final Map<Expression, Expression> expressionToExpressions = new HashMap<>();
+    private final Map<Expression, Symbol> expressionMappings = new HashMap<>();
 
     public TranslationMap(RelationPlan rewriteBase, Analysis analysis)
     {
@@ -60,14 +60,9 @@ class TranslationMap
         return rewriteBase;
     }
 
-    public Analysis getAnalysis()
-    {
-        return analysis;
-    }
-
     public void setFieldMappings(List<Symbol> symbols)
     {
-        checkArgument(symbols.size() == fieldSymbols.length, "size of symbols list (%s) doesn't match number of expected fields (%s)", symbols.size(), fieldSymbols.length);
+        Preconditions.checkArgument(symbols.size() == fieldSymbols.length, "size of symbols list (%s) doesn't match number of expected fields (%s)", symbols.size(), fieldSymbols.length);
 
         for (int i = 0; i < symbols.size(); i++) {
             this.fieldSymbols[i] = symbols.get(i);
@@ -76,19 +71,18 @@ class TranslationMap
 
     public void copyMappingsFrom(TranslationMap other)
     {
-        checkArgument(other.fieldSymbols.length == fieldSymbols.length,
+        Preconditions.checkArgument(other.fieldSymbols.length == fieldSymbols.length,
                 "number of fields in other (%s) doesn't match number of expected fields (%s)",
                 other.fieldSymbols.length,
                 fieldSymbols.length);
 
-        expressionToSymbols.putAll(other.expressionToSymbols);
-        expressionToExpressions.putAll(other.expressionToExpressions);
+        expressionMappings.putAll(other.expressionMappings);
         System.arraycopy(other.fieldSymbols, 0, fieldSymbols, 0, other.fieldSymbols.length);
     }
 
     public void putExpressionMappingsFrom(TranslationMap other)
     {
-        expressionToSymbols.putAll(other.expressionToSymbols);
+        expressionMappings.putAll(other.expressionMappings);
     }
 
     public Expression rewrite(Expression expression)
@@ -102,17 +96,17 @@ class TranslationMap
             @Override
             public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
             {
-                if (expressionToSymbols.containsKey(node)) {
-                    return expressionToSymbols.get(node).toSymbolReference();
-                }
-                else if (expressionToExpressions.containsKey(node)) {
-                    Expression mapping = expressionToExpressions.get(node);
-                    mapping = translateNamesToSymbols(mapping);
-                    return treeRewriter.defaultRewrite(mapping, context);
+                // convert expression to qualified name reference (containing a symbol) if rewrite registered
+                Expression rewrittenExpression;
+                Symbol symbol = expressionMappings.get(node);
+                if (symbol != null) {
+                    rewrittenExpression = new QualifiedNameReference(symbol.toQualifiedName());
                 }
                 else {
-                    return treeRewriter.defaultRewrite(node, context);
+                    rewrittenExpression = treeRewriter.defaultRewrite(node, context);
                 }
+
+                return rewrittenExpression;
             }
         }, mapped);
     }
@@ -122,44 +116,29 @@ class TranslationMap
         if (expression instanceof FieldReference) {
             int fieldIndex = ((FieldReference) expression).getFieldIndex();
             fieldSymbols[fieldIndex] = symbol;
-            expressionToSymbols.put(rewriteBase.getSymbol(fieldIndex).toSymbolReference(), symbol);
+            expressionMappings.put(new QualifiedNameReference(rewriteBase.getSymbol(fieldIndex).toQualifiedName()), symbol);
             return;
         }
 
         Expression translated = translateNamesToSymbols(expression);
-        expressionToSymbols.put(translated, symbol);
+        expressionMappings.put(translated, symbol);
 
         // also update the field mappings if this expression is a field reference
         analysis.getFieldIndex(expression).ifPresent(index -> fieldSymbols[index] = symbol);
-    }
-
-    public boolean containsSymbol(Expression expression)
-    {
-        if (expression instanceof FieldReference) {
-            int field = ((FieldReference) expression).getFieldIndex();
-            return fieldSymbols[field] != null;
-        }
-
-        Expression translated = translateNamesToSymbols(expression);
-        return expressionToSymbols.containsKey(translated);
     }
 
     public Symbol get(Expression expression)
     {
         if (expression instanceof FieldReference) {
             int field = ((FieldReference) expression).getFieldIndex();
-            checkArgument(fieldSymbols[field] != null, "No mapping for field: %s", field);
+            Preconditions.checkArgument(fieldSymbols[field] != null, "No mapping for field: %s", field);
             return fieldSymbols[field];
         }
 
         Expression translated = translateNamesToSymbols(expression);
-        checkArgument(expressionToSymbols.containsKey(translated), "No mapping for expression: %s", expression);
-        return expressionToSymbols.get(translated);
-    }
 
-    public void put(Expression expression, Expression rewritten)
-    {
-        expressionToExpressions.put(translateNamesToSymbols(expression), rewritten);
+        Preconditions.checkArgument(expressionMappings.containsKey(translated), "No mapping for expression: %s", expression);
+        return expressionMappings.get(translated);
     }
 
     private Expression translateNamesToSymbols(Expression expression)
@@ -170,6 +149,7 @@ class TranslationMap
             public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
             {
                 Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
+
                 return coerceIfNecessary(node, rewrittenExpression);
             }
 
@@ -178,7 +158,7 @@ class TranslationMap
             {
                 Symbol symbol = rewriteBase.getSymbol(node.getFieldIndex());
                 checkState(symbol != null, "No symbol mapping for node '%s' (%s)", node, node.getFieldIndex());
-                return symbol.toSymbolReference();
+                return new QualifiedNameReference(symbol.toQualifiedName());
             }
 
             @Override
@@ -194,7 +174,7 @@ class TranslationMap
 
                 Symbol symbol = rewriteBase.getSymbol(fieldIndex.get());
                 checkState(symbol != null, "No symbol mapping for node '%s' (%s)", node, fieldIndex.get());
-                Expression rewrittenExpression = symbol.toSymbolReference();
+                Expression rewrittenExpression = new QualifiedNameReference(symbol.toQualifiedName());
 
                 return coerceIfNecessary(node, rewrittenExpression);
             }
@@ -212,11 +192,12 @@ class TranslationMap
             {
                 Type coercion = analysis.getCoercion(original);
                 if (coercion != null) {
+                    Type type = analysis.getType(original);
                     rewritten = new Cast(
                             rewritten,
                             coercion.getTypeSignature().toString(),
                             false,
-                            analysis.isTypeOnlyCoercion(original));
+                            isTypeOnlyCoercion(type, coercion));
                 }
                 return rewritten;
             }

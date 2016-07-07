@@ -67,7 +67,7 @@ public class PlanFragmenter
     {
         Fragmenter fragmenter = new Fragmenter(session, metadata, plan.getSymbolAllocator().getTypes());
 
-        FragmentProperties properties = new FragmentProperties(new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getRoot().getOutputSymbols()))
+        FragmentProperties properties = new FragmentProperties(new PartitionFunctionBinding(SINGLE_DISTRIBUTION, plan.getRoot().getOutputSymbols(), ImmutableList.of()))
                 .setSingleNodeDistribution();
         PlanNode root = SimplePlanRewriter.rewriteWith(fragmenter, plan.getRoot(), properties);
 
@@ -118,7 +118,7 @@ public class PlanFragmenter
                     Maps.filterKeys(types, in(dependencies)),
                     properties.getPartitioningHandle(),
                     schedulingOrder,
-                    properties.getPartitioningScheme());
+                    properties.getPartitionFunction());
 
             return new SubPlan(fragment, properties.getChildren());
         }
@@ -179,25 +179,25 @@ public class PlanFragmenter
                 return context.defaultRewrite(exchange, context.get());
             }
 
-            PartitioningScheme partitioningScheme = exchange.getPartitioningScheme();
+            PartitionFunctionBinding partitionFunction = exchange.getPartitionFunction();
 
             ImmutableList.Builder<SubPlan> builder = ImmutableList.builder();
             if (exchange.getType() == ExchangeNode.Type.GATHER) {
                 context.get().setSingleNodeDistribution();
 
                 for (int i = 0; i < exchange.getSources().size(); i++) {
-                    FragmentProperties childProperties = new FragmentProperties(partitioningScheme.translateOutputLayout(exchange.getInputs().get(i)));
+                    FragmentProperties childProperties = new FragmentProperties(partitionFunction.translateOutputLayout(exchange.getInputs().get(i)));
                     builder.add(buildSubPlan(exchange.getSources().get(i), childProperties, context));
                 }
             }
             else if (exchange.getType() == ExchangeNode.Type.REPARTITION) {
-                context.get().setDistribution(partitioningScheme.getPartitioning().getHandle());
+                context.get().setDistribution(partitionFunction.getPartitioningHandle());
 
-                FragmentProperties childProperties = new FragmentProperties(partitioningScheme.translateOutputLayout(Iterables.getOnlyElement(exchange.getInputs())));
+                FragmentProperties childProperties = new FragmentProperties(partitionFunction.translateOutputLayout(Iterables.getOnlyElement(exchange.getInputs())));
                 builder.add(buildSubPlan(Iterables.getOnlyElement(exchange.getSources()), childProperties, context));
             }
             else if (exchange.getType() == ExchangeNode.Type.REPLICATE) {
-                FragmentProperties childProperties = new FragmentProperties(partitioningScheme.translateOutputLayout(Iterables.getOnlyElement(exchange.getInputs())));
+                FragmentProperties childProperties = new FragmentProperties(partitionFunction.translateOutputLayout(Iterables.getOnlyElement(exchange.getInputs())));
                 builder.add(buildSubPlan(Iterables.getOnlyElement(exchange.getSources()), childProperties, context));
             }
 
@@ -224,14 +224,14 @@ public class PlanFragmenter
     {
         private final List<SubPlan> children = new ArrayList<>();
 
-        private final PartitioningScheme partitioningScheme;
+        private final PartitionFunctionBinding partitionFunction;
 
         private Optional<PartitioningHandle> partitioningHandle = Optional.empty();
         private final Set<PlanNodeId> partitionedSources = new HashSet<>();
 
-        public FragmentProperties(PartitioningScheme partitioningScheme)
+        public FragmentProperties(PartitionFunctionBinding partitionFunction)
         {
-            this.partitioningScheme = partitioningScheme;
+            this.partitionFunction = partitionFunction;
         }
 
         public List<SubPlan> getChildren()
@@ -319,9 +319,9 @@ public class PlanFragmenter
             return this;
         }
 
-        public PartitioningScheme getPartitioningScheme()
+        public PartitionFunctionBinding getPartitionFunction()
         {
-            return partitioningScheme;
+            return partitionFunction;
         }
 
         public PartitioningHandle getPartitioningHandle()

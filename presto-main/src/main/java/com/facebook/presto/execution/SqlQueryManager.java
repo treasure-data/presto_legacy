@@ -22,7 +22,6 @@ import com.facebook.presto.memory.ClusterMemoryManager;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.sql.parser.ParsingException;
 import com.facebook.presto.sql.parser.SqlParser;
-import com.facebook.presto.sql.tree.Execute;
 import com.facebook.presto.sql.tree.Explain;
 import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
@@ -59,7 +58,9 @@ import static com.facebook.presto.execution.QueryState.RUNNING;
 import static com.facebook.presto.spi.StandardErrorCode.ABANDONED_QUERY;
 import static com.facebook.presto.spi.StandardErrorCode.EXCEEDED_TIME_LIMIT;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
+import static com.facebook.presto.spi.StandardErrorCode.QUERY_QUEUE_FULL;
 import static com.facebook.presto.spi.StandardErrorCode.SERVER_SHUTTING_DOWN;
+import static com.facebook.presto.spi.StandardErrorCode.USER_CANCELED;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.concurrent.Threads.threadsNamed;
@@ -81,7 +82,7 @@ public class SqlQueryManager
     private final ClusterMemoryManager memoryManager;
 
     private final int maxQueryHistory;
-    private final Duration minQueryExpireAge;
+    private final Duration maxQueryAge;
 
     private final ConcurrentMap<QueryId, QueryExecution> queries = new ConcurrentHashMap<>();
     private final Queue<QueryExecution> expirationQueue = new LinkedBlockingQueue<>();
@@ -127,7 +128,7 @@ public class SqlQueryManager
 
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
 
-        this.minQueryExpireAge = config.getMinQueryExpireAge();
+        this.maxQueryAge = config.getMaxQueryAge();
         this.maxQueryHistory = config.getMaxQueryHistory();
         this.clientTimeout = config.getClientTimeout();
 
@@ -278,7 +279,7 @@ public class SqlQueryManager
         QueryExecution queryExecution;
         Statement statement;
         try {
-            statement = unwrapExecuteStatement(sqlParser.createStatement(query), sqlParser, session);
+            statement = sqlParser.createStatement(query);
             QueryExecutionFactory<?> queryExecutionFactory = executionFactories.get(statement.getClass());
             if (queryExecutionFactory == null) {
                 throw new PrestoException(NOT_SUPPORTED, "Unsupported statement type: " + statement.getClass().getSimpleName());
@@ -331,24 +332,14 @@ public class SqlQueryManager
             }
         });
 
-        addStatsListener(queryExecution);
-
         queries.put(queryId, queryExecution);
 
         // start the query in the background
-        queueManager.submit(statement, queryExecution, queryExecutor);
-
-        return queryInfo;
-    }
-
-    public static Statement unwrapExecuteStatement(Statement statement, SqlParser sqlParser, Session session)
-    {
-        if ((!(statement instanceof Execute))) {
-            return statement;
+        if (!queueManager.submit(statement, queryExecution, queryExecutor, stats)) {
+            queryExecution.fail(new PrestoException(QUERY_QUEUE_FULL, "Too many queued queries!"));
         }
 
-        String sql = session.getPreparedStatementFromExecute((Execute) statement);
-        return sqlParser.createStatement(sql);
+        return queryInfo;
     }
 
     @Override
@@ -360,7 +351,7 @@ public class SqlQueryManager
 
         QueryExecution query = queries.get(queryId);
         if (query != null) {
-            query.cancelQuery();
+            query.fail(new PrestoException(USER_CANCELED, "Query was canceled"));
         }
     }
 
@@ -377,7 +368,6 @@ public class SqlQueryManager
         }
     }
 
-    @Override
     @Managed
     @Flatten
     public SqlQueryManagerStats getStats()
@@ -451,7 +441,7 @@ public class SqlQueryManager
      */
     private void removeExpiredQueries()
     {
-        DateTime timeHorizon = DateTime.now().minus(minQueryExpireAge.toMillis());
+        DateTime timeHorizon = DateTime.now().minus(maxQueryAge.toMillis());
 
         // we're willing to keep queries beyond timeHorizon as long as we have fewer than maxQueryHistory
         while (expirationQueue.size() > maxQueryHistory) {
@@ -463,7 +453,7 @@ public class SqlQueryManager
                 return;
             }
 
-            // only expire them if they are older than minQueryExpireAge. We need to keep them
+            // only expire them if they are older than maxQueryAge. We need to keep them
             // around for a while in case clients come back asking for status
             QueryId queryId = queryInfo.getQueryId();
 
@@ -494,30 +484,6 @@ public class SqlQueryManager
         DateTime lastHeartbeat = query.getQueryInfo().getQueryStats().getLastHeartbeat();
 
         return lastHeartbeat != null && lastHeartbeat.isBefore(oldestAllowedHeartbeat);
-    }
-
-    private void addStatsListener(QueryExecution queryExecution)
-    {
-        AtomicBoolean started = new AtomicBoolean();
-        queryExecution.addStateChangeListener(newValue -> {
-            if (newValue == RUNNING && started.compareAndSet(false, true)) {
-                stats.queryStarted();
-            }
-        });
-        // Need to do this check in case the state changed before we added the previous state change listener
-        if (queryExecution.getState() == RUNNING && started.compareAndSet(false, true)) {
-            stats.queryStarted();
-        }
-        AtomicBoolean stopped = new AtomicBoolean();
-        queryExecution.addStateChangeListener(newValue -> {
-            if (newValue.isDone() && stopped.compareAndSet(false, true) && started.get()) {
-                stats.queryStopped();
-            }
-        });
-        // Need to do this check in case the state changed before we added the previous state change listener
-        if (queryExecution.getState().isDone() && stopped.compareAndSet(false, true) && started.get()) {
-            stats.queryStopped();
-        }
     }
 
     /**

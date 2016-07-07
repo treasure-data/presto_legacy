@@ -22,8 +22,7 @@ import org.openjdk.jol.info.ClassLayout;
 import java.util.Arrays;
 import java.util.List;
 
-import static com.facebook.presto.spi.block.BlockUtil.checkValidPositions;
-import static com.facebook.presto.spi.block.BlockUtil.intSaturatedCast;
+import static com.facebook.presto.spi.block.BlockValidationUtil.checkValidPositions;
 import static io.airlift.slice.Slices.wrappedBooleanArray;
 import static java.util.Objects.requireNonNull;
 
@@ -81,7 +80,11 @@ public class LazyFixedWidthBlock
     @Override
     public int getSizeInBytes()
     {
-        return intSaturatedCast((positionCount * fixedSize) + SizeOf.sizeOf(valueIsNull));
+        long size = (positionCount * fixedSize) + SizeOf.sizeOf(valueIsNull);
+        if (size > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) size;
     }
 
     @Override
@@ -92,7 +95,10 @@ public class LazyFixedWidthBlock
         if (slice != null) {
             size += slice.getRetainedSize();
         }
-        return intSaturatedCast(size);
+        if (size > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) size;
     }
 
     @Override

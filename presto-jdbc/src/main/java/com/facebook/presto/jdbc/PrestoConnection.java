@@ -16,7 +16,6 @@ package com.facebook.presto.jdbc;
 import com.facebook.presto.client.ClientSession;
 import com.facebook.presto.client.ServerInfo;
 import com.facebook.presto.client.StatementClient;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HostAndPort;
@@ -572,12 +571,12 @@ public class PrestoConnection
 
     ServerInfo getServerInfo()
     {
-        return queryExecutor.getServerInfo(getHttpUri());
+        return queryExecutor.getServerInfo(createHttpUri(address));
     }
 
     StatementClient startQuery(String sql)
     {
-        URI uri = getHttpUri();
+        URI uri = createHttpUri(address);
 
         String source = firstNonNull(clientInfo.get("ApplicationName"), "presto-jdbc");
 
@@ -643,16 +642,10 @@ public class PrestoConnection
         }
     }
 
-    @VisibleForTesting
-    URI getHttpUri()
-    {
-        return createHttpUri(address);
-    }
-
     private static URI createHttpUri(HostAndPort address)
     {
         return uriBuilder()
-                .scheme((address.getPort() == 443) ? "https" : "http")
+                .scheme("http")
                 .host(address.getHostText())
                 .port(address.getPort())
                 .build();

@@ -13,49 +13,29 @@
  */
 package com.facebook.presto.sql.analyzer;
 
-import com.google.common.collect.ImmutableList;
 import io.airlift.configuration.Config;
-import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.LegacyConfig;
 
-import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
-
-import java.util.List;
-
-import static com.facebook.presto.sql.analyzer.RegexLibrary.JONI;
 
 public class FeaturesConfig
 {
-    public static class ProcessingOptimization
-    {
-        public static final String DISABLED = "disabled";
-        public static final String COLUMNAR = "columnar";
-        public static final String COLUMNAR_DICTIONARY = "columnar_dictionary";
-
-        public static final List<String> AVAILABLE_OPTIONS = ImmutableList.of(DISABLED, COLUMNAR, COLUMNAR_DICTIONARY);
-    }
-
     public static final String FILE_BASED_RESOURCE_GROUP_MANAGER = "file";
     private boolean experimentalSyntaxEnabled;
     private boolean distributedIndexJoinsEnabled;
     private boolean distributedJoinsEnabled = true;
-    private boolean colocatedJoinsEnabled;
     private boolean redistributeWrites = true;
     private boolean optimizeMetadataQueries;
     private boolean optimizeHashGeneration = true;
     private boolean optimizeSingleDistinct = true;
     private boolean pushTableWriteThroughUnion = true;
 
-    private String processingOptimization = ProcessingOptimization.DISABLED;
+    private boolean columnarProcessing;
+    private boolean columnarProcessingDictionary;
     private boolean dictionaryAggregation;
     private boolean resourceGroups;
 
     private String resourceGroupManager = FILE_BASED_RESOURCE_GROUP_MANAGER;
-
-    private int re2JDfaStatesLimit = Integer.MAX_VALUE;
-    private int re2JDfaRetries = 5;
-    private RegexLibrary regexLibrary = JONI;
 
     @NotNull
     public String getResourceGroupManager()
@@ -82,11 +62,6 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isExperimentalSyntaxEnabled()
-    {
-        return experimentalSyntaxEnabled;
-    }
-
     @LegacyConfig("analyzer.experimental-syntax-enabled")
     @Config("experimental-syntax-enabled")
     public FeaturesConfig setExperimentalSyntaxEnabled(boolean enabled)
@@ -95,9 +70,9 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isDistributedIndexJoinsEnabled()
+    public boolean isExperimentalSyntaxEnabled()
     {
-        return distributedIndexJoinsEnabled;
+        return experimentalSyntaxEnabled;
     }
 
     @Config("distributed-index-joins-enabled")
@@ -107,28 +82,15 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isDistributedJoinsEnabled()
+    public boolean isDistributedIndexJoinsEnabled()
     {
-        return distributedJoinsEnabled;
+        return distributedIndexJoinsEnabled;
     }
 
     @Config("distributed-joins-enabled")
     public FeaturesConfig setDistributedJoinsEnabled(boolean distributedJoinsEnabled)
     {
         this.distributedJoinsEnabled = distributedJoinsEnabled;
-        return this;
-    }
-
-    public boolean isColocatedJoinsEnabled()
-    {
-        return colocatedJoinsEnabled;
-    }
-
-    @Config("colocated-joins-enabled")
-    @ConfigDescription("Experimental: Use a colocated join when possible")
-    public FeaturesConfig setColocatedJoinsEnabled(boolean colocatedJoinsEnabled)
-    {
-        this.colocatedJoinsEnabled = colocatedJoinsEnabled;
         return this;
     }
 
@@ -142,6 +104,11 @@ public class FeaturesConfig
     {
         this.redistributeWrites = redistributeWrites;
         return this;
+    }
+
+    public boolean isDistributedJoinsEnabled()
+    {
+        return distributedJoinsEnabled;
     }
 
     public boolean isOptimizeMetadataQueries()
@@ -192,18 +159,27 @@ public class FeaturesConfig
         return this;
     }
 
-    public String getProcessingOptimization()
+    public boolean isColumnarProcessing()
     {
-        return processingOptimization;
+        return columnarProcessing;
     }
 
-    @Config("optimizer.processing-optimization")
-    public FeaturesConfig setProcessingOptimization(String processingOptimization)
+    @Config("optimizer.columnar-processing")
+    public FeaturesConfig setColumnarProcessing(boolean columnarProcessing)
     {
-        if (!ProcessingOptimization.AVAILABLE_OPTIONS.contains(processingOptimization)) {
-            throw new IllegalStateException(String.format("Value %s is not valid for processingOptimization.", processingOptimization));
-        }
-        this.processingOptimization = processingOptimization;
+        this.columnarProcessing = columnarProcessing;
+        return this;
+    }
+
+    public boolean isColumnarProcessingDictionary()
+    {
+        return columnarProcessingDictionary;
+    }
+
+    @Config("optimizer.columnar-processing-dictionary")
+    public FeaturesConfig setColumnarProcessingDictionary(boolean columnarProcessingDictionary)
+    {
+        this.columnarProcessingDictionary = columnarProcessingDictionary;
         return this;
     }
 
@@ -216,44 +192,6 @@ public class FeaturesConfig
     public FeaturesConfig setDictionaryAggregation(boolean dictionaryAggregation)
     {
         this.dictionaryAggregation = dictionaryAggregation;
-        return this;
-    }
-
-    @Min(2)
-    public int getRe2JDfaStatesLimit()
-    {
-        return re2JDfaStatesLimit;
-    }
-
-    @Config("re2j.dfa-states-limit")
-    public FeaturesConfig setRe2JDfaStatesLimit(int re2JDfaStatesLimit)
-    {
-        this.re2JDfaStatesLimit = re2JDfaStatesLimit;
-        return this;
-    }
-
-    @Min(0)
-    public int getRe2JDfaRetries()
-    {
-        return re2JDfaRetries;
-    }
-
-    @Config("re2j.dfa-retries")
-    public FeaturesConfig setRe2JDfaRetries(int re2JDfaRetries)
-    {
-        this.re2JDfaRetries = re2JDfaRetries;
-        return this;
-    }
-
-    public RegexLibrary getRegexLibrary()
-    {
-        return regexLibrary;
-    }
-
-    @Config("regex-library")
-    public FeaturesConfig setRegexLibrary(RegexLibrary regexLibrary)
-    {
-        this.regexLibrary = regexLibrary;
         return this;
     }
 }

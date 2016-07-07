@@ -16,8 +16,7 @@ package com.facebook.presto.execution.scheduler;
 import com.facebook.presto.metadata.TableHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.sql.planner.Partitioning;
-import com.facebook.presto.sql.planner.PartitioningScheme;
+import com.facebook.presto.sql.planner.PartitionFunctionBinding;
 import com.facebook.presto.sql.planner.PlanFragment;
 import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.TestingColumnHandle;
@@ -29,7 +28,6 @@ import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.UnionNode;
-import com.facebook.presto.sql.tree.Expression;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -158,7 +156,7 @@ public class TestPhasedExecutionSchedule
                 Stream.of(fragments)
                         .map(PlanFragment::getId)
                         .collect(toImmutableList()),
-                fragments[0].getPartitioningScheme().getOutputLayout());
+                fragments[0].getPartitionFunction().getOutputLayout());
 
         return createFragment(planNode);
     }
@@ -168,7 +166,7 @@ public class TestPhasedExecutionSchedule
         PlanNode planNode = new UnionNode(
                 new PlanNodeId(name + "_id"),
                 Stream.of(fragments)
-                        .map(fragment -> new RemoteSourceNode(new PlanNodeId(fragment.getId().toString()), fragment.getId(), fragment.getPartitioningScheme().getOutputLayout()))
+                        .map(fragment -> new RemoteSourceNode(new PlanNodeId(fragment.getId().toString()), fragment.getId(), fragment.getPartitionFunction().getOutputLayout()))
                         .collect(toImmutableList()),
                 ImmutableListMultimap.of(),
                 ImmutableList.of());
@@ -194,7 +192,6 @@ public class TestPhasedExecutionSchedule
                 tableScan,
                 new RemoteSourceNode(new PlanNodeId("build_id"), buildFragment.getId(), ImmutableList.of()),
                 ImmutableList.of(),
-                Optional.<Expression>empty(),
                 Optional.<Symbol>empty(),
                 Optional.<Symbol>empty());
 
@@ -209,7 +206,6 @@ public class TestPhasedExecutionSchedule
                 new RemoteSourceNode(new PlanNodeId("probe_id"), probeFragment.getId(), ImmutableList.of()),
                 new RemoteSourceNode(new PlanNodeId("build_id"), buildFragment.getId(), ImmutableList.of()),
                 ImmutableList.of(),
-                Optional.empty(),
                 Optional.<Symbol>empty(),
                 Optional.<Symbol>empty());
 
@@ -243,6 +239,6 @@ public class TestPhasedExecutionSchedule
                 types.build(),
                 SOURCE_DISTRIBUTION,
                 ImmutableList.of(planNode.getId()),
-                new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), planNode.getOutputSymbols()));
+                new PartitionFunctionBinding(SINGLE_DISTRIBUTION, planNode.getOutputSymbols(), ImmutableList.of()));
     }
 }

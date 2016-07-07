@@ -13,15 +13,16 @@
  */
 package com.facebook.presto.metadata;
 
-import com.facebook.presto.spi.type.TypeSignature;
-
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.metadata.FunctionRegistry.mangleOperatorName;
 import static com.google.common.collect.ImmutableList.copyOf;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
+import static java.util.Collections.emptySet;
 import static java.util.Objects.requireNonNull;
 
 public final class SignatureBuilder
@@ -30,9 +31,10 @@ public final class SignatureBuilder
     private FunctionKind kind;
     private List<TypeVariableConstraint> typeVariableConstraints = emptyList();
     private List<LongVariableConstraint> longVariableConstraints = emptyList();
-    private TypeSignature returnType;
-    private List<TypeSignature> argumentTypes = emptyList();
+    private String returnType;
+    private List<String> argumentTypes;
     private boolean variableArity;
+    private Set<String> literalParameters = emptySet();
 
     public SignatureBuilder() {}
 
@@ -66,12 +68,6 @@ public final class SignatureBuilder
         return this;
     }
 
-    public SignatureBuilder returnType(TypeSignature returnType)
-    {
-        this.returnType = requireNonNull(returnType, "returnType is null");
-        return this;
-    }
-
     public SignatureBuilder longVariableConstraints(LongVariableConstraint... longVariableConstraints)
     {
         return longVariableConstraints(asList(requireNonNull(longVariableConstraints, "longVariableConstraints is null")));
@@ -83,12 +79,18 @@ public final class SignatureBuilder
         return this;
     }
 
-    public SignatureBuilder argumentTypes(TypeSignature... argumentTypes)
+    public SignatureBuilder returnType(String returnType)
+    {
+        this.returnType = requireNonNull(returnType, "returnType is null");
+        return this;
+    }
+
+    public SignatureBuilder argumentTypes(String... argumentTypes)
     {
         return argumentTypes(asList(requireNonNull(argumentTypes, "argumentTypes is Null")));
     }
 
-    public SignatureBuilder argumentTypes(List<TypeSignature> argumentTypes)
+    public SignatureBuilder argumentTypes(List<String> argumentTypes)
     {
         this.argumentTypes = copyOf(requireNonNull(argumentTypes, "argumentTypes is null"));
         return this;
@@ -100,8 +102,19 @@ public final class SignatureBuilder
         return this;
     }
 
+    public SignatureBuilder literalParameters(String... literalParameters)
+    {
+        return literalParameters(new HashSet<>(asList(literalParameters)));
+    }
+
+    public SignatureBuilder literalParameters(Set<String> literalParameters)
+    {
+        this.literalParameters = literalParameters;
+        return this;
+    }
+
     public Signature build()
     {
-        return new Signature(name, kind, typeVariableConstraints, longVariableConstraints, returnType, argumentTypes, variableArity);
+        return new Signature(name, kind, typeVariableConstraints, longVariableConstraints, returnType, argumentTypes, variableArity, literalParameters);
     }
 }

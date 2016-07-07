@@ -93,8 +93,8 @@ class PartitioningExchanger
                 }
 
                 Page pageSplit = new Page(positions.size(), outputBlocks);
-                memoryTracker.accept(pageSplit.getRetainedSizeInBytes());
-                buffers.get(partition).accept(new PageReference(pageSplit, 1, () -> memoryTracker.accept(-pageSplit.getRetainedSizeInBytes())));
+                memoryTracker.accept(pageSplit.getSizeInBytes());
+                buffers.get(partition).accept(new PageReference(pageSplit, 1, () -> memoryTracker.accept(-pageSplit.getSizeInBytes())));
             }
         }
     }

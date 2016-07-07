@@ -99,11 +99,6 @@ public class AllowAllAccessControl
     }
 
     @Override
-    public void checkCanRevokeTablePrivilege(Identity identity, Privilege privilege, QualifiedObjectName tableName)
-    {
-    }
-
-    @Override
     public void checkCanSetSystemSessionProperty(Identity identity, String propertyName)
     {
     }

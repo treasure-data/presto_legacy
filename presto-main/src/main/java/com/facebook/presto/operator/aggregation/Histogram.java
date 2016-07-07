@@ -40,7 +40,6 @@ import static com.facebook.presto.operator.aggregation.AggregationMetadata.Param
 import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.STATE;
 import static com.facebook.presto.operator.aggregation.AggregationUtils.generateAggregationName;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
-import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.util.Reflection.methodHandle;
 import static java.lang.String.format;
 
@@ -57,11 +56,7 @@ public class Histogram
 
     public Histogram()
     {
-        super(NAME,
-                ImmutableList.of(comparableTypeParameter("K")),
-                ImmutableList.of(),
-                parseTypeSignature("map(K,bigint)"),
-                ImmutableList.of(parseTypeSignature("K")));
+        super(NAME, ImmutableList.of(comparableTypeParameter("K")), ImmutableList.of(), "map(K,bigint)", ImmutableList.of("K"));
     }
 
     @Override

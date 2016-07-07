@@ -46,7 +46,6 @@ public final class SessionRepresentation
     private final long startTime;
     private final Map<String, String> systemProperties;
     private final Map<String, Map<String, String>> catalogProperties;
-    private final Map<String, String> preparedStatements;
 
     @JsonCreator
     public SessionRepresentation(
@@ -64,8 +63,7 @@ public final class SessionRepresentation
             @JsonProperty("userAgent") Optional<String> userAgent,
             @JsonProperty("startTime") long startTime,
             @JsonProperty("systemProperties") Map<String, String> systemProperties,
-            @JsonProperty("catalogProperties") Map<String, Map<String, String>> catalogProperties,
-            @JsonProperty("preparedStatements") Map<String, String> preparedStatements)
+            @JsonProperty("catalogProperties") Map<String, Map<String, String>> catalogProperties)
     {
         this.queryId = requireNonNull(queryId, "queryId is null");
         this.transactionId = requireNonNull(transactionId, "transactionId is null");
@@ -81,7 +79,6 @@ public final class SessionRepresentation
         this.userAgent = requireNonNull(userAgent, "userAgent is null");
         this.startTime = startTime;
         this.systemProperties = ImmutableMap.copyOf(systemProperties);
-        this.preparedStatements = ImmutableMap.copyOf(preparedStatements);
 
         ImmutableMap.Builder<String, Map<String, String>> catalogPropertiesBuilder = ImmutableMap.<String, Map<String, String>>builder();
         for (Entry<String, Map<String, String>> entry : catalogProperties.entrySet()) {
@@ -180,12 +177,6 @@ public final class SessionRepresentation
         return catalogProperties;
     }
 
-    @JsonProperty
-    public Map<String, String> getPreparedStatements()
-    {
-        return preparedStatements;
-    }
-
     public Session toSession(SessionPropertyManager sessionPropertyManager)
     {
         return new Session(
@@ -203,7 +194,6 @@ public final class SessionRepresentation
                 startTime,
                 systemProperties,
                 catalogProperties,
-                sessionPropertyManager,
-                preparedStatements);
+                sessionPropertyManager);
     }
 }

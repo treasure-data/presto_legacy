@@ -90,7 +90,7 @@
             {
                 "name": "shipmode",
                 "mapping": "shipmode",
-                "type": "VARCHAR(7)"
+                "type": "VARCHAR(1)"
             },
             {
                 "name": "comment",

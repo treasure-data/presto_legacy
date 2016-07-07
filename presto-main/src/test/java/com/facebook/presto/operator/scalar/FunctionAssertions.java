@@ -44,7 +44,6 @@ import com.facebook.presto.spi.type.TimeZoneKey;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.split.PageSourceProvider;
 import com.facebook.presto.sql.analyzer.ExpressionAnalysis;
-import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.gen.ExpressionCompiler;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.InterpretedFilterFunction;
@@ -60,7 +59,7 @@ import com.facebook.presto.sql.tree.DereferenceExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
-import com.facebook.presto.sql.tree.SymbolReference;
+import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.testing.LocalQueryRunner;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.TestingTransactionHandle;
@@ -101,13 +100,13 @@ import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
-import static com.facebook.presto.sql.ExpressionUtils.rewriteQualifiedNamesToSymbolReferences;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.analyzeExpressionsWithSymbols;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypesFromInput;
 import static com.facebook.presto.sql.planner.LocalExecutionPlanner.toTypes;
 import static com.facebook.presto.sql.planner.optimizations.CanonicalizeExpressions.canonicalizeExpression;
 import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static com.facebook.presto.testing.TestingTaskContext.createTaskContext;
+import static com.facebook.presto.type.TypeRegistry.isTypeOnlyCoercion;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.testing.Assertions.assertInstanceOf;
 import static java.util.Objects.requireNonNull;
@@ -192,13 +191,8 @@ public final class FunctionAssertions
 
     public FunctionAssertions(Session session)
     {
-        this(session, new FeaturesConfig());
-    }
-
-    public FunctionAssertions(Session session, FeaturesConfig featuresConfig)
-    {
         this.session = requireNonNull(session, "session is null");
-        runner = new LocalQueryRunner(session, featuresConfig);
+        runner = new LocalQueryRunner(session);
         metadata = runner.getMetadata();
         compiler = new ExpressionCompiler(metadata);
     }
@@ -432,8 +426,6 @@ public final class FunctionAssertions
     {
         Expression parsedExpression = SQL_PARSER.createExpression(expression);
 
-        parsedExpression = rewriteQualifiedNamesToSymbolReferences(parsedExpression);
-
         final ExpressionAnalysis analysis = analyzeExpressionsWithSymbols(TEST_SESSION, metadata, SQL_PARSER, symbolTypes, ImmutableList.of(parsedExpression));
         Expression rewrittenExpression = ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
         {
@@ -443,13 +435,14 @@ public final class FunctionAssertions
                 Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
 
                 // cast expression if coercion is registered
+                Type type = analysis.getType(node);
                 Type coercion = analysis.getCoercion(node);
                 if (coercion != null) {
                     rewrittenExpression = new Cast(
                             rewrittenExpression,
                             coercion.getTypeSignature().toString(),
                             false,
-                            analysis.isTypeOnlyCoercion(node));
+                            isTypeOnlyCoercion(type, coercion));
                 }
 
                 return rewrittenExpression;
@@ -531,18 +524,18 @@ public final class FunctionAssertions
 
     private static boolean needsBoundValue(Expression projectionExpression)
     {
-        final AtomicBoolean hasSymbolReferences = new AtomicBoolean();
+        final AtomicBoolean hasQualifiedNameReference = new AtomicBoolean();
         new DefaultTraversalVisitor<Void, Void>()
         {
             @Override
-            protected Void visitSymbolReference(SymbolReference node, Void context)
+            protected Void visitQualifiedNameReference(QualifiedNameReference node, Void context)
             {
-                hasSymbolReferences.set(true);
+                hasQualifiedNameReference.set(true);
                 return null;
             }
         }.process(projectionExpression, null);
 
-        return hasSymbolReferences.get();
+        return hasQualifiedNameReference.get();
     }
 
     private Operator interpretedFilterProject(Expression filter, Expression projection, Session session)

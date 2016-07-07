@@ -22,9 +22,6 @@ import javax.annotation.Nullable;
 
 import java.lang.reflect.Method;
 
-import static java.lang.Double.doubleToLongBits;
-import static java.lang.Double.longBitsToDouble;
-
 public final class StateCompilerUtils
 {
     private StateCompilerUtils() {}
@@ -143,7 +140,7 @@ public final class StateCompilerUtils
 
     public static double getDoubleBlock(Block block, int index)
     {
-        return longBitsToDouble(block.getLong(index, 0));
+        return block.getDouble(index, 0);
     }
 
     public static boolean getBooleanBlock(Block block, int index)
@@ -168,7 +165,7 @@ public final class StateCompilerUtils
 
     public static void appendDoubleBlockBuilder(BlockBuilder builder, double value)
     {
-        builder.writeLong(doubleToLongBits(value)).closeEntry();
+        builder.writeDouble(value).closeEntry();
     }
 
     public static void appendBooleanBlockBuilder(BlockBuilder builder, boolean value)

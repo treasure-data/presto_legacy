@@ -29,7 +29,6 @@ import static com.facebook.presto.metadata.OperatorType.CAST;
 import static com.facebook.presto.metadata.Signature.comparableWithVariadicBound;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static com.facebook.presto.spi.type.StandardTypes.VARCHAR;
-import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.Varchars.truncateToLength;
 import static com.facebook.presto.util.Reflection.methodHandle;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -43,11 +42,7 @@ public class VarcharToVarcharCast
 
     private VarcharToVarcharCast()
     {
-        super(CAST,
-                ImmutableList.of(comparableWithVariadicBound("F", VARCHAR), comparableWithVariadicBound("T", VARCHAR)),
-                ImmutableList.of(),
-                parseTypeSignature("T"),
-                ImmutableList.of(parseTypeSignature("F")));
+        super(CAST, ImmutableList.of(comparableWithVariadicBound("F", VARCHAR), comparableWithVariadicBound("T", VARCHAR)), ImmutableList.of(), "T", ImmutableList.of("F"));
     }
 
     @Override

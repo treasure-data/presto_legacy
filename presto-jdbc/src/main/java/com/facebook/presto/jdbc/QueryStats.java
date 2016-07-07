@@ -23,7 +23,6 @@ public final class QueryStats
 {
     private final String queryId;
     private final String state;
-    private final boolean queued;
     private final boolean scheduled;
     private final int nodes;
     private final int totalSplits;
@@ -40,7 +39,6 @@ public final class QueryStats
     public QueryStats(
             String queryId,
             String state,
-            boolean queued,
             boolean scheduled,
             int nodes,
             int totalSplits,
@@ -56,7 +54,6 @@ public final class QueryStats
     {
         this.queryId = requireNonNull(queryId, "queryId is null");
         this.state = requireNonNull(state, "state is null");
-        this.queued = queued;
         this.scheduled = scheduled;
         this.nodes = nodes;
         this.totalSplits = totalSplits;
@@ -76,7 +73,6 @@ public final class QueryStats
         return new QueryStats(
                 queryId,
                 stats.getState(),
-                stats.isQueued(),
                 stats.isScheduled(),
                 stats.getNodes(),
                 stats.getTotalSplits(),
@@ -99,11 +95,6 @@ public final class QueryStats
     public String getState()
     {
         return state;
-    }
-
-    public boolean isQueued()
-    {
-        return queued;
     }
 
     public boolean isScheduled()

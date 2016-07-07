@@ -20,7 +20,6 @@ import com.facebook.presto.spi.procedure.Procedure;
 import com.facebook.presto.spi.procedure.Procedure.Argument;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
-import com.facebook.presto.spi.type.TypeSignatureParameter;
 import com.facebook.presto.testing.ProcedureTester;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -138,7 +137,7 @@ public final class TestingProcedures
 
     private Type arrayType(Type elementType)
     {
-        return typeManager.getParameterizedType(ARRAY, ImmutableList.of(TypeSignatureParameter.of(elementType.getTypeSignature())));
+        return typeManager.getParameterizedType(ARRAY, ImmutableList.of(elementType.getTypeSignature()), ImmutableList.of());
     }
 
     private Procedure procedure(String schema, String name, String methodName, List<Argument> arguments)

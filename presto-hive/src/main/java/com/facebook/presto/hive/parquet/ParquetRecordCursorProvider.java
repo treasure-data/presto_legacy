@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.hive.parquet;
 
-import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePartitionKey;
@@ -47,18 +46,16 @@ public class ParquetRecordCursorProvider
             .build();
 
     private final boolean useParquetColumnNames;
-    private final HdfsEnvironment hdfsEnvironment;
 
     @Inject
-    public ParquetRecordCursorProvider(HiveClientConfig hiveClientConfig, HdfsEnvironment hdfsEnvironment)
+    public ParquetRecordCursorProvider(HiveClientConfig hiveClientConfig)
     {
-        this(requireNonNull(hiveClientConfig, "hiveClientConfig is null").isUseParquetColumnNames(), hdfsEnvironment);
+        this(requireNonNull(hiveClientConfig, "hiveClientConfig is null").isUseParquetColumnNames());
     }
 
-    public ParquetRecordCursorProvider(boolean useParquetColumnNames, HdfsEnvironment hdfsEnvironment)
+    public ParquetRecordCursorProvider(boolean useParquetColumnNames)
     {
         this.useParquetColumnNames = useParquetColumnNames;
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
     }
 
     @Override
@@ -81,8 +78,6 @@ public class ParquetRecordCursorProvider
         }
 
         return Optional.<HiveRecordCursor>of(new ParquetHiveRecordCursor(
-                hdfsEnvironment,
-                session.getUser(),
                 configuration,
                 path,
                 start,

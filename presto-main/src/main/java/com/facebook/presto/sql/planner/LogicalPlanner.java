@@ -26,7 +26,7 @@ import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.analyzer.Analysis;
 import com.facebook.presto.sql.analyzer.Field;
 import com.facebook.presto.sql.analyzer.RelationType;
-import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.planner.PartitionFunctionBinding.PartitionFunctionArgumentBinding;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
 import com.facebook.presto.sql.planner.plan.DeleteNode;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
@@ -37,7 +37,6 @@ import com.facebook.presto.sql.planner.plan.ProjectNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
-import com.facebook.presto.sql.planner.sanity.PlanSanityChecker;
 import com.facebook.presto.sql.tree.Cast;
 import com.facebook.presto.sql.tree.CreateTableAsSelect;
 import com.facebook.presto.sql.tree.Delete;
@@ -62,6 +61,7 @@ import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.CreateName;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.InsertReference;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.WriterTarget;
+import static com.facebook.presto.type.TypeRegistry.isTypeOnlyCoercion;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.String.format;
@@ -75,30 +75,29 @@ public class LogicalPlanner
     private final List<PlanOptimizer> planOptimizers;
     private final SymbolAllocator symbolAllocator = new SymbolAllocator();
     private final Metadata metadata;
-    private final SqlParser sqlParser;
 
     public LogicalPlanner(Session session,
             List<PlanOptimizer> planOptimizers,
             PlanNodeIdAllocator idAllocator,
-            Metadata metadata,
-            SqlParser sqlParser)
+            Metadata metadata)
     {
         requireNonNull(session, "session is null");
         requireNonNull(planOptimizers, "planOptimizers is null");
         requireNonNull(idAllocator, "idAllocator is null");
         requireNonNull(metadata, "metadata is null");
-        requireNonNull(sqlParser, "sqlParser is null");
 
         this.session = session;
         this.planOptimizers = planOptimizers;
         this.idAllocator = idAllocator;
         this.metadata = metadata;
-        this.sqlParser = sqlParser;
     }
 
     public Plan plan(Analysis analysis)
     {
         PlanNode root = planStatement(analysis, analysis.getStatement());
+
+        // make sure we produce a valid plan. This is mainly to catch programming errors
+        PlanSanityChecker.validate(root);
 
         for (PlanOptimizer optimizer : planOptimizers) {
             root = optimizer.optimize(root, session, symbolAllocator.getTypes(), symbolAllocator, idAllocator);
@@ -106,7 +105,7 @@ public class LogicalPlanner
         }
 
         // make sure we produce a valid plan after optimizations run. This is mainly to catch programming errors
-        PlanSanityChecker.validate(root, session, metadata, sqlParser, symbolAllocator.getTypes());
+        PlanSanityChecker.validate(root);
 
         return new Plan(root, symbolAllocator);
     }
@@ -196,11 +195,11 @@ public class LogicalPlanner
                 Type tableType = column.getType();
                 Type queryType = symbolAllocator.getTypes().get(input);
 
-                if (queryType.equals(tableType) || metadata.getTypeManager().isTypeOnlyCoercion(queryType, tableType)) {
-                    assignments.put(output, input.toSymbolReference());
+                if (queryType.equals(tableType) || isTypeOnlyCoercion(queryType, tableType)) {
+                    assignments.put(output, input.toQualifiedNameReference());
                 }
                 else {
-                    Expression cast = new Cast(input.toSymbolReference(), tableType.getTypeSignature().toString());
+                    Expression cast = new Cast(input.toQualifiedNameReference(), tableType.getTypeSignature().toString());
                     assignments.put(output, cast);
                 }
             }
@@ -253,23 +252,26 @@ public class LogicalPlanner
 
         List<Symbol> symbols = plan.getOutputSymbols();
 
-        Optional<PartitioningScheme> partitioningScheme = Optional.empty();
+        Optional<PartitionFunctionBinding> partitionFunctionBinding = Optional.empty();
         if (writeTableLayout.isPresent()) {
-            List<Symbol> partitionFunctionArguments = new ArrayList<>();
+            List<PartitionFunctionArgumentBinding> partitionFunctionArguments = new ArrayList<>();
             writeTableLayout.get().getPartitionColumns().stream()
                     .mapToInt(columnNames::indexOf)
                     .mapToObj(symbols::get)
+                    .map(PartitionFunctionArgumentBinding::new)
                     .forEach(partitionFunctionArguments::add);
             plan.getSampleWeight()
+                    .map(PartitionFunctionArgumentBinding::new)
                     .ifPresent(partitionFunctionArguments::add);
 
             List<Symbol> outputLayout = new ArrayList<>(symbols);
             plan.getSampleWeight()
                     .ifPresent(outputLayout::add);
 
-            partitioningScheme = Optional.of(new PartitioningScheme(
-                    Partitioning.create(writeTableLayout.get().getPartitioning(), partitionFunctionArguments),
-                    outputLayout));
+            partitionFunctionBinding = Optional.of(new PartitionFunctionBinding(
+                    writeTableLayout.get().getPartitioning(),
+                    outputLayout,
+                    partitionFunctionArguments));
         }
 
         PlanNode writerNode = new TableWriterNode(
@@ -280,7 +282,7 @@ public class LogicalPlanner
                 columnNames,
                 writerOutputs,
                 plan.getSampleWeight(),
-                partitioningScheme);
+                partitionFunctionBinding);
 
         List<Symbol> outputs = ImmutableList.of(symbolAllocator.newSymbol("rows", BIGINT));
         TableFinishNode commitNode = new TableFinishNode(

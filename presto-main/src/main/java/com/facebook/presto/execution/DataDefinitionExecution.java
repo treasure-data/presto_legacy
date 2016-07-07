@@ -139,12 +139,6 @@ public class DataDefinitionExecution<T extends Statement>
     }
 
     @Override
-    public void cancelQuery()
-    {
-        stateMachine.transitionToCanceled();
-    }
-
-    @Override
     public void cancelStage(StageId stageId)
     {
         // no-op

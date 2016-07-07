@@ -23,12 +23,10 @@ import com.facebook.presto.sql.tree.Commit;
 import com.facebook.presto.sql.tree.CreateTable;
 import com.facebook.presto.sql.tree.CreateTableAsSelect;
 import com.facebook.presto.sql.tree.CreateView;
-import com.facebook.presto.sql.tree.Deallocate;
 import com.facebook.presto.sql.tree.Delete;
 import com.facebook.presto.sql.tree.DropTable;
 import com.facebook.presto.sql.tree.DropView;
 import com.facebook.presto.sql.tree.Except;
-import com.facebook.presto.sql.tree.Execute;
 import com.facebook.presto.sql.tree.Explain;
 import com.facebook.presto.sql.tree.ExplainFormat;
 import com.facebook.presto.sql.tree.ExplainOption;
@@ -44,7 +42,6 @@ import com.facebook.presto.sql.tree.JoinOn;
 import com.facebook.presto.sql.tree.JoinUsing;
 import com.facebook.presto.sql.tree.NaturalJoin;
 import com.facebook.presto.sql.tree.Node;
-import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.QuerySpecification;
@@ -52,9 +49,7 @@ import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.RenameColumn;
 import com.facebook.presto.sql.tree.RenameTable;
 import com.facebook.presto.sql.tree.ResetSession;
-import com.facebook.presto.sql.tree.Revoke;
 import com.facebook.presto.sql.tree.Rollback;
-import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SampledRelation;
 import com.facebook.presto.sql.tree.Select;
 import com.facebook.presto.sql.tree.SelectItem;
@@ -147,33 +142,6 @@ public final class SqlFormatter
         protected Void visitUnnest(Unnest node, Integer indent)
         {
             builder.append(node.toString());
-            return null;
-        }
-
-        @Override
-        protected Void visitPrepare(Prepare node, Integer indent)
-        {
-            append(indent, "PREPARE ");
-            builder.append(node.getName());
-            builder.append(" FROM");
-            builder.append("\n");
-            process(node.getStatement(), indent + 1);
-            return null;
-        }
-
-        @Override
-        protected Void visitDeallocate(Deallocate node, Integer indent)
-        {
-            append(indent, "DEALLOCATE PREPARE ");
-            builder.append(node.getName());
-            return null;
-        }
-
-        @Override
-        protected Void visitExecute(Execute node, Integer indent)
-        {
-            append(indent, "EXECUTE ");
-            builder.append(node.getName());
             return null;
         }
 
@@ -864,22 +832,6 @@ public final class SqlFormatter
         }
 
         @Override
-        protected Void visitRow(Row node, Integer indent)
-        {
-            builder.append("ROW(");
-            boolean firstItem = true;
-            for (Expression item : node.getItems()) {
-                if (!firstItem) {
-                    builder.append(", ");
-                }
-                process(item, indent);
-                firstItem = false;
-            }
-            builder.append(")");
-            return null;
-        }
-
-        @Override
         protected Void visitStartTransaction(StartTransaction node, Integer indent)
         {
             builder.append("START TRANSACTION");
@@ -946,34 +898,6 @@ public final class SqlFormatter
             if (node.isWithGrantOption()) {
                 builder.append(" WITH GRANT OPTION");
             }
-
-            return null;
-        }
-
-        @Override
-        public Void visitRevoke(Revoke node, Integer indent)
-        {
-            builder.append("REVOKE ");
-
-            if (node.isGrantOptionFor()) {
-                builder.append("GRANT OPTION FOR ");
-            }
-
-            if (node.getPrivileges().isPresent()) {
-                builder.append(node.getPrivileges().get().stream()
-                        .collect(joining(", ")));
-            }
-            else {
-                builder.append("ALL PRIVILEGES");
-            }
-
-            builder.append(" ON ");
-            if (node.isTable()) {
-                builder.append("TABLE ");
-            }
-            builder.append(node.getTableName())
-                    .append(" FROM ")
-                    .append(node.getGrantee());
 
             return null;
         }

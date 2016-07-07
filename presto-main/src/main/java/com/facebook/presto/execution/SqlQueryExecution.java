@@ -153,6 +153,10 @@ public final class SqlQueryExecution
                 if (scheduler != null) {
                     scheduler.abort();
                 }
+
+                // capture the final query state and drop reference to the scheduler
+                finalQueryInfo.compareAndSet(null, buildQueryInfo(scheduler));
+                queryScheduler.set(null);
             });
 
             this.remoteTaskFactory = new MemoryTrackingRemoteTaskFactory(requireNonNull(remoteTaskFactory, "remoteTaskFactory is null"), stateMachine);
@@ -276,7 +280,7 @@ public final class SqlQueryExecution
 
         // plan query
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
-        LogicalPlanner logicalPlanner = new LogicalPlanner(stateMachine.getSession(), planOptimizers, idAllocator, metadata, sqlParser);
+        LogicalPlanner logicalPlanner = new LogicalPlanner(stateMachine.getSession(), planOptimizers, idAllocator, metadata);
         Plan plan = logicalPlanner.plan(analysis);
 
         // extract inputs
@@ -337,12 +341,6 @@ public final class SqlQueryExecution
     }
 
     @Override
-    public void cancelQuery()
-    {
-        stateMachine.transitionToCanceled();
-    }
-
-    @Override
     public void cancelStage(StageId stageId)
     {
         requireNonNull(stageId, "stageId is null");
@@ -382,21 +380,20 @@ public final class SqlQueryExecution
     public void pruneInfo()
     {
         QueryInfo queryInfo = finalQueryInfo.get();
-        if (queryInfo == null || !queryInfo.getOutputStage().isPresent()) {
+        if (queryInfo == null || queryInfo.getOutputStage() == null) {
             return;
         }
 
-        StageInfo outputStage = queryInfo.getOutputStage().get();
         StageInfo prunedOutputStage = new StageInfo(
-                outputStage.getStageId(),
-                outputStage.getState(),
-                outputStage.getSelf(),
+                queryInfo.getOutputStage().getStageId(),
+                queryInfo.getOutputStage().getState(),
+                queryInfo.getOutputStage().getSelf(),
                 null, // Remove the plan
-                outputStage.getTypes(),
-                outputStage.getStageStats(),
+                queryInfo.getOutputStage().getTypes(),
+                queryInfo.getOutputStage().getStageStats(),
                 ImmutableList.of(), // Remove the tasks
                 ImmutableList.of(), // Remove the substages
-                outputStage.getFailureCause()
+                queryInfo.getOutputStage().getFailureCause()
         );
 
         QueryInfo prunedQueryInfo = new QueryInfo(
@@ -411,12 +408,10 @@ public final class SqlQueryExecution
                 queryInfo.getQueryStats(),
                 queryInfo.getSetSessionProperties(),
                 queryInfo.getResetSessionProperties(),
-                queryInfo.getAddedPreparedStatements(),
-                queryInfo.getDeallocatedPreparedStatements(),
                 queryInfo.getStartedTransactionId(),
                 queryInfo.isClearTransactionId(),
                 queryInfo.getUpdateType(),
-                Optional.of(prunedOutputStage),
+                prunedOutputStage,
                 queryInfo.getFailureInfo(),
                 queryInfo.getErrorCode(),
                 queryInfo.getInputs()
@@ -456,20 +451,11 @@ public final class SqlQueryExecution
 
     private QueryInfo buildQueryInfo(SqlQueryScheduler scheduler)
     {
-        Optional<StageInfo> stageInfo = Optional.empty();
+        StageInfo stageInfo = null;
         if (scheduler != null) {
-            stageInfo = Optional.ofNullable(scheduler.getStageInfo());
+            stageInfo = scheduler.getStageInfo();
         }
-
-        QueryInfo queryInfo = stateMachine.getQueryInfo(stageInfo);
-
-        if (queryInfo.isFinalQueryInfo()) {
-            // capture the final query state and drop reference to the scheduler
-            finalQueryInfo.compareAndSet(null, queryInfo);
-            queryScheduler.set(null);
-        }
-
-        return queryInfo;
+        return stateMachine.getQueryInfo(stageInfo);
     }
 
     private static class PlanRoot

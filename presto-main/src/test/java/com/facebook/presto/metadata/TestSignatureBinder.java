@@ -16,7 +16,6 @@ package com.facebook.presto.metadata;
 import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.DoubleType;
-import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.type.TypeRegistry;
@@ -27,7 +26,6 @@ import org.testng.annotations.Test;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.metadata.Signature.comparableTypeParameter;
@@ -50,12 +48,10 @@ public class TestSignatureBinder
     @Test
     public void testBindLiteralForDecimal()
     {
-        TypeSignature leftType = parseTypeSignature("decimal(p1,s1)", ImmutableSet.of("p1", "s1"));
-        TypeSignature rightType = parseTypeSignature("decimal(p2,s2)", ImmutableSet.of("p2", "s2"));
-
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(leftType, rightType)
+                .returnType("boolean")
+                .argumentTypes("decimal(p1,s1)", "decimal(p2,s2)")
+                .literalParameters("p1", "s1", "p2", "s2")
                 .build();
 
         assertThat(function)
@@ -74,12 +70,10 @@ public class TestSignatureBinder
     @Test
     public void testResolveCalculatedTypes()
     {
-        TypeSignature leftType = parseTypeSignature("varchar(x)", ImmutableSet.of("x"));
-        TypeSignature rightType = parseTypeSignature("varchar(y)", ImmutableSet.of("y"));
-
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(leftType, rightType)
+                .returnType("boolean")
+                .argumentTypes("varchar(x)", "varchar(y)")
+                .literalParameters("x", "y")
                 .build();
 
         assertThat(function)
@@ -108,8 +102,9 @@ public class TestSignatureBinder
     public void testBindUnknown()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature("varchar(x)", ImmutableSet.of("x")))
+                .returnType("boolean")
+                .argumentTypes("varchar(x)")
+                .literalParameters("x")
                 .build();
 
         assertThat(function)
@@ -127,9 +122,10 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
+                .returnType("boolean")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
-                .argumentTypes(parseTypeSignature("array(T)"), parseTypeSignature("array(decimal(p,s))", ImmutableSet.of("p", "s")))
+                .argumentTypes("array(T)", "array(decimal(p,s))")
+                .literalParameters("p", "s")
                 .build();
 
         assertThat(function)
@@ -150,11 +146,10 @@ public class TestSignatureBinder
     public void testBindDifferentLiteralParameters()
             throws Exception
     {
-        TypeSignature argType = parseTypeSignature("decimal(p,s)", ImmutableSet.of("p", "s"));
-
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(argType, argType)
+                .returnType("boolean")
+                .argumentTypes("decimal(p,s)", "decimal(p,s)")
+                .literalParameters("p", "s")
                 .build();
 
         assertThat(function)
@@ -166,14 +161,10 @@ public class TestSignatureBinder
     public void testBindCalculatedLiteralParameter()
             throws Exception
     {
-        Set<String> literalParameters = ImmutableSet.of("p1", "p2", "p3", "s");
-        TypeSignature leftType = parseTypeSignature("decimal(p1,s)", literalParameters);
-        TypeSignature rightType = parseTypeSignature("decimal(p2,s)", literalParameters);
-        TypeSignature returnType = parseTypeSignature("decimal(p3,s)", literalParameters);
-
         Signature function = functionSignature()
-                .returnType(returnType)
-                .argumentTypes(leftType, rightType)
+                .returnType("decimal(p3,s)")
+                .argumentTypes("decimal(p1,s)", "decimal(p2,s)")
+                .literalParameters("p1", "p2", "p3", "s")
                 .longVariableConstraints(longVariableExpression("p3", "p1 + p2"))
                 .build();
 
@@ -195,8 +186,9 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("boolean"))
-                .argumentTypes(parseTypeSignature("decimal(p,s)", ImmutableSet.of("p", "s")))
+                .returnType("boolean")
+                .argumentTypes("decimal(p,s)")
+                .literalParameters("p", "s")
                 .build();
 
         assertThat(function)
@@ -215,8 +207,8 @@ public class TestSignatureBinder
     public void testBindUnknownToConcreteArray()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature("array(boolean)"))
+                .returnType("boolean")
+                .argumentTypes("array(boolean)")
                 .build();
 
         assertThat(function)
@@ -229,8 +221,8 @@ public class TestSignatureBinder
     public void testBindTypeVariablesBasedOnTheSecondArgument()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("array(T)"), parseTypeSignature("T"))
+                .returnType("T")
+                .argumentTypes("array(T)", "T")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -247,8 +239,8 @@ public class TestSignatureBinder
     public void testBindParametricTypeParameterToUnknown()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("array(T)"))
+                .returnType("T")
+                .argumentTypes("array(T)")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -266,8 +258,8 @@ public class TestSignatureBinder
     public void testBindUnknownToTypeParameter()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("T"))
+                .returnType("T")
+                .argumentTypes("T")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -285,8 +277,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature(StandardTypes.DOUBLE), parseTypeSignature(StandardTypes.DOUBLE))
+                .returnType("boolean")
+                .argumentTypes("double", "double")
                 .build();
 
         assertThat(function)
@@ -299,8 +291,8 @@ public class TestSignatureBinder
     public void testBindVarcharTemplateStyle()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("T2"))
-                .argumentTypes(parseTypeSignature("T1"))
+                .returnType("T2")
+                .argumentTypes("T1")
                 .typeVariableConstraints(ImmutableList.of(
                         new TypeVariableConstraint("T1", true, false, "varchar"),
                         new TypeVariableConstraint("T2", true, false, "varchar")
@@ -322,8 +314,8 @@ public class TestSignatureBinder
     public void testBindVarchar()
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("varchar(42)"))
-                .argumentTypes(parseTypeSignature("varchar(42)"))
+                .returnType("varchar(42)")
+                .argumentTypes("varchar(42)")
                 .build();
 
         assertThat(function)
@@ -346,8 +338,9 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("boolean"))
-                .argumentTypes(parseTypeSignature("varchar(x)", ImmutableSet.of("x")))
+                .returnType("boolean")
+                .argumentTypes("varchar(x)")
+                .literalParameters("x")
                 .build();
 
         assertThat(function)
@@ -365,8 +358,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature("boolean"))
-                .argumentTypes(parseTypeSignature("varchar"))
+                .returnType("boolean")
+                .argumentTypes("varchar")
                 .build();
 
         assertThat(function)
@@ -385,8 +378,8 @@ public class TestSignatureBinder
     {
         Signature function = functionSignature()
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("T"))
+                .returnType("T")
+                .argumentTypes("T")
                 .build();
 
         assertThat(function)
@@ -420,8 +413,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature(StandardTypes.BIGINT))
+                .returnType("boolean")
+                .argumentTypes("bigint")
                 .build();
 
         assertThat(function)
@@ -449,8 +442,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature getFunction = functionSignature()
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("array(T)"))
+                .returnType("T")
+                .argumentTypes("array(T)")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -467,8 +460,8 @@ public class TestSignatureBinder
                 .fails();
 
         Signature containsFunction = functionSignature()
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("array(T)"), parseTypeSignature("T"))
+                .returnType("T")
+                .argumentTypes("array(T)", "T")
                 .typeVariableConstraints(ImmutableList.of(comparableTypeParameter("T")))
                 .build();
 
@@ -490,8 +483,8 @@ public class TestSignatureBinder
                 .fails();
 
         Signature castFunction = functionSignature()
-                .returnType(parseTypeSignature("array(T2)"))
-                .argumentTypes(parseTypeSignature("array(T1)"), parseTypeSignature("array(T2)"))
+                .returnType("array(T2)")
+                .argumentTypes("array(T1)", "array(T2)")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T1"), typeVariable("T2")))
                 .build();
 
@@ -507,8 +500,8 @@ public class TestSignatureBinder
                 ));
 
         Signature fooFunction = functionSignature()
-                .returnType(parseTypeSignature("T"))
-                .argumentTypes(parseTypeSignature("array(T)"), parseTypeSignature("array(T)"))
+                .returnType("T")
+                .argumentTypes("array(T)", "array(T)")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -530,8 +523,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature getValueFunction = functionSignature()
-                .returnType(parseTypeSignature("V"))
-                .argumentTypes(parseTypeSignature("map(K,V)"), parseTypeSignature("K"))
+                .returnType("V")
+                .argumentTypes("map(K,V)", "K")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("K"), typeVariable("V")))
                 .build();
 
@@ -556,8 +549,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature mapVariadicBoundFunction = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BIGINT))
-                .argumentTypes(parseTypeSignature("T"))
+                .returnType("bigint")
+                .argumentTypes("T")
                 .typeVariableConstraints(ImmutableList.of(withVariadicBound("T", "map")))
                 .build();
 
@@ -578,8 +571,8 @@ public class TestSignatureBinder
                 .fails();
 
         Signature decimalVariadicBoundFunction = functionSignature()
-                .returnType(parseTypeSignature("bigint"))
-                .argumentTypes(parseTypeSignature("T"))
+                .returnType("bigint")
+                .argumentTypes("T")
                 .typeVariableConstraints(ImmutableList.of(withVariadicBound("T", "decimal")))
                 .build();
 
@@ -599,8 +592,8 @@ public class TestSignatureBinder
     public void testBindUnknownToVariadic()
     {
         Signature rowFunction = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature("T"), parseTypeSignature("T"))
+                .returnType("boolean")
+                .argumentTypes("T", "T")
                 .typeVariableConstraints(ImmutableList.of(withVariadicBound("T", "row")))
                 .build();
 
@@ -613,8 +606,8 @@ public class TestSignatureBinder
                 ));
 
         Signature arrayFunction = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature("T"), parseTypeSignature("T"))
+                .returnType("boolean")
+                .argumentTypes("T", "T")
                 .typeVariableConstraints(ImmutableList.of(withVariadicBound("T", "array")))
                 .build();
 
@@ -632,8 +625,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature variableArityFunction = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature("T"))
+                .returnType("boolean")
+                .argumentTypes("T")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .setVariableArity(true)
                 .build();
@@ -670,8 +663,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature function = functionSignature()
-                .returnType(parseTypeSignature(StandardTypes.BOOLEAN))
-                .argumentTypes(parseTypeSignature("T"), parseTypeSignature(StandardTypes.DOUBLE))
+                .returnType("boolean")
+                .argumentTypes("T", "double")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -710,8 +703,8 @@ public class TestSignatureBinder
             throws Exception
     {
         Signature foo = functionSignature()
-                .returnType(parseTypeSignature("boolean"))
-                .argumentTypes(parseTypeSignature("T"), parseTypeSignature("T"))
+                .returnType("boolean")
+                .argumentTypes("T", "T")
                 .typeVariableConstraints(ImmutableList.of(typeVariable("T")))
                 .build();
 
@@ -736,8 +729,8 @@ public class TestSignatureBinder
                 .fails();
 
         Signature bar = functionSignature()
-                .returnType(parseTypeSignature("boolean"))
-                .argumentTypes(parseTypeSignature("T"), parseTypeSignature("T"))
+                .returnType("boolean")
+                .argumentTypes("T", "T")
                 .typeVariableConstraints(ImmutableList.of(comparableTypeParameter("T")))
                 .build();
 

@@ -36,7 +36,6 @@ import static com.facebook.presto.metadata.Signature.internalOperator;
 import static com.facebook.presto.metadata.Signature.internalScalarFunction;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.sql.tree.ArrayConstructor.ARRAY_CONSTRUCTOR;
-import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 
 public final class Signatures
 {
@@ -50,7 +49,6 @@ public final class Signatures
     public static final String IN = "IN";
     public static final String TRY = "TRY";
     public static final String DEREFERENCE = "DEREFERENCE";
-    public static final String ROW_CONSTRUCTOR = "ROW_CONSTRUCTOR";
 
     private Signatures()
     {
@@ -59,7 +57,7 @@ public final class Signatures
     // **************** sql operators ****************
     public static Signature notSignature()
     {
-        return new Signature("not", SCALAR, parseTypeSignature(StandardTypes.BOOLEAN), ImmutableList.of(parseTypeSignature(StandardTypes.BOOLEAN)));
+        return new Signature("not", SCALAR, StandardTypes.BOOLEAN, ImmutableList.of(StandardTypes.BOOLEAN));
     }
 
     public static Signature betweenSignature(Type valueType, Type minType, Type maxType)
@@ -69,12 +67,12 @@ public final class Signatures
 
     public static Signature likeSignature()
     {
-        return internalScalarFunction("LIKE", parseTypeSignature(StandardTypes.BOOLEAN), parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(LikePatternType.NAME));
+        return internalScalarFunction("LIKE", StandardTypes.BOOLEAN, StandardTypes.VARCHAR, LikePatternType.NAME);
     }
 
     public static Signature likePatternSignature()
     {
-        return internalScalarFunction("LIKE_PATTERN", parseTypeSignature(LikePatternType.NAME), parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(StandardTypes.VARCHAR));
+        return internalScalarFunction("LIKE_PATTERN", LikePatternType.NAME, StandardTypes.VARCHAR, StandardTypes.VARCHAR);
     }
 
     public static Signature castSignature(Type returnType, Type valueType)
@@ -90,7 +88,7 @@ public final class Signatures
 
     public static Signature logicalExpressionSignature(LogicalBinaryExpression.Type expressionType)
     {
-        return internalScalarFunction(expressionType.name(), parseTypeSignature(StandardTypes.BOOLEAN), parseTypeSignature(StandardTypes.BOOLEAN), parseTypeSignature(StandardTypes.BOOLEAN));
+        return internalScalarFunction(expressionType.name(), StandardTypes.BOOLEAN, StandardTypes.BOOLEAN, StandardTypes.BOOLEAN);
     }
 
     public static Signature arithmeticNegationSignature(Type returnType, Type valueType)
@@ -157,12 +155,7 @@ public final class Signatures
     // **************** functions that require varargs and/or complex types (e.g., lists) ****************
     public static Signature inSignature()
     {
-        return internalScalarFunction(IN, parseTypeSignature(StandardTypes.BOOLEAN));
-    }
-
-    public static Signature rowConstructorSignature(Type returnType, List<Type> argumentTypes)
-    {
-        return internalScalarFunction(ROW_CONSTRUCTOR, returnType.getTypeSignature(), argumentTypes.stream().map(Type::getTypeSignature).collect(toImmutableList()));
+        return internalScalarFunction(IN, StandardTypes.BOOLEAN);
     }
 
     // **************** functions that need to do special null handling ****************

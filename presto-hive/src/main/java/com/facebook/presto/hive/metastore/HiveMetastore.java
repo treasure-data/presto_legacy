@@ -77,8 +77,6 @@ public interface HiveMetastore
 
     void grantTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> privilegeGrantInfoSet);
 
-    void revokeTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> privilegeGrantInfoSet);
-
     default boolean isDatabaseOwner(String user, String databaseName)
     {
         // all users are "owners" of the default database

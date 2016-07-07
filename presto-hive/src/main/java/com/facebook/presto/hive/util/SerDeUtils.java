@@ -23,9 +23,7 @@ import com.facebook.presto.spi.type.DateType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.DoubleType;
 import com.facebook.presto.spi.type.IntegerType;
-import com.facebook.presto.spi.type.SmallintType;
 import com.facebook.presto.spi.type.TimestampType;
-import com.facebook.presto.spi.type.TinyintType;
 import com.facebook.presto.spi.type.Type;
 import io.airlift.slice.Slices;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
@@ -102,10 +100,10 @@ public final class SerDeUtils
                 BooleanType.BOOLEAN.writeBoolean(builder, ((BooleanObjectInspector) inspector).get(object));
                 return;
             case BYTE:
-                TinyintType.TINYINT.writeLong(builder, ((ByteObjectInspector) inspector).get(object));
+                IntegerType.INTEGER.writeLong(builder, ((ByteObjectInspector) inspector).get(object));
                 return;
             case SHORT:
-                SmallintType.SMALLINT.writeLong(builder, ((ShortObjectInspector) inspector).get(object));
+                IntegerType.INTEGER.writeLong(builder, ((ShortObjectInspector) inspector).get(object));
                 return;
             case INT:
                 IntegerType.INTEGER.writeLong(builder, ((IntObjectInspector) inspector).get(object));

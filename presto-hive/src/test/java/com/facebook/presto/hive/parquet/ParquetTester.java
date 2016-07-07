@@ -162,11 +162,11 @@ public class ParquetTester
             throws IOException, InterruptedException
     {
         Path path = new Path(tempFile.getFile().toURI());
-        FileSystem fileSystem = path.getFileSystem(jobConf);
-        ParquetMetadata parquetMetadata = ParquetMetadataReader.readFooter(fileSystem, path);
+        ParquetMetadata parquetMetadata = ParquetMetadataReader.readFooter(jobConf, path);
         FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
         MessageType fileSchema = fileMetaData.getSchema();
 
+        FileSystem fileSystem = path.getFileSystem(jobConf);
         long size = fileSystem.getFileStatus(path).getLen();
         FSDataInputStream inputStream = fileSystem.open(path);
         ParquetDataSource dataSource = new HdfsParquetDataSource(path, size, inputStream);

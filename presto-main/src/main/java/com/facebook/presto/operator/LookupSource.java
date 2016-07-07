@@ -27,11 +27,11 @@ public interface LookupSource
 
     int getJoinPositionCount();
 
-    long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage, long rawHash);
+    long getJoinPosition(int position, Page page, long rawHash);
 
-    long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage);
+    long getJoinPosition(int position, Page page);
 
-    long getNextJoinPosition(long currentJoinPosition, int probePosition, Page allProbeChannelsPage);
+    long getNextJoinPosition(long currentPosition);
 
     void appendTo(long position, PageBuilder pageBuilder, int outputChannelOffset);
 

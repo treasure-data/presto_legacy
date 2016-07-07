@@ -28,7 +28,8 @@ import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.Literal;
 import com.facebook.presto.sql.tree.NullLiteral;
-import com.facebook.presto.sql.tree.SymbolReference;
+import com.facebook.presto.sql.tree.QualifiedName;
+import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.google.common.collect.ImmutableList;
 
 import java.util.LinkedHashMap;
@@ -36,7 +37,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import static com.facebook.presto.metadata.FunctionKind.AGGREGATE;
-import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static java.util.Objects.requireNonNull;
 
 public class CountConstantOptimizer
@@ -72,7 +72,7 @@ public class CountConstantOptimizer
                     Signature signature = node.getFunctions().get(symbol);
                     if (isCountConstant(projectNode, functionCall, signature)) {
                         aggregations.put(symbol, new FunctionCall(functionCall.getName(), functionCall.isDistinct(), ImmutableList.<Expression>of()));
-                        functions.put(symbol, new Signature("count", AGGREGATE, parseTypeSignature(StandardTypes.BIGINT)));
+                        functions.put(symbol, new Signature("count", AGGREGATE, StandardTypes.BIGINT));
                     }
                 }
             }
@@ -104,8 +104,10 @@ public class CountConstantOptimizer
                 return true;
             }
 
-            if (argument instanceof SymbolReference) {
-                Symbol argumentSymbol = Symbol.from(argument);
+            if (argument instanceof QualifiedNameReference) {
+                QualifiedNameReference qualifiedNameReference = (QualifiedNameReference) argument;
+                QualifiedName qualifiedName = qualifiedNameReference.getName();
+                Symbol argumentSymbol = Symbol.fromQualifiedName(qualifiedName);
                 Expression argumentExpression = projectNode.getAssignments().get(argumentSymbol);
                 return (argumentExpression instanceof Literal) && (!(argumentExpression instanceof NullLiteral));
             }

@@ -84,7 +84,7 @@ public class LocalExchangeSource
             if (!finishing) {
                 // buffered bytes must be updated before adding to the buffer to assure
                 // the count does not go negative
-                bufferedBytes.addAndGet(pageReference.getRetainedSizeInBytes());
+                bufferedBytes.addAndGet(pageReference.getSizeInBytes());
                 buffer.add(pageReference);
                 added = true;
             }
@@ -117,7 +117,7 @@ public class LocalExchangeSource
 
         // dereference the page outside of lock, since may trigger a callback
         Page page = pageReference.removePage();
-        bufferedBytes.addAndGet(-page.getRetainedSizeInBytes());
+        bufferedBytes.addAndGet(-page.getSizeInBytes());
 
         checkFinished();
 
@@ -175,7 +175,7 @@ public class LocalExchangeSource
             finishing = true;
 
             buffer.drainTo(remainingPages);
-            bufferedBytes.addAndGet(-remainingPages.stream().mapToLong(PageReference::getRetainedSizeInBytes).sum());
+            bufferedBytes.addAndGet(-remainingPages.stream().mapToLong(PageReference::getSizeInBytes).sum());
 
             notEmptyFuture = this.notEmptyFuture;
             this.notEmptyFuture = NOT_EMPTY;

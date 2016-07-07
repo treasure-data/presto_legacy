@@ -196,8 +196,6 @@ Specifier Description
 ``%x``    ``x``, for any ``x`` not listed above
 ========= ===========
 
-.. warning:: Two-digit year format assumes range 1970 .. 2069, so "70" will result in year 1970 but "69" will produce 2069.
-
 .. warning:: The following specifiers are not currently supported: ``%D %U %u %V %X``
 
 .. function:: date_format(timestamp, format) -> varchar
@@ -212,9 +210,9 @@ Java Date Functions
 -------------------
 
 The functions in this section use a format string that is compatible with
-JodaTime's `DateTimeFormat`_ pattern format.
+the Java `SimpleDateFormat`_ pattern format.
 
-.. _DateTimeFormat: http://joda-time.sourceforge.net/apidocs/org/joda/time/format/DateTimeFormat.html
+.. _SimpleDateFormat: http://docs.oracle.com/javase/7/docs/api/java/text/SimpleDateFormat.html
 
 .. function:: format_datetime(timestamp, format) -> varchar
 

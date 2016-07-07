@@ -15,7 +15,6 @@ package com.facebook.presto.operator.scalar;
 
 import com.facebook.presto.annotation.UsedByGeneratedCode;
 import com.facebook.presto.metadata.BoundVariables;
-import com.facebook.presto.metadata.FunctionKind;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.metadata.SqlScalarFunction;
@@ -41,7 +40,6 @@ import static com.facebook.presto.metadata.Signature.internalOperator;
 import static com.facebook.presto.metadata.Signature.typeVariable;
 import static com.facebook.presto.spi.StandardErrorCode.INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
-import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.type.TypeUtils.parameterizedTypeName;
 import static com.facebook.presto.util.Reflection.methodHandle;
@@ -65,13 +63,7 @@ public final class ArrayJoin
 
         public ArrayJoinWithNullReplacement()
         {
-            super(new Signature(FUNCTION_NAME,
-                    FunctionKind.SCALAR,
-                    ImmutableList.of(typeVariable("T")),
-                    ImmutableList.of(),
-                    parseTypeSignature(StandardTypes.VARCHAR),
-                    ImmutableList.of(parseTypeSignature("array(T)"), parseTypeSignature(StandardTypes.VARCHAR), parseTypeSignature(StandardTypes.VARCHAR)),
-                    false));
+            super(FUNCTION_NAME, ImmutableList.of(typeVariable("T")), ImmutableList.of(), StandardTypes.VARCHAR, ImmutableList.of("array(T)", StandardTypes.VARCHAR, StandardTypes.VARCHAR));
         }
 
         @Override
@@ -104,13 +96,7 @@ public final class ArrayJoin
 
     public ArrayJoin()
     {
-        super(new Signature(FUNCTION_NAME,
-                FunctionKind.SCALAR,
-                ImmutableList.of(typeVariable("T")),
-                ImmutableList.of(),
-                parseTypeSignature(StandardTypes.VARCHAR),
-                ImmutableList.of(parseTypeSignature("array(T)"), parseTypeSignature(StandardTypes.VARCHAR)),
-                false));
+        super(FUNCTION_NAME, ImmutableList.of(typeVariable("T")), ImmutableList.of(), StandardTypes.VARCHAR, ImmutableList.of("array(T)", StandardTypes.VARCHAR));
     }
 
     @Override

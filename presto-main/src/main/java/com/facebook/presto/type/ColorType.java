@@ -16,31 +16,27 @@ package com.facebook.presto.type;
 import com.facebook.presto.operator.scalar.ColorFunctions;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.type.AbstractIntType;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.type.AbstractFixedWidthType;
 
 import static com.facebook.presto.type.TypeUtils.parameterizedTypeName;
+import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 
 public class ColorType
-        extends AbstractIntType
+        extends AbstractFixedWidthType
 {
     public static final ColorType COLOR = new ColorType();
     public static final String NAME = "color";
 
     private ColorType()
     {
-        super(parameterizedTypeName(NAME));
+        super(parameterizedTypeName(NAME), long.class, SIZE_OF_INT);
     }
 
     @Override
-    public boolean isOrderable()
+    public boolean isComparable()
     {
-        return false;
-    }
-
-    @Override
-    public int compareTo(Block leftBlock, int leftPosition, Block rightBlock, int rightPosition)
-    {
-        throw new UnsupportedOperationException();
+        return true;
     }
 
     @Override
@@ -62,15 +58,39 @@ public class ColorType
     }
 
     @Override
-    @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
-    public boolean equals(Object other)
+    public boolean equalTo(Block leftBlock, int leftPosition, Block rightBlock, int rightPosition)
     {
-        return other == COLOR;
+        int leftValue = leftBlock.getInt(leftPosition, 0);
+        int rightValue = rightBlock.getInt(rightPosition, 0);
+        return leftValue == rightValue;
     }
 
     @Override
-    public int hashCode()
+    public long hash(Block block, int position)
     {
-        return getClass().hashCode();
+        return block.getInt(position, 0);
+    }
+
+    @Override
+    public void appendTo(Block block, int position, BlockBuilder blockBuilder)
+    {
+        if (block.isNull(position)) {
+            blockBuilder.appendNull();
+        }
+        else {
+            blockBuilder.writeInt(block.getInt(position, 0)).closeEntry();
+        }
+    }
+
+    @Override
+    public long getLong(Block block, int position)
+    {
+        return block.getInt(position, 0);
+    }
+
+    @Override
+    public void writeLong(BlockBuilder blockBuilder, long value)
+    {
+        blockBuilder.writeInt((int) value).closeEntry();
     }
 }

@@ -35,28 +35,20 @@ public class QualifiedName
     public static QualifiedName of(String first, String... rest)
     {
         requireNonNull(first, "first is null");
-        return of(ImmutableList.copyOf(Lists.asList(first, rest)));
+        return new QualifiedName(ImmutableList.copyOf(Lists.asList(first, rest)));
     }
 
-    public static QualifiedName of(String name)
+    public QualifiedName(String name)
     {
-        requireNonNull(name, "name is null");
-        return of(ImmutableList.of(name));
+        this(ImmutableList.of(name));
     }
 
-    public static QualifiedName of(Iterable<String> originalParts)
+    public QualifiedName(Iterable<String> parts)
     {
-        requireNonNull(originalParts, "originalParts is null");
-        checkArgument(!isEmpty(originalParts), "originalParts is empty");
-        List<String> parts = ImmutableList.copyOf(transform(originalParts, part -> part.toLowerCase(ENGLISH)));
-
-        return new QualifiedName(ImmutableList.copyOf(originalParts), parts);
-    }
-
-    private QualifiedName(List<String> originalParts, List<String> parts)
-    {
-        this.originalParts = originalParts;
-        this.parts = parts;
+        requireNonNull(parts, "parts is null");
+        checkArgument(!isEmpty(parts), "parts is empty");
+        this.parts = ImmutableList.copyOf(transform(parts, part -> part.toLowerCase(ENGLISH)));
+        this.originalParts = ImmutableList.copyOf(parts);
     }
 
     public List<String> getParts()
@@ -85,8 +77,7 @@ public class QualifiedName
             return Optional.empty();
         }
 
-        List<String> subList = parts.subList(0, parts.size() - 1);
-        return Optional.of(new QualifiedName(subList, subList));
+        return Optional.of(new QualifiedName(parts.subList(0, parts.size() - 1)));
     }
 
     public boolean hasSuffix(QualifiedName suffix)

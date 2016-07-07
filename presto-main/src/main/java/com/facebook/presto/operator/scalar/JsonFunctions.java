@@ -14,12 +14,8 @@
 package com.facebook.presto.operator.scalar;
 
 import com.facebook.presto.metadata.OperatorType;
-import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.type.SqlDecimal;
 import com.facebook.presto.spi.type.StandardTypes;
-import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.type.JsonPathType;
 import com.facebook.presto.type.SqlType;
 import com.fasterxml.jackson.core.JsonFactory;
@@ -112,6 +108,7 @@ public final class JsonFunctions
             if (parser.nextToken() != START_ARRAY) {
                 return null;
             }
+
             long length = 0;
             while (true) {
                 JsonToken token = parser.nextToken();
@@ -405,14 +402,5 @@ public final class JsonFunctions
     public static Long jsonSize(@SqlType(StandardTypes.JSON) Slice json, @SqlType(JsonPathType.NAME) JsonPath jsonPath)
     {
         return JsonExtract.extract(json, jsonPath.getSizeExtractor());
-    }
-
-    public static Object getJsonObjectValue(Type valueType, ConnectorSession session, Block block, int position)
-    {
-        Object objectValue = valueType.getObjectValue(session, block, position);
-        if (objectValue instanceof SqlDecimal) {
-            objectValue = ((SqlDecimal) objectValue).toBigDecimal();
-        }
-        return objectValue;
     }
 }

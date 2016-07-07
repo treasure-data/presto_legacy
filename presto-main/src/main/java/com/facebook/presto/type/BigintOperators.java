@@ -17,8 +17,6 @@ import com.facebook.presto.operator.scalar.ScalarOperator;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.google.common.primitives.Ints;
-import com.google.common.primitives.Shorts;
-import com.google.common.primitives.SignedBytes;
 import io.airlift.slice.Slice;
 
 import static com.facebook.presto.metadata.OperatorType.ADD;
@@ -35,13 +33,10 @@ import static com.facebook.presto.metadata.OperatorType.MODULUS;
 import static com.facebook.presto.metadata.OperatorType.MULTIPLY;
 import static com.facebook.presto.metadata.OperatorType.NEGATION;
 import static com.facebook.presto.metadata.OperatorType.NOT_EQUAL;
-import static com.facebook.presto.metadata.OperatorType.SATURATED_FLOOR_CAST;
 import static com.facebook.presto.metadata.OperatorType.SUBTRACT;
 import static com.facebook.presto.spi.StandardErrorCode.DIVISION_BY_ZERO;
 import static com.facebook.presto.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
 import static io.airlift.slice.Slices.utf8Slice;
-import static java.lang.Float.floatToRawIntBits;
-import static java.lang.String.format;
 import static java.lang.String.valueOf;
 
 public final class BigintOperators
@@ -58,7 +53,7 @@ public final class BigintOperators
             return Math.addExact(left, right);
         }
         catch (ArithmeticException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, format("bigint addition overflow: %s + %s", left, right), e);
+            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, e);
         }
     }
 
@@ -70,7 +65,7 @@ public final class BigintOperators
             return Math.subtractExact(left, right);
         }
         catch (ArithmeticException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, format("bigint subtraction overflow: %s - %s", left, right), e);
+            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, e);
         }
     }
 
@@ -82,7 +77,7 @@ public final class BigintOperators
             return Math.multiplyExact(left, right);
         }
         catch (ArithmeticException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, format("bigint multiplication overflow: %s * %s", left, right), e);
+            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, e);
         }
     }
 
@@ -92,7 +87,7 @@ public final class BigintOperators
     {
         try {
             if (left == Long.MIN_VALUE && right == -1) {
-                throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, format("bigint division overflow: %s / %s", left, right));
+                throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, "long overflow");
             }
             return left / right;
         }
@@ -121,7 +116,7 @@ public final class BigintOperators
             return Math.negateExact(value);
         }
         catch (ArithmeticException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, "bigint negation overflow: " + value, e);
+            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, e);
         }
     }
 
@@ -189,38 +184,7 @@ public final class BigintOperators
             return Ints.checkedCast(value);
         }
         catch (IllegalArgumentException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for integer: " + value, e);
-        }
-    }
-
-    @ScalarOperator(SATURATED_FLOOR_CAST)
-    @SqlType(StandardTypes.INTEGER)
-    public static long saturatedFloorCastToInteger(@SqlType(StandardTypes.BIGINT) long value)
-    {
-        return Ints.saturatedCast(value);
-    }
-
-    @ScalarOperator(CAST)
-    @SqlType(StandardTypes.SMALLINT)
-    public static long castToSmallint(@SqlType(StandardTypes.BIGINT) long value)
-    {
-        try {
-            return Shorts.checkedCast(value);
-        }
-        catch (IllegalArgumentException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value, e);
-        }
-    }
-
-    @ScalarOperator(CAST)
-    @SqlType(StandardTypes.TINYINT)
-    public static long castToTinyint(@SqlType(StandardTypes.BIGINT) long value)
-    {
-        try {
-            return SignedBytes.checkedCast(value);
-        }
-        catch (IllegalArgumentException e) {
-            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value, e);
+            throw new PrestoException(NUMERIC_VALUE_OUT_OF_RANGE, e);
         }
     }
 
@@ -229,13 +193,6 @@ public final class BigintOperators
     public static double castToDouble(@SqlType(StandardTypes.BIGINT) long value)
     {
         return value;
-    }
-
-    @ScalarOperator(CAST)
-    @SqlType(StandardTypes.FLOAT)
-    public static long castToFloat(@SqlType(StandardTypes.BIGINT) long value)
-    {
-        return (long) floatToRawIntBits((float) value);
     }
 
     @ScalarOperator(CAST)

@@ -242,7 +242,7 @@ public class BackgroundHiveSplitLoader
                 }
             }
             else {
-                boolean splittable = isSplittable(files.getInputFormat(), hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()), file.getPath());
+                boolean splittable = isSplittable(files.getInputFormat(), hdfsEnvironment.getFileSystem(file.getPath()), file.getPath());
 
                 CompletableFuture<?> future = hiveSplitSource.addToQueue(createHiveSplits(
                         files.getPartitionName(),
@@ -278,7 +278,6 @@ public class BackgroundHiveSplitLoader
         Path path = new Path(getPartitionLocation(table, partition.getPartition()));
         Configuration configuration = hdfsEnvironment.getConfiguration(path);
         InputFormat<?, ?> inputFormat = getInputFormat(configuration, schema, false);
-        FileSystem fs = hdfsEnvironment.getFileSystem(session.getUser(), path);
 
         if (inputFormat instanceof SymlinkTextInputFormat) {
             if (bucketHandle.isPresent()) {
@@ -286,7 +285,7 @@ public class BackgroundHiveSplitLoader
             }
 
             // TODO: This should use an iterator like the HiveFileIterator
-            for (Path targetPath : getTargetPathsFromSymlink(fs, path)) {
+            for (Path targetPath : getTargetPathsFromSymlink(configuration, path)) {
                 // The input should be in TextInputFormat.
                 TextInputFormat targetInputFormat = new TextInputFormat();
                 // get the configuration for the target path -- it may be a different hdfs instance
@@ -299,7 +298,7 @@ public class BackgroundHiveSplitLoader
 
                 for (InputSplit inputSplit : targetSplits) {
                     FileSplit split = (FileSplit) inputSplit;
-                    FileSystem targetFilesystem = hdfsEnvironment.getFileSystem(session.getUser(), split.getPath());
+                    FileSystem targetFilesystem = split.getPath().getFileSystem(targetConfiguration);
                     FileStatus file = targetFilesystem.getFileStatus(split.getPath());
                     hiveSplitSource.addToQueue(createHiveSplits(
                             partitionName,
@@ -322,6 +321,7 @@ public class BackgroundHiveSplitLoader
         }
 
         // If only one bucket could match: load that one file
+        FileSystem fs = hdfsEnvironment.getFileSystem(path);
         HiveFileIterator iterator = new HiveFileIterator(path, fs, directoryLister, namenodeStats, partitionName, inputFormat, schema, partitionKeys, effectivePredicate);
         if (bucket.isPresent()) {
             List<LocatedFileStatus> locatedFileStatuses = listAndSortBucketFiles(iterator, bucket.get().getBucketCount());
@@ -352,7 +352,7 @@ public class BackgroundHiveSplitLoader
 
             for (int bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++) {
                 LocatedFileStatus file = list.get(bucketIndex);
-                boolean splittable = isSplittable(iterator.getInputFormat(), hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()), file.getPath());
+                boolean splittable = isSplittable(iterator.getInputFormat(), hdfsEnvironment.getFileSystem(file.getPath()), file.getPath());
 
                 hiveSplitSource.addToQueue(createHiveSplits(
                         iterator.getPartitionName(),
@@ -396,9 +396,10 @@ public class BackgroundHiveSplitLoader
         return list;
     }
 
-    private static List<Path> getTargetPathsFromSymlink(FileSystem fileSystem, Path symlinkDir)
+    private static List<Path> getTargetPathsFromSymlink(Configuration conf, Path symlinkDir)
     {
         try {
+            FileSystem fileSystem = symlinkDir.getFileSystem(conf);
             FileStatus[] symlinks = fileSystem.listStatus(symlinkDir, HIDDEN_FILES_PATH_FILTER);
             List<Path> targets = new ArrayList<>();
 
@@ -476,7 +477,7 @@ public class BackgroundHiveSplitLoader
                             partitionKeys,
                             addresses,
                             bucketNumber,
-                            forceLocalScheduling && hasRealAddress(addresses),
+                            forceLocalScheduling,
                             effectivePredicate));
 
                     chunkOffset += chunkLength;
@@ -502,16 +503,10 @@ public class BackgroundHiveSplitLoader
                     partitionKeys,
                     addresses,
                     bucketNumber,
-                    forceLocalScheduling && hasRealAddress(addresses),
+                    forceLocalScheduling,
                     effectivePredicate));
         }
         return builder.build();
-    }
-
-    private static boolean hasRealAddress(List<HostAddress> addresses)
-    {
-        // Hadoop FileSystem returns "localhost" as a default
-        return addresses.stream().anyMatch(address -> !address.getHostText().equals("localhost"));
     }
 
     private static List<HostAddress> toHostAddress(String[] hosts)

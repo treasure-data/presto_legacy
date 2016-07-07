@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.hive.orc;
 
-import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePageSourceFactory;
@@ -70,19 +69,17 @@ public class OrcPageSourceFactory
     private static final Pattern DEFAULT_HIVE_COLUMN_NAME_PATTERN = Pattern.compile("_col\\d+");
     private final TypeManager typeManager;
     private final boolean useOrcColumnNames;
-    private final HdfsEnvironment hdfsEnvironment;
 
     @Inject
-    public OrcPageSourceFactory(TypeManager typeManager, HiveClientConfig config, HdfsEnvironment hdfsEnvironment)
+    public OrcPageSourceFactory(TypeManager typeManager, HiveClientConfig config)
     {
-        this(typeManager, requireNonNull(config, "hiveClientConfig is null").isUseOrcColumnNames(), hdfsEnvironment);
+        this(typeManager, requireNonNull(config, "hiveClientConfig is null").isUseOrcColumnNames());
     }
 
-    public OrcPageSourceFactory(TypeManager typeManager, boolean useOrcColumnNames, HdfsEnvironment hdfsEnvironment)
+    public OrcPageSourceFactory(TypeManager typeManager, boolean useOrcColumnNames)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.useOrcColumnNames = useOrcColumnNames;
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
     }
 
     @Override
@@ -104,8 +101,6 @@ public class OrcPageSourceFactory
 
         return Optional.of(createOrcPageSource(
                 new OrcMetadataReader(),
-                hdfsEnvironment,
-                session.getUser(),
                 configuration,
                 path,
                 start,
@@ -121,10 +116,7 @@ public class OrcPageSourceFactory
                 getOrcStreamBufferSize(session)));
     }
 
-    public static OrcPageSource createOrcPageSource(
-            MetadataReader metadataReader,
-            HdfsEnvironment hdfsEnvironment,
-            String sessionUser,
+    public static OrcPageSource createOrcPageSource(MetadataReader metadataReader,
             Configuration configuration,
             Path path,
             long start,
@@ -141,7 +133,7 @@ public class OrcPageSourceFactory
     {
         OrcDataSource orcDataSource;
         try {
-            FileSystem fileSystem = hdfsEnvironment.getFileSystem(sessionUser, path, configuration);
+            FileSystem fileSystem = path.getFileSystem(configuration);
             long size = fileSystem.getFileStatus(path).getLen();
             FSDataInputStream inputStream = fileSystem.open(path);
             orcDataSource = new HdfsOrcDataSource(path.toString(), size, maxMergeDistance, maxBufferSize, streamBufferSize, inputStream);

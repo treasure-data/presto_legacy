@@ -88,7 +88,4 @@ public interface HiveMetastoreClient
 
     boolean grantPrivileges(PrivilegeBag privilegeBag)
             throws TException;
-
-    boolean revokePrivileges(PrivilegeBag privilegeBag)
-            throws TException;
 }

@@ -23,8 +23,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.facebook.presto.spi.block.BlockUtil.checkValidPositions;
-import static com.facebook.presto.spi.block.BlockUtil.intSaturatedCast;
+import static com.facebook.presto.spi.block.BlockValidationUtil.checkValidPositions;
 
 public class SliceArrayBlock
         extends AbstractVariableWidthBlock
@@ -183,7 +182,10 @@ public class SliceArrayBlock
                 sizeInBytes += value.length();
             }
         }
-        return intSaturatedCast(sizeInBytes);
+        if (sizeInBytes > Integer.MAX_VALUE) {
+            sizeInBytes = Integer.MAX_VALUE;
+        }
+        return (int) sizeInBytes;
     }
 
     static int getSliceArrayRetainedSizeInBytes(Slice[] values)
@@ -195,6 +197,9 @@ public class SliceArrayBlock
                 sizeInBytes += value.getRetainedSize();
             }
         }
-        return intSaturatedCast(sizeInBytes);
+        if (sizeInBytes > Integer.MAX_VALUE) {
+            sizeInBytes = Integer.MAX_VALUE;
+        }
+        return (int) sizeInBytes;
     }
 }

@@ -15,18 +15,32 @@ package com.facebook.presto.spi.type;
 
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.BlockBuilder;
 
 import static com.facebook.presto.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 
 public final class TimestampWithTimeZoneType
-        extends AbstractLongType
+        extends AbstractFixedWidthType
 {
     public static final TimestampWithTimeZoneType TIMESTAMP_WITH_TIME_ZONE = new TimestampWithTimeZoneType();
 
     private TimestampWithTimeZoneType()
     {
-        super(parseTypeSignature(StandardTypes.TIMESTAMP_WITH_TIME_ZONE));
+        super(parseTypeSignature(StandardTypes.TIMESTAMP_WITH_TIME_ZONE), long.class, SIZE_OF_LONG);
+    }
+
+    @Override
+    public boolean isComparable()
+    {
+        return true;
+    }
+
+    @Override
+    public boolean isOrderable()
+    {
+        return true;
     }
 
     @Override
@@ -50,7 +64,8 @@ public final class TimestampWithTimeZoneType
     @Override
     public long hash(Block block, int position)
     {
-        return unpackMillisUtc(block.getLong(position, 0));
+        long value = unpackMillisUtc(block.getLong(position, 0));
+        return (int) (value ^ (value >>> 32));
     }
 
     @Override
@@ -62,15 +77,25 @@ public final class TimestampWithTimeZoneType
     }
 
     @Override
-    @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
-    public boolean equals(Object other)
+    public void appendTo(Block block, int position, BlockBuilder blockBuilder)
     {
-        return other == TIMESTAMP_WITH_TIME_ZONE;
+        if (block.isNull(position)) {
+            blockBuilder.appendNull();
+        }
+        else {
+            blockBuilder.writeLong(block.getLong(position, 0)).closeEntry();
+        }
     }
 
     @Override
-    public int hashCode()
+    public long getLong(Block block, int position)
     {
-        return getClass().hashCode();
+        return block.getLong(position, 0);
+    }
+
+    @Override
+    public void writeLong(BlockBuilder blockBuilder, long value)
+    {
+        blockBuilder.writeLong(value).closeEntry();
     }
 }

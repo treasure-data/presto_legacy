@@ -118,6 +118,7 @@ public final class TimeWithTimeZoneOperators
     @SqlType(StandardTypes.BIGINT)
     public static long hashCode(@SqlType(StandardTypes.TIME_WITH_TIME_ZONE) long value)
     {
-        return unpackMillisUtc(value);
+        long millis = unpackMillisUtc(value);
+        return (int) (millis ^ (millis >>> 32));
     }
 }

@@ -45,7 +45,6 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
-import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.TimeZoneKey.UTC_KEY;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
@@ -151,15 +150,15 @@ public abstract class AbstractTestParquetReader
     {
         tester.testRoundTrip(javaByteObjectInspector,
                 transform(writeValues, AbstractTestParquetReader::intToByte),
-                AbstractTestParquetReader::byteToInt,
-                INTEGER);
+                AbstractTestParquetReader::byteToLong,
+                BIGINT);
 
         tester.testRoundTrip(javaShortObjectInspector,
                 transform(writeValues, AbstractTestParquetReader::intToShort),
-                AbstractTestParquetReader::shortToInt,
-                INTEGER);
+                AbstractTestParquetReader::shortToLong,
+                BIGINT);
 
-        tester.testRoundTrip(javaIntObjectInspector, writeValues, writeValues, INTEGER);
+        tester.testRoundTrip(javaIntObjectInspector, writeValues, AbstractTestParquetReader::intToLong, BIGINT);
         tester.testRoundTrip(javaLongObjectInspector, transform(writeValues, AbstractTestParquetReader::intToLong), BIGINT);
         tester.testRoundTrip(javaTimestampObjectInspector,
                 transform(writeValues, AbstractTestParquetReader::intToTimestamp),
@@ -384,27 +383,19 @@ public abstract class AbstractTestParquetReader
         return Shorts.checkedCast(input);
     }
 
-    private static Integer byteToInt(Byte input)
+    private static Long byteToLong(Byte input)
     {
-        return toInteger(input);
+        return toLong(input);
     }
 
-    private static Integer shortToInt(Short input)
+    private static Long shortToLong(Short input)
     {
-        return toInteger(input);
+        return toLong(input);
     }
 
     private static Long intToLong(Integer input)
     {
         return toLong(input);
-    }
-
-    private static <N extends Number> Integer toInteger(N input)
-    {
-        if (input == null) {
-            return null;
-        }
-        return input.intValue();
     }
 
     private static <N extends Number> Long toLong(N input)

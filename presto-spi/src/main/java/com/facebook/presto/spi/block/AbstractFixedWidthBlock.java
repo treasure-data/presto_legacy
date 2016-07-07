@@ -74,6 +74,20 @@ public abstract class AbstractFixedWidthBlock
     }
 
     @Override
+    public float getFloat(int position, int offset)
+    {
+        checkReadablePosition(position);
+        return getRawSlice().getFloat(valueOffset(position) + offset);
+    }
+
+    @Override
+    public double getDouble(int position, int offset)
+    {
+        checkReadablePosition(position);
+        return getRawSlice().getDouble(valueOffset(position) + offset);
+    }
+
+    @Override
     public Slice getSlice(int position, int offset, int length)
     {
         checkReadablePosition(position);
@@ -162,6 +176,11 @@ public abstract class AbstractFixedWidthBlock
     {
         checkReadablePosition(position);
         return isEntryNull(position);
+    }
+
+    @Override
+    public void assureLoaded()
+    {
     }
 
     private int valueOffset(int position)

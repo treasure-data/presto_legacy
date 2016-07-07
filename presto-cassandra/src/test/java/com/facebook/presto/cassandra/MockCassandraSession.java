@@ -49,8 +49,7 @@ public class MockCassandraSession
                 null,
                 config.getFetchSizeForPartitionKeySelect(),
                 config.getLimitForPartitionKeySelect(),
-                listJsonCodec(ExtraColumnMetadata.class),
-                config.getNoHostAvailableRetryCount());
+                listJsonCodec(ExtraColumnMetadata.class));
     }
 
     public void setThrowException(boolean throwException)

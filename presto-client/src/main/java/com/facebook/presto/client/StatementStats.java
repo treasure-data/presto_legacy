@@ -27,7 +27,6 @@ import static java.util.Objects.requireNonNull;
 public class StatementStats
 {
     private final String state;
-    private final boolean queued;
     private final boolean scheduled;
     private final int nodes;
     private final int totalSplits;
@@ -44,7 +43,6 @@ public class StatementStats
     @JsonCreator
     public StatementStats(
             @JsonProperty("state") String state,
-            @JsonProperty("queued") boolean queued,
             @JsonProperty("scheduled") boolean scheduled,
             @JsonProperty("nodes") int nodes,
             @JsonProperty("totalSplits") int totalSplits,
@@ -59,7 +57,6 @@ public class StatementStats
             @JsonProperty("rootStage") StageStats rootStage)
     {
         this.state = requireNonNull(state, "state is null");
-        this.queued = queued;
         this.scheduled = scheduled;
         this.nodes = nodes;
         this.totalSplits = totalSplits;
@@ -79,12 +76,6 @@ public class StatementStats
     public String getState()
     {
         return state;
-    }
-
-    @JsonProperty
-    public boolean isQueued()
-    {
-        return queued;
     }
 
     @JsonProperty
@@ -165,7 +156,6 @@ public class StatementStats
     {
         return toStringHelper(this)
                 .add("state", state)
-                .add("queued", queued)
                 .add("scheduled", scheduled)
                 .add("nodes", nodes)
                 .add("totalSplits", totalSplits)
@@ -189,7 +179,6 @@ public class StatementStats
     public static class Builder
     {
         private String state;
-        private boolean queued;
         private boolean scheduled;
         private int nodes;
         private int totalSplits;
@@ -214,12 +203,6 @@ public class StatementStats
         public Builder setNodes(int nodes)
         {
             this.nodes = nodes;
-            return this;
-        }
-
-        public Builder setQueued(boolean queued)
-        {
-            this.queued = queued;
             return this;
         }
 
@@ -293,7 +276,6 @@ public class StatementStats
         {
             return new StatementStats(
                     state,
-                    queued,
                     scheduled,
                     nodes,
                     totalSplits,

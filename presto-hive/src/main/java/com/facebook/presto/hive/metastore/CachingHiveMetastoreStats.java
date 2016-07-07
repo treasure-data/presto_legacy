@@ -36,7 +36,6 @@ public class CachingHiveMetastoreStats
     private final HiveMetastoreApiStats loadRoles = new HiveMetastoreApiStats();
     private final HiveMetastoreApiStats getPrivilegeSet = new HiveMetastoreApiStats();
     private final HiveMetastoreApiStats grantTablePrivileges = new HiveMetastoreApiStats();
-    private final HiveMetastoreApiStats revokeTablePrivileges = new HiveMetastoreApiStats();
 
     @Managed
     @Nested
@@ -148,13 +147,6 @@ public class CachingHiveMetastoreStats
     public HiveMetastoreApiStats getGrantTablePrivileges()
     {
         return grantTablePrivileges;
-    }
-
-    @Managed
-    @Nested
-    public HiveMetastoreApiStats getRevokeTablePrivileges()
-    {
-        return revokeTablePrivileges;
     }
 
     @Managed

@@ -23,11 +23,10 @@ import com.facebook.presto.spi.connector.ConnectorPartitioningHandle;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 import javax.inject.Inject;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -90,9 +89,9 @@ public class HiveNodePartitioningProvider
         return value -> checkType(value, HiveSplit.class, "value").getBucketNumber().getAsInt();
     }
 
-    private static <T> List<T> shuffle(Collection<T> items)
+    private static <T> List<T> shuffle(Iterable<T> iterable)
     {
-        List<T> list = new ArrayList<>(items);
+        List<T> list = Lists.newArrayList(iterable);
         Collections.shuffle(list);
         return list;
     }

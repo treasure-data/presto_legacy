@@ -15,7 +15,6 @@ package com.facebook.presto.hive;
 
 import com.facebook.presto.GroupByHashPageIndexerFactory;
 import com.facebook.presto.hadoop.HadoopFileStatus;
-import com.facebook.presto.hive.authentication.NoHdfsAuthentication;
 import com.facebook.presto.hive.metastore.CachingHiveMetastore;
 import com.facebook.presto.hive.metastore.HiveMetastore;
 import com.facebook.presto.hive.orc.OrcPageSource;
@@ -57,14 +56,12 @@ import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.predicate.Range;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.predicate.ValueSet;
-import com.facebook.presto.spi.type.NamedTypeSignature;
 import com.facebook.presto.spi.type.SqlDate;
 import com.facebook.presto.spi.type.SqlTimestamp;
 import com.facebook.presto.spi.type.SqlVarbinary;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
-import com.facebook.presto.spi.type.TypeSignatureParameter;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.TestingConnectorSession;
@@ -142,13 +139,11 @@ import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.HyperLogLogType.HYPER_LOG_LOG;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
-import static com.facebook.presto.spi.type.SmallintType.SMALLINT;
 import static com.facebook.presto.spi.type.StandardTypes.ARRAY;
 import static com.facebook.presto.spi.type.StandardTypes.MAP;
 import static com.facebook.presto.spi.type.StandardTypes.ROW;
 import static com.facebook.presto.spi.type.TimeZoneKey.UTC_KEY;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
-import static com.facebook.presto.spi.type.TinyintType.TINYINT;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
@@ -184,21 +179,16 @@ public abstract class AbstractTestHiveClient
     protected static final String INVALID_TABLE = "totally_invalid_table_name";
     protected static final String INVALID_COLUMN = "totally_invalid_column_name";
 
-    private static final Type ARRAY_TYPE = TYPE_MANAGER.getParameterizedType(ARRAY, ImmutableList.of(TypeSignatureParameter.of(createUnboundedVarcharType().getTypeSignature())));
-    private static final Type MAP_TYPE = TYPE_MANAGER.getParameterizedType(MAP, ImmutableList.of(TypeSignatureParameter.of(createUnboundedVarcharType().getTypeSignature()), TypeSignatureParameter.of(BIGINT.getTypeSignature())));
+    private static final Type ARRAY_TYPE = TYPE_MANAGER.getParameterizedType(ARRAY, ImmutableList.of(createUnboundedVarcharType().getTypeSignature()), ImmutableList.of());
+    private static final Type MAP_TYPE = TYPE_MANAGER.getParameterizedType(MAP, ImmutableList.of(createUnboundedVarcharType().getTypeSignature(), BIGINT.getTypeSignature()), ImmutableList.of());
     private static final Type ROW_TYPE = TYPE_MANAGER.getParameterizedType(
             ROW,
-            ImmutableList.of(
-                    TypeSignatureParameter.of(new NamedTypeSignature("f_string", createUnboundedVarcharType().getTypeSignature())),
-                    TypeSignatureParameter.of(new NamedTypeSignature("f_bigint", BIGINT.getTypeSignature())),
-                    TypeSignatureParameter.of(new NamedTypeSignature("f_boolean", BOOLEAN.getTypeSignature())))
-    );
+            ImmutableList.of(createUnboundedVarcharType().getTypeSignature(), BIGINT.getTypeSignature(), BOOLEAN.getTypeSignature()),
+            ImmutableList.of("f_string", "f_bigint", "f_boolean"));
 
     private static final List<ColumnMetadata> CREATE_TABLE_COLUMNS = ImmutableList.<ColumnMetadata>builder()
             .add(new ColumnMetadata("id", BIGINT))
             .add(new ColumnMetadata("t_string", createUnboundedVarcharType()))
-            .add(new ColumnMetadata("t_tinyint", TINYINT))
-            .add(new ColumnMetadata("t_smallint", SMALLINT))
             .add(new ColumnMetadata("t_integer", INTEGER))
             .add(new ColumnMetadata("t_bigint", BIGINT))
             .add(new ColumnMetadata("t_double", DOUBLE))
@@ -208,12 +198,11 @@ public abstract class AbstractTestHiveClient
             .add(new ColumnMetadata("t_row", ROW_TYPE))
             .build();
 
-    private static final MaterializedResult CREATE_TABLE_DATA =
-            MaterializedResult.resultBuilder(SESSION, BIGINT, createUnboundedVarcharType(), TINYINT, SMALLINT, INTEGER, BIGINT, DOUBLE, BOOLEAN, ARRAY_TYPE, MAP_TYPE, ROW_TYPE)
-                    .row(1L, "hello", (byte) 45, (short) 345, 234, 123L, 43.5, true, ImmutableList.of("apple", "banana"), ImmutableMap.of("one", 1L, "two", 2L), ImmutableList.of("true", 1L, true))
-                    .row(2L, null, null, null, null, null, null, null, null, null, null)
-                    .row(3L, "bye", (byte) 46, (short) 346, 345, 456L, 98.1, false, ImmutableList.of("ape", "bear"), ImmutableMap.of("three", 3L, "four", 4L), ImmutableList.of("false", 0L, false))
-                    .build();
+    private static final MaterializedResult CREATE_TABLE_DATA = MaterializedResult.resultBuilder(SESSION, BIGINT, createUnboundedVarcharType(), INTEGER, BIGINT, DOUBLE, BOOLEAN, ARRAY_TYPE, MAP_TYPE, ROW_TYPE)
+            .row(1L, "hello", 234, 123L, 43.5, true, ImmutableList.of("apple", "banana"), ImmutableMap.of("one", 1L, "two", 2L), ImmutableList.of("true", 1L, true))
+            .row(2L, null, null, null, null, null, null, null, null)
+            .row(3L, "bye", 345, 456L, 98.1, false, ImmutableList.of("ape", "bear"), ImmutableMap.of("three", 3L, "four", 4L), ImmutableList.of("false", 0L, false))
+            .build();
 
     private static final List<ColumnMetadata> CREATE_TABLE_COLUMNS_PARTITIONED = ImmutableList.<ColumnMetadata>builder()
             .addAll(CREATE_TABLE_COLUMNS)
@@ -229,12 +218,11 @@ public abstract class AbstractTestHiveClient
                     .add(createUnboundedVarcharType())
                     .build());
 
-    private static final MaterializedResult CREATE_TABLE_PARTITIONED_DATA_2ND =
-            MaterializedResult.resultBuilder(SESSION, BIGINT, createUnboundedVarcharType(), TINYINT, SMALLINT, INTEGER, BIGINT, DOUBLE, BOOLEAN, ARRAY_TYPE, MAP_TYPE, ROW_TYPE, createUnboundedVarcharType())
-                    .row(4L, "hello", (byte) 45, (short) 345, 234, 123L, 43.5, true, ImmutableList.of("apple", "banana"), ImmutableMap.of("one", 1L, "two", 2L), ImmutableList.of("true", 1L, true), "2015-07-04")
-                    .row(5L, null, null, null, null, null, null, null, null, null, null, "2015-07-04")
-                    .row(6L, "bye", (byte) 46, (short) 346, 345, 456L, 98.1, false, ImmutableList.of("ape", "bear"), ImmutableMap.of("three", 3L, "four", 4L), ImmutableList.of("false", 0L, false), "2015-07-04")
-                    .build();
+    private static final MaterializedResult CREATE_TABLE_PARTITIONED_DATA_2ND = MaterializedResult.resultBuilder(SESSION, BIGINT, createUnboundedVarcharType(), INTEGER, BIGINT, DOUBLE, BOOLEAN, ARRAY_TYPE, MAP_TYPE, ROW_TYPE, createUnboundedVarcharType())
+            .row(4L, "hello", 234, 123L, 43.5, true, ImmutableList.of("apple", "banana"), ImmutableMap.of("one", 1L, "two", 2L), ImmutableList.of("true", 1L, true), "2015-07-04")
+            .row(5L, null, null, null, null, null, null, null, null, "2015-07-04")
+            .row(6L, "bye", 345, 456L, 98.1, false, ImmutableList.of("ape", "bear"), ImmutableMap.of("three", 3L, "four", 4L), ImmutableList.of("false", 0L, false), "2015-07-04")
+            .build();
 
     protected Set<HiveStorageFormat> createTableFormats = ImmutableSet.copyOf(HiveStorageFormat.values());
 
@@ -449,7 +437,7 @@ public abstract class AbstractTestHiveClient
         HiveConnectorId connectorId = new HiveConnectorId(connectorName);
         HdfsConfiguration hdfsConfiguration = new HiveHdfsConfiguration(new HdfsConfigurationUpdater(hiveClientConfig));
 
-        hdfsEnvironment = new HdfsEnvironment(hdfsConfiguration, hiveClientConfig, new NoHdfsAuthentication());
+        hdfsEnvironment = new HdfsEnvironment(hdfsConfiguration, hiveClientConfig);
         locationService = new HiveLocationService(metastoreClient, hdfsEnvironment);
         TypeManager typeManager = new TypeRegistry();
         JsonCodec<PartitionUpdate> partitionUpdateCodec = JsonCodec.jsonCodec(PartitionUpdate.class);
@@ -669,8 +657,8 @@ public abstract class AbstractTestHiveClient
         Map<String, ColumnMetadata> map = uniqueIndex(tableMetadata.getColumns(), ColumnMetadata::getName);
 
         assertPrimitiveField(map, "t_string", createUnboundedVarcharType(), false);
-        assertPrimitiveField(map, "t_tinyint", TINYINT, false);
-        assertPrimitiveField(map, "t_smallint", SMALLINT, false);
+        assertPrimitiveField(map, "t_tinyint", INTEGER, false);
+        assertPrimitiveField(map, "t_smallint", INTEGER, false);
         assertPrimitiveField(map, "t_int", INTEGER, false);
         assertPrimitiveField(map, "t_bigint", BIGINT, false);
         assertPrimitiveField(map, "t_float", DOUBLE, false);
@@ -691,7 +679,7 @@ public abstract class AbstractTestHiveClient
         Map<String, ColumnMetadata> map = uniqueIndex(tableMetadata.getColumns(), ColumnMetadata::getName);
 
         assertPrimitiveField(map, "t_string", createUnboundedVarcharType(), false);
-        assertPrimitiveField(map, "t_tinyint", TINYINT, false);
+        assertPrimitiveField(map, "t_tinyint", INTEGER, false);
     }
 
     @Test
@@ -825,13 +813,13 @@ public abstract class AbstractTestHiveClient
 
         String testString = "test";
         Integer testInt = 13;
-        Short testSmallint = 12;
+        Integer testSmallint = 12;
 
         // Reverse the order of bindings as compared to bucketing order
         ImmutableMap<ColumnHandle, NullableValue> bindings = ImmutableMap.<ColumnHandle, NullableValue>builder()
                 .put(columnHandles.get(columnIndex.get("t_int")), NullableValue.of(INTEGER, (long) testInt))
                 .put(columnHandles.get(columnIndex.get("t_string")), NullableValue.of(createUnboundedVarcharType(), utf8Slice(testString)))
-                .put(columnHandles.get(columnIndex.get("t_smallint")), NullableValue.of(SMALLINT, (long) testSmallint))
+                .put(columnHandles.get(columnIndex.get("t_smallint")), NullableValue.of(INTEGER, (long) testSmallint))
                 .build();
 
         MaterializedResult result = readTable(tableHandle, columnHandles, session, TupleDomain.fromFixedValues(bindings), OptionalInt.of(1), Optional.empty());
@@ -974,8 +962,8 @@ public abstract class AbstractTestHiveClient
                         assertEquals(value, "test");
                     }
 
-                    assertEquals(row.getField(columnIndex.get("t_tinyint")), (byte) (1 + rowNumber));
-                    assertEquals(row.getField(columnIndex.get("t_smallint")), (short) (2 + rowNumber));
+                    assertEquals(row.getField(columnIndex.get("t_tinyint")), 1 + (int) rowNumber);
+                    assertEquals(row.getField(columnIndex.get("t_smallint")), 2 + (int) rowNumber);
                     assertEquals(row.getField(columnIndex.get("t_int")), 3 + (int) rowNumber);
 
                     if (rowNumber % 13 == 0) {
@@ -1088,7 +1076,7 @@ public abstract class AbstractTestHiveClient
                         assertEquals(row.getField(columnIndex.get("t_string")), "unpartitioned");
                     }
 
-                    assertEquals(row.getField(columnIndex.get("t_tinyint")), (byte) (1 + rowNumber));
+                    assertEquals(row.getField(columnIndex.get("t_tinyint")), 1 + (int) rowNumber);
                 }
             }
             assertEquals(rowNumber, 100);
@@ -1180,7 +1168,7 @@ public abstract class AbstractTestHiveClient
         ConnectorPageSourceProvider pageSourceProvider = new HivePageSourceProvider(
                 new HiveClientConfig().setTimeZone(timeZone.getID()),
                 hdfsEnvironment,
-                ImmutableSet.<HiveRecordCursorProvider>of(new ColumnarTextHiveRecordCursorProvider(hdfsEnvironment)),
+                ImmutableSet.<HiveRecordCursorProvider>of(new ColumnarTextHiveRecordCursorProvider()),
                 ImmutableSet.<HivePageSourceFactory>of(),
                 TYPE_MANAGER);
 
@@ -1214,7 +1202,7 @@ public abstract class AbstractTestHiveClient
         ConnectorPageSourceProvider pageSourceProvider = new HivePageSourceProvider(
                 new HiveClientConfig().setTimeZone(timeZone.getID()),
                 hdfsEnvironment,
-                ImmutableSet.<HiveRecordCursorProvider>of(new ColumnarBinaryHiveRecordCursorProvider(hdfsEnvironment)),
+                ImmutableSet.<HiveRecordCursorProvider>of(new ColumnarBinaryHiveRecordCursorProvider()),
                 ImmutableSet.<HivePageSourceFactory>of(),
                 TYPE_MANAGER);
 
@@ -1316,13 +1304,13 @@ public abstract class AbstractTestHiveClient
             sink.finish();
 
             // verify we have data files
-            assertFalse(listAllDataFiles(getStagingPathRoot(outputHandle)).isEmpty());
+            assertFalse(listAllDataFiles(outputHandle).isEmpty());
 
             // rollback the table
             rollback(metadata);
 
             // verify all files have been deleted
-            assertTrue(listAllDataFiles(getStagingPathRoot(outputHandle)).isEmpty());
+            assertTrue(listAllDataFiles(outputHandle).isEmpty());
 
             // verify table is not in the metastore
             assertNull(metadata.getTableHandle(session, temporaryCreateRollbackTable));
@@ -1621,7 +1609,7 @@ public abstract class AbstractTestHiveClient
         Collection<Slice> fragments = sink.finish();
 
         // verify all new files start with the unique prefix
-        for (String filePath : listAllDataFiles(getStagingPathRoot(outputHandle))) {
+        for (String filePath : listAllDataFiles(outputHandle)) {
             assertTrue(new Path(filePath).getName().startsWith(getFilePrefix(outputHandle)));
         }
 
@@ -1744,7 +1732,7 @@ public abstract class AbstractTestHiveClient
         assertEquals(listAllDataFiles(tableName.getSchemaName(), tableName.getTableName()), existingFiles);
 
         // verify all temp files start with the unique prefix
-        Set<String> tempFiles = listAllDataFiles(getStagingPathRoot(insertTableHandle));
+        Set<String> tempFiles = listAllDataFiles(insertTableHandle);
         assertTrue(!tempFiles.isEmpty());
         for (String filePath : tempFiles) {
             assertTrue(new Path(filePath).getName().startsWith(getFilePrefix(insertTableHandle)));
@@ -1761,7 +1749,7 @@ public abstract class AbstractTestHiveClient
         assertEquals(listAllDataFiles(tableName.getSchemaName(), tableName.getTableName()), existingFiles);
 
         // verify temp directory is empty
-        assertTrue(listAllDataFiles(getStagingPathRoot(insertTableHandle)).isEmpty());
+        assertTrue(listAllDataFiles(insertTableHandle).isEmpty());
     }
 
     // These are protected so extensions to the hive connector can replace the handle classes
@@ -1775,22 +1763,20 @@ public abstract class AbstractTestHiveClient
         return ((HiveInsertTableHandle) insertTableHandle).getFilePrefix();
     }
 
-    protected Path getStagingPathRoot(ConnectorInsertTableHandle insertTableHandle)
+    protected Set<String> listAllDataFiles(ConnectorOutputTableHandle tableHandle)
+            throws IOException
     {
-        HiveInsertTableHandle hiveInsertTableHandle = (HiveInsertTableHandle) insertTableHandle;
-        return getLocationService(hiveInsertTableHandle.getSchemaName()).writePathRoot(hiveInsertTableHandle.getLocationHandle()).get();
+        HiveOutputTableHandle hiveOutputTableHandle = (HiveOutputTableHandle) tableHandle;
+        Path writePath = new Path(getLocationService(hiveOutputTableHandle.getSchemaName()).writePathRoot(hiveOutputTableHandle.getLocationHandle()).get().toString());
+        return listAllDataFiles(writePath);
     }
 
-    protected Path getStagingPathRoot(ConnectorOutputTableHandle outputTableHandle)
+    protected Set<String> listAllDataFiles(ConnectorInsertTableHandle tableHandle)
+            throws IOException
     {
-        HiveOutputTableHandle hiveOutputTableHandle = (HiveOutputTableHandle) outputTableHandle;
-        return getLocationService(hiveOutputTableHandle.getSchemaName()).writePathRoot(hiveOutputTableHandle.getLocationHandle()).get();
-    }
-
-    protected Path getTargetPathRoot(ConnectorInsertTableHandle insertTableHandle)
-    {
-        HiveInsertTableHandle hiveInsertTableHandle = (HiveInsertTableHandle) insertTableHandle;
-        return getLocationService(hiveInsertTableHandle.getSchemaName()).targetPathRoot(hiveInsertTableHandle.getLocationHandle());
+        HiveInsertTableHandle hiveInsertTableHandle = (HiveInsertTableHandle) tableHandle;
+        Path writePath = new Path(getLocationService(hiveInsertTableHandle.getSchemaName()).writePathRoot(hiveInsertTableHandle.getLocationHandle()).get().toString());
+        return listAllDataFiles(writePath);
     }
 
     protected Set<String> listAllDataFiles(String schemaName, String tableName)
@@ -1829,7 +1815,7 @@ public abstract class AbstractTestHiveClient
             throws IOException
     {
         Set<String> result = new HashSet<>();
-        FileSystem fileSystem = hdfsEnvironment.getFileSystem("user", path);
+        FileSystem fileSystem = hdfsEnvironment.getFileSystem(path);
         if (fileSystem.exists(path)) {
             for (FileStatus fileStatus : fileSystem.listStatus(path)) {
                 if (HadoopFileStatus.isFile(fileStatus)) {
@@ -1889,7 +1875,7 @@ public abstract class AbstractTestHiveClient
         assertEquals(listAllDataFiles(tableName.getSchemaName(), tableName.getTableName()), existingFiles);
 
         // verify all temp files start with the unique prefix
-        Set<String> tempFiles = listAllDataFiles(getStagingPathRoot(insertTableHandle));
+        Set<String> tempFiles = listAllDataFiles(insertTableHandle);
         assertTrue(!tempFiles.isEmpty());
         for (String filePath : tempFiles) {
             assertTrue(new Path(filePath).getName().startsWith(getFilePrefix(insertTableHandle)));
@@ -1906,13 +1892,13 @@ public abstract class AbstractTestHiveClient
         assertEquals(listAllDataFiles(tableName.getSchemaName(), tableName.getTableName()), existingFiles);
 
         // verify temp directory is empty
-        assertTrue(listAllDataFiles(getStagingPathRoot(insertTableHandle)).isEmpty());
+        assertTrue(listAllDataFiles(insertTableHandle).isEmpty());
     }
 
     private void doInsertUnsupportedWriteType(HiveStorageFormat storageFormat, SchemaTableName tableName)
             throws Exception
     {
-        List<FieldSchema> columns = ImmutableList.of(new FieldSchema("dummy", "uniontype<smallint,tinyint>", null));
+        List<FieldSchema> columns = ImmutableList.of(new FieldSchema("dummy", "smallint", null));
         List<FieldSchema> partitionColumns = ImmutableList.of(new FieldSchema("name", "string", null));
 
         createEmptyTable(tableName, storageFormat, columns, partitionColumns);
@@ -1925,7 +1911,7 @@ public abstract class AbstractTestHiveClient
             fail("expected failure");
         }
         catch (PrestoException e) {
-            String expected = "Inserting into Hive table .* with column type uniontype<smallint,tinyint> not supported";
+            String expected = "Inserting into Hive table .* with column type smallint not supported";
             if (!e.getMessage().matches(expected)) {
                 throw new TestException("The exception was thrown with the wrong message:" +
                         " expected \"" + expected + "\"" + " but got \"" + e.getMessage() + "\"", e);
@@ -1986,7 +1972,7 @@ public abstract class AbstractTestHiveClient
         assertEquals(listAllDataFiles(tableName.getSchemaName(), tableName.getTableName()), existingFiles);
 
         // verify all temp files start with the unique prefix
-        Set<String> tempFiles = listAllDataFiles(getStagingPathRoot(insertTableHandle));
+        Set<String> tempFiles = listAllDataFiles(insertTableHandle);
         assertTrue(!tempFiles.isEmpty());
         for (String filePath : tempFiles) {
             assertTrue(new Path(filePath).getName().startsWith(getFilePrefix(insertTableHandle)));
@@ -2003,11 +1989,10 @@ public abstract class AbstractTestHiveClient
         assertEquals(listAllDataFiles(tableName.getSchemaName(), tableName.getTableName()), existingFiles);
 
         // verify temp directory is empty
-        assertTrue(listAllDataFiles(getStagingPathRoot(insertTableHandle)).isEmpty());
+        assertTrue(listAllDataFiles(insertTableHandle).isEmpty());
     }
 
     private void insertData(ConnectorTableHandle tableHandle, MaterializedResult data, ConnectorSession session)
-            throws Exception
     {
         ConnectorMetadata metadata = newMetadata();
         ConnectorTransactionHandle transaction = newTransaction();
@@ -2021,14 +2006,6 @@ public abstract class AbstractTestHiveClient
 
         // commit the insert
         metadata.finishInsert(session, insertTableHandle, fragments);
-
-        // check that temporary files are removed
-        Path writePath = getStagingPathRoot(insertTableHandle);
-        Path targetPath = getTargetPathRoot(insertTableHandle);
-        if (!writePath.equals(targetPath)) {
-            FileSystem fileSystem = hdfsEnvironment.getFileSystem("user", writePath);
-            assertFalse(fileSystem.exists(writePath));
-        }
     }
 
     private void doMetadataDelete(HiveStorageFormat storageFormat, SchemaTableName tableName)
@@ -2182,9 +2159,9 @@ public abstract class AbstractTestHiveClient
                 }
 
                 // NUMBERS
-                assertEquals(row.getField(columnIndex.get("t_tinyint")), (byte) (1 + rowNumber));
-                assertEquals(row.getField(columnIndex.get("t_smallint")), (short) (2 + rowNumber));
-                assertEquals(row.getField(columnIndex.get("t_int")), (int) (3 + rowNumber));
+                assertEquals(row.getField(columnIndex.get("t_tinyint")), 1 + (int) rowNumber);
+                assertEquals(row.getField(columnIndex.get("t_smallint")), 2 + (int) rowNumber);
+                assertEquals(row.getField(columnIndex.get("t_int")), 3 + (int) rowNumber);
 
                 index = columnIndex.get("t_bigint");
                 if ((rowNumber % 13) == 0) {
@@ -2503,12 +2480,6 @@ public abstract class AbstractTestHiveClient
                 if (BOOLEAN.equals(column.getType())) {
                     assertInstanceOf(value, Boolean.class);
                 }
-                else if (TINYINT.equals(column.getType())) {
-                    assertInstanceOf(value, Byte.class);
-                }
-                else if (SMALLINT.equals(column.getType())) {
-                    assertInstanceOf(value, Short.class);
-                }
                 else if (INTEGER.equals(column.getType())) {
                     assertInstanceOf(value, Integer.class);
                 }
@@ -2604,9 +2575,9 @@ public abstract class AbstractTestHiveClient
         String tableName = schemaTableName.getTableName();
 
         LocationService locationService = getLocationService(schemaName);
-        LocationHandle locationHandle = locationService.forNewTable(session.getUser(), session.getQueryId(), schemaName, tableName);
+        LocationHandle locationHandle = locationService.forNewTable(session.getQueryId(), schemaName, tableName);
         Path targetPath = locationService.targetPathRoot(locationHandle);
-        HiveWriteUtils.createDirectory(session.getUser(), hdfsEnvironment, targetPath);
+        HiveWriteUtils.createDirectory(hdfsEnvironment, targetPath);
 
         SerDeInfo serdeInfo = new SerDeInfo();
         serdeInfo.setName(tableName);

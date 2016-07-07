@@ -19,7 +19,6 @@ import com.facebook.presto.sql.analyzer.Field;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
-import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.primitives.Ints;
 
 import java.util.HashMap;
@@ -90,9 +89,6 @@ public class SymbolAllocator
         }
         else if (expression instanceof FunctionCall) {
             nameHint = ((FunctionCall) expression).getName().getSuffix();
-        }
-        else if (expression instanceof SymbolReference) {
-            nameHint = ((SymbolReference) expression).getName();
         }
 
         return newSymbol(nameHint, type, suffix);

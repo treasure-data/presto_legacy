@@ -69,6 +69,7 @@ import com.facebook.presto.sql.tree.FrameBound;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.GroupBy;
 import com.facebook.presto.sql.tree.GroupingElement;
+import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.Insert;
 import com.facebook.presto.sql.tree.Intersect;
 import com.facebook.presto.sql.tree.Join;
@@ -114,6 +115,7 @@ import com.facebook.presto.sql.tree.WithQuery;
 import com.facebook.presto.type.ArrayType;
 import com.facebook.presto.type.MapType;
 import com.facebook.presto.type.RowType;
+import com.facebook.presto.type.TypeRegistry;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -139,7 +141,6 @@ import static com.facebook.presto.connector.informationSchema.InformationSchemaM
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.TABLE_INTERNAL_PARTITIONS;
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.TABLE_SCHEMATA;
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.TABLE_TABLES;
-import static com.facebook.presto.execution.SqlQueryManager.unwrapExecuteStatement;
 import static com.facebook.presto.metadata.FunctionKind.AGGREGATE;
 import static com.facebook.presto.metadata.FunctionKind.APPROXIMATE_AGGREGATE;
 import static com.facebook.presto.metadata.FunctionKind.WINDOW;
@@ -213,6 +214,7 @@ import static com.facebook.presto.sql.tree.FrameBound.Type.UNBOUNDED_PRECEDING;
 import static com.facebook.presto.sql.tree.ShowCreate.Type.TABLE;
 import static com.facebook.presto.sql.tree.ShowCreate.Type.VIEW;
 import static com.facebook.presto.sql.tree.WindowFrame.Type.RANGE;
+import static com.facebook.presto.type.TypeRegistry.canCoerce;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
@@ -716,7 +718,7 @@ class StatementAnalyzer
         return new RelationType(Field.newUnqualified("rows", BIGINT));
     }
 
-    private boolean typesMatchForInsert(Iterable<Type> tableTypes, Iterable<Type> queryTypes)
+    private static boolean typesMatchForInsert(Iterable<Type> tableTypes, Iterable<Type> queryTypes)
     {
         if (Iterables.size(tableTypes) != Iterables.size(queryTypes)) {
             return false;
@@ -728,7 +730,7 @@ class StatementAnalyzer
             Type tableType = tableTypesIterator.next();
             Type queryType = queryTypesIterator.next();
 
-            if (!metadata.getTypeManager().canCoerce(queryType, tableType)) {
+            if (!canCoerce(queryType.getTypeSignature(), tableType.getTypeSignature())) {
                 return false;
             }
         }
@@ -903,12 +905,11 @@ class StatementAnalyzer
     private String getQueryPlan(Explain node, ExplainType.Type planType, ExplainFormat.Type planFormat)
             throws IllegalArgumentException
     {
-        Statement statement = unwrapExecuteStatement(node.getStatement(), sqlParser, session);
         switch (planFormat) {
             case GRAPHVIZ:
-                return queryExplainer.get().getGraphvizPlan(session, statement, planType);
+                return queryExplainer.get().getGraphvizPlan(session, node.getStatement(), planType);
             case TEXT:
-                return queryExplainer.get().getPlan(session, statement, planType);
+                return queryExplainer.get().getPlan(session, node.getStatement(), planType);
         }
         throw new IllegalArgumentException("Invalid Explain Format: " + planFormat.toString());
     }
@@ -1288,8 +1289,6 @@ class StatementAnalyzer
                 ExpressionAnalysis rightExpressionAnalysis = analyzeExpression(rightExpression, right, context);
                 checkState(leftExpressionAnalysis.getSubqueryInPredicates().isEmpty(), "INVARIANT");
                 checkState(rightExpressionAnalysis.getSubqueryInPredicates().isEmpty(), "INVARIANT");
-                checkState(leftExpressionAnalysis.getScalarSubqueries().isEmpty(), "INVARIANT");
-                checkState(rightExpressionAnalysis.getScalarSubqueries().isEmpty(), "INVARIANT");
 
                 addCoercionForJoinCriteria(node, leftExpression, rightExpression);
                 expressions.add(new ComparisonExpression(EQUAL, leftExpression, rightExpression));
@@ -1331,17 +1330,15 @@ class StatementAnalyzer
             // to re-analyze coercions that might be necessary
             analyzer = ExpressionAnalyzer.create(analysis, session, metadata, sqlParser, accessControl, experimentalSyntaxEnabled);
             analyzer.analyze((Expression) optimizedExpression, output, context);
-            analysis.addCoercions(analyzer.getExpressionCoercions(), analyzer.getTypeOnlyCoercions());
+            analysis.addCoercions(analyzer.getExpressionCoercions());
 
             Set<Expression> postJoinConjuncts = new HashSet<>();
-            final Set<Expression> leftExpressions = new HashSet<>();
-            final Set<Expression> rightExpressions = new HashSet<>();
+            final Set<InPredicate> leftJoinInPredicates = new HashSet<>();
+            final Set<InPredicate> rightJoinInPredicates = new HashSet<>();
 
             for (Expression conjunct : ExpressionUtils.extractConjuncts((Expression) optimizedExpression)) {
                 conjunct = ExpressionUtils.normalize(conjunct);
-
-                if (conjunct instanceof ComparisonExpression
-                        && (((ComparisonExpression) conjunct).getType() == EQUAL || node.getType() == Join.Type.INNER)) {
+                if (conjunct instanceof ComparisonExpression) {
                     Expression conjunctFirst = ((ComparisonExpression) conjunct).getLeft();
                     Expression conjunctSecond = ((ComparisonExpression) conjunct).getRight();
                     Set<QualifiedName> firstDependencies = DependencyExtractor.extractNames(conjunctFirst, analyzer.getColumnReferences());
@@ -1363,10 +1360,8 @@ class StatementAnalyzer
                     if (rightExpression != null) {
                         ExpressionAnalysis leftExpressionAnalysis = analyzeExpression(leftExpression, left, context);
                         ExpressionAnalysis rightExpressionAnalysis = analyzeExpression(rightExpression, right, context);
-                        leftExpressions.add(leftExpression);
-                        rightExpressions.add(rightExpression);
-                        analysis.recordSubqueries(node, leftExpressionAnalysis);
-                        analysis.recordSubqueries(node, rightExpressionAnalysis);
+                        leftJoinInPredicates.addAll(leftExpressionAnalysis.getSubqueryInPredicates());
+                        rightJoinInPredicates.addAll(rightExpressionAnalysis.getSubqueryInPredicates());
                         addCoercionForJoinCriteria(node, leftExpression, rightExpression);
                     }
                     else {
@@ -1381,8 +1376,9 @@ class StatementAnalyzer
                     postJoinConjuncts.add(conjunct);
                 }
             }
-            Expression postJoinPredicate = ExpressionUtils.combineConjuncts(postJoinConjuncts);
-            analysis.recordSubqueries(node, analyzeExpression(postJoinPredicate, output, context));
+            ExpressionAnalysis postJoinPredicatesConjunctsAnalysis = analyzeExpression(ExpressionUtils.combineConjuncts(postJoinConjuncts), output, context);
+            analysis.recordSubqueries(node, postJoinPredicatesConjunctsAnalysis);
+            analysis.addJoinInPredicates(node, new Analysis.JoinInPredicates(leftJoinInPredicates, rightJoinInPredicates));
             analysis.setJoinCriteria(node, (Expression) optimizedExpression);
         }
         else {
@@ -1395,17 +1391,17 @@ class StatementAnalyzer
 
     private void addCoercionForJoinCriteria(Join node, Expression leftExpression, Expression rightExpression)
     {
-        Type leftType = analysis.getTypeWithCoercions(leftExpression);
-        Type rightType = analysis.getTypeWithCoercions(rightExpression);
+        Type leftType = analysis.getType(leftExpression);
+        Type rightType = analysis.getType(rightExpression);
         Optional<Type> superType = metadata.getTypeManager().getCommonSuperType(leftType, rightType);
         if (!superType.isPresent()) {
             throw new SemanticException(TYPE_MISMATCH, node, "Join criteria has incompatible types: %s, %s", leftType.getDisplayName(), rightType.getDisplayName());
         }
         if (!leftType.equals(superType.get())) {
-            analysis.addCoercion(leftExpression, superType.get(), metadata.getTypeManager().isTypeOnlyCoercion(leftType, rightType));
+            analysis.addCoercion(leftExpression, superType.get());
         }
         if (!rightType.equals(superType.get())) {
-            analysis.addCoercion(rightExpression, superType.get(), metadata.getTypeManager().isTypeOnlyCoercion(rightType, leftType));
+            analysis.addCoercion(rightExpression, superType.get());
         }
     }
 
@@ -1451,17 +1447,15 @@ class StatementAnalyzer
                 for (int i = 0; i < items.size(); i++) {
                     Type expectedType = fieldTypes.get(i);
                     Expression item = items.get(i);
-                    Type actualType = analysis.getType(item);
-                    if (!actualType.equals(expectedType)) {
-                        analysis.addCoercion(item, expectedType, metadata.getTypeManager().isTypeOnlyCoercion(actualType, expectedType));
+                    if (!analysis.getType(item).equals(expectedType)) {
+                        analysis.addCoercion(item, expectedType);
                     }
                 }
             }
             else {
-                Type actualType = analysis.getType(row);
                 Type expectedType = fieldTypes.get(0);
-                if (!actualType.equals(expectedType)) {
-                    analysis.addCoercion(row, expectedType, metadata.getTypeManager().isTypeOnlyCoercion(actualType, expectedType));
+                if (!analysis.getType(row).equals(expectedType)) {
+                    analysis.addCoercion(row, expectedType);
                 }
             }
         }
@@ -1850,7 +1844,7 @@ class StatementAnalyzer
                 throw new SemanticException(TYPE_MISMATCH, predicate, "WHERE clause must evaluate to a boolean: actual type %s", predicateType);
             }
             // coerce null to boolean
-            analysis.addCoercion(predicate, BOOLEAN, false);
+            analysis.addCoercion(predicate, BOOLEAN);
         }
 
         analysis.setWhere(node, predicate);
@@ -1988,7 +1982,7 @@ class StatementAnalyzer
         }
     }
 
-    private boolean isViewStale(List<ViewDefinition.ViewColumn> columns, Collection<Field> fields)
+    private static boolean isViewStale(List<ViewDefinition.ViewColumn> columns, Collection<Field> fields)
     {
         if (columns.size() != fields.size()) {
             return true;
@@ -1999,7 +1993,7 @@ class StatementAnalyzer
             ViewDefinition.ViewColumn column = columns.get(i);
             Field field = fieldList.get(i);
             if (!column.getName().equals(field.getName().orElse(null)) ||
-                    !metadata.getTypeManager().canCoerce(field.getType(), column.getType())) {
+                    !TypeRegistry.canCoerce(field.getType(), column.getType())) {
                 return true;
             }
         }

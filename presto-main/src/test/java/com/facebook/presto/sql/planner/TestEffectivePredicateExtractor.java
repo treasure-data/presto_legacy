@@ -21,7 +21,6 @@ import com.facebook.presto.spi.block.SortOrder;
 import com.facebook.presto.spi.predicate.Domain;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
@@ -45,6 +44,7 @@ import com.facebook.presto.sql.tree.GenericLiteral;
 import com.facebook.presto.sql.tree.IsNullPredicate;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.QualifiedName;
+import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.sql.tree.WindowFrame;
 import com.facebook.presto.type.UnknownType;
 import com.google.common.base.Preconditions;
@@ -59,7 +59,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -87,12 +86,12 @@ public class TestEffectivePredicateExtractor
     private static final Symbol D = new Symbol("d");
     private static final Symbol E = new Symbol("e");
     private static final Symbol F = new Symbol("f");
-    private static final Expression AE = A.toSymbolReference();
-    private static final Expression BE = B.toSymbolReference();
-    private static final Expression CE = C.toSymbolReference();
-    private static final Expression DE = D.toSymbolReference();
-    private static final Expression EE = E.toSymbolReference();
-    private static final Expression FE = F.toSymbolReference();
+    private static final Expression AE = symbolExpr(A);
+    private static final Expression BE = symbolExpr(B);
+    private static final Expression CE = symbolExpr(C);
+    private static final Expression DE = symbolExpr(D);
+    private static final Expression EE = symbolExpr(E);
+    private static final Expression FE = symbolExpr(F);
 
     private static final Map<Symbol, Type> TYPES = ImmutableMap.<Symbol, Type>builder()
             .put(A, BIGINT)
@@ -283,13 +282,12 @@ public class TestEffectivePredicateExtractor
                                 equals(AE, BE),
                                 equals(BE, CE),
                                 lessThan(CE, bigintLiteral(10)))),
-                new WindowNode.Specification(
-                        ImmutableList.of(A),
-                        ImmutableList.of(A),
-                        ImmutableMap.of(A, SortOrder.ASC_NULLS_LAST),
-                        new WindowNode.Frame(WindowFrame.Type.RANGE,
-                                FrameBound.Type.UNBOUNDED_PRECEDING, Optional.empty(),
-                                FrameBound.Type.CURRENT_ROW, Optional.empty())),
+                ImmutableList.of(A),
+                ImmutableList.of(A),
+                ImmutableMap.of(A, SortOrder.ASC_NULLS_LAST),
+                new WindowNode.Frame(WindowFrame.Type.RANGE,
+                        FrameBound.Type.UNBOUNDED_PRECEDING, Optional.empty(),
+                        FrameBound.Type.CURRENT_ROW, Optional.empty()),
                 ImmutableMap.<Symbol, FunctionCall>of(),
                 ImmutableMap.<Symbol, Signature>of(),
                 Optional.empty(),
@@ -434,7 +432,6 @@ public class TestEffectivePredicateExtractor
                                 lessThan(FE, bigintLiteral(100)))),
                 criteria,
                 Optional.empty(),
-                Optional.empty(),
                 Optional.empty());
 
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node, TYPES);
@@ -492,7 +489,6 @@ public class TestEffectivePredicateExtractor
                                 lessThan(FE, bigintLiteral(100)))),
                 criteria,
                 Optional.empty(),
-                Optional.empty(),
                 Optional.empty());
 
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node, TYPES);
@@ -543,7 +539,6 @@ public class TestEffectivePredicateExtractor
                                 lessThan(CE, bigintLiteral(10)))),
                 filter(rightScan, FALSE_LITERAL),
                 criteria,
-                Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
 
@@ -599,7 +594,6 @@ public class TestEffectivePredicateExtractor
                                 lessThan(FE, bigintLiteral(100)))),
                 criteria,
                 Optional.empty(),
-                Optional.empty(),
                 Optional.empty());
 
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node, TYPES);
@@ -651,7 +645,6 @@ public class TestEffectivePredicateExtractor
                                 lessThan(FE, bigintLiteral(100)))),
                 criteria,
                 Optional.empty(),
-                Optional.empty(),
                 Optional.empty());
 
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node, TYPES);
@@ -691,6 +684,11 @@ public class TestEffectivePredicateExtractor
         return new FilterNode(newId(), source, predicate);
     }
 
+    private static Expression symbolExpr(Symbol symbol)
+    {
+        return new QualifiedNameReference(symbol.toQualifiedName());
+    }
+
     private static Expression bigintLiteral(long number)
     {
         if (number < Integer.MAX_VALUE && number > Integer.MIN_VALUE) {
@@ -726,7 +724,7 @@ public class TestEffectivePredicateExtractor
 
     private static Signature fakeFunctionHandle(String name, FunctionKind kind)
     {
-        return new Signature(name, kind, TypeSignature.parseTypeSignature(UnknownType.NAME), ImmutableList.<TypeSignature>of());
+        return new Signature(name, kind, UnknownType.NAME, ImmutableList.<String>of());
     }
 
     private Set<Expression> normalizeConjuncts(Expression... conjuncts)
@@ -734,7 +732,7 @@ public class TestEffectivePredicateExtractor
         return normalizeConjuncts(Arrays.asList(conjuncts));
     }
 
-    private Set<Expression> normalizeConjuncts(Collection<Expression> conjuncts)
+    private Set<Expression> normalizeConjuncts(Iterable<Expression> conjuncts)
     {
         return normalizeConjuncts(combineConjuncts(conjuncts));
     }

@@ -64,7 +64,6 @@ import com.facebook.presto.sql.tree.SortItem;
 import com.facebook.presto.sql.tree.StringLiteral;
 import com.facebook.presto.sql.tree.SubqueryExpression;
 import com.facebook.presto.sql.tree.SubscriptExpression;
-import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.sql.tree.TimeLiteral;
 import com.facebook.presto.sql.tree.TimestampLiteral;
 import com.facebook.presto.sql.tree.TryExpression;
@@ -261,12 +260,6 @@ public final class ExpressionFormatter
         protected String visitQualifiedNameReference(QualifiedNameReference node, Boolean unmangleNames)
         {
             return formatQualifiedName(node.getName());
-        }
-
-        @Override
-        protected String visitSymbolReference(SymbolReference node, Boolean context)
-        {
-            return formatIdentifier(node.getName());
         }
 
         @Override

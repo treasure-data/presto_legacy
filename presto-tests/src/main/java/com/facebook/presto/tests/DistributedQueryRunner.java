@@ -80,12 +80,6 @@ public class DistributedQueryRunner
     public DistributedQueryRunner(Session defaultSession, int workersCount, Map<String, String> extraProperties)
             throws Exception
     {
-        this(defaultSession, workersCount, extraProperties, ImmutableMap.of());
-    }
-
-    public DistributedQueryRunner(Session defaultSession, int workersCount, Map<String, String> extraProperties, Map<String, String> coordinatorProperties)
-            throws Exception
-    {
         requireNonNull(defaultSession, "defaultSession is null");
 
         try {
@@ -94,19 +88,12 @@ public class DistributedQueryRunner
             log.info("Created TestingDiscoveryServer in %s", nanosSince(start).convertToMostSuccinctTimeUnit());
 
             ImmutableList.Builder<TestingPrestoServer> servers = ImmutableList.builder();
-
             for (int i = 1; i < workersCount; i++) {
                 TestingPrestoServer worker = closer.register(createTestingPrestoServer(discoveryServer.getBaseUrl(), false, extraProperties));
                 servers.add(worker);
             }
-
-            Map<String, String> extraCoordinatorProperties = ImmutableMap.<String, String>builder()
-                    .putAll(extraProperties)
-                    .putAll(coordinatorProperties)
-                    .build();
-            coordinator = closer.register(createTestingPrestoServer(discoveryServer.getBaseUrl(), true, extraCoordinatorProperties));
+            coordinator = closer.register(createTestingPrestoServer(discoveryServer.getBaseUrl(), true, extraProperties));
             servers.add(coordinator);
-
             this.servers = servers.build();
         }
         catch (Exception e) {

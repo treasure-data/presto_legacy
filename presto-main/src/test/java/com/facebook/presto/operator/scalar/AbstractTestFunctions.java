@@ -18,23 +18,14 @@ import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.SqlFunction;
 import com.facebook.presto.spi.ErrorCodeSupplier;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.type.DecimalParseResult;
-import com.facebook.presto.spi.type.Decimals;
-import com.facebook.presto.spi.type.SqlDecimal;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.SemanticErrorCode;
 import com.facebook.presto.sql.analyzer.SemanticException;
-import io.airlift.slice.Slice;
 
-import java.math.BigInteger;
 import java.util.List;
 
-import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_CAST_ARGUMENT;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
-import static com.facebook.presto.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
-import static com.facebook.presto.spi.type.DecimalType.createDecimalType;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static java.lang.String.format;
 import static org.testng.Assert.assertEquals;
@@ -42,28 +33,23 @@ import static org.testng.Assert.fail;
 
 public abstract class AbstractTestFunctions
 {
-    protected final FunctionAssertions functionAssertions;
-
-    protected AbstractTestFunctions()
-    {
-        functionAssertions = new FunctionAssertions();
-    }
-
-    protected AbstractTestFunctions(FeaturesConfig featuresConfig)
-    {
-        functionAssertions = new FunctionAssertions(TEST_SESSION, featuresConfig);
-    }
+    protected final FunctionAssertions functionAssertions = new FunctionAssertions();
 
     protected void assertFunction(String projection, Type expectedType, Object expected)
     {
         functionAssertions.assertFunction(projection, expectedType, expected);
     }
 
-    protected void assertDecimalFunction(String statement, SqlDecimal expectedResult)
+    protected void assertInvalidFunction(String projection, Type expectedType, String message)
     {
-        assertFunction(statement,
-                createDecimalType(expectedResult.getPrecision(), expectedResult.getScale()),
-                expectedResult);
+        try {
+            assertFunction(projection, expectedType, null);
+            fail("Expected to throw an INVALID_FUNCTION_ARGUMENT exception with message " + message);
+        }
+        catch (PrestoException e) {
+            assertEquals(e.getErrorCode(), INVALID_FUNCTION_ARGUMENT.toErrorCode());
+            assertEquals(e.getMessage(), message);
+        }
     }
 
     protected void assertInvalidFunction(String projection, String message)
@@ -100,18 +86,6 @@ public abstract class AbstractTestFunctions
         }
     }
 
-    protected void assertNumericOverflow(String projection, String message)
-    {
-        try {
-            evaluateInvalid(projection);
-            fail("Expected to throw an NUMERIC_VALUE_OUT_OF_RANGE exception with message " + message);
-        }
-        catch (PrestoException e) {
-            assertEquals(e.getErrorCode(), NUMERIC_VALUE_OUT_OF_RANGE.toErrorCode());
-            assertEquals(e.getMessage(), message);
-        }
-    }
-
     protected void assertInvalidCast(String projection)
     {
         try {
@@ -142,25 +116,6 @@ public abstract class AbstractTestFunctions
                 .scalar(clazz)
                 .getFunctions();
         metadata.getFunctionRegistry().addFunctions(functions);
-    }
-
-    protected SqlDecimal decimal(String decimalString)
-    {
-        DecimalParseResult parseResult = Decimals.parseIncludeLeadingZerosInPrecision(decimalString);
-        BigInteger unscaledValue;
-        if (parseResult.getType().isShort()) {
-            unscaledValue = BigInteger.valueOf((Long) parseResult.getObject());
-        }
-        else {
-            unscaledValue = Decimals.decodeUnscaledValue((Slice) parseResult.getObject());
-        }
-        return new SqlDecimal(unscaledValue, parseResult.getType().getPrecision(), parseResult.getType().getScale());
-    }
-
-    protected SqlDecimal maxPrecisionDecimal(long value)
-    {
-        final String maxPrecisionFormat = "%0" + (Decimals.MAX_PRECISION + (value < 0 ? 1 : 0)) + "d";
-        return decimal(String.format(maxPrecisionFormat, value));
     }
 
     private void evaluateInvalid(String projection)

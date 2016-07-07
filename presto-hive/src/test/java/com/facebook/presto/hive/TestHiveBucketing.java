@@ -25,7 +25,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.primitives.Ints;
 import io.airlift.slice.Slices;
-import org.apache.hadoop.hive.common.type.HiveVarchar;
 import org.apache.hadoop.hive.ql.io.DefaultHivePartitioner;
 import org.apache.hadoop.hive.ql.io.HiveKey;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -34,7 +33,6 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDFHash;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.IntObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.primitive.JavaHiveVarcharObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
 import org.testng.annotations.Test;
@@ -135,11 +133,6 @@ public class TestHiveBucketing
         assertBucketEquals("double", Double.MIN_VALUE);
         assertBucketEquals("double", Double.POSITIVE_INFINITY);
         assertBucketEquals("double", Double.NEGATIVE_INFINITY);
-        assertBucketEquals("varchar(15)", null);
-        assertBucketEquals("varchar(15)", "");
-        assertBucketEquals("varchar(15)", "test string");
-        assertBucketEquals("varchar(15)", "\u5f3a\u5927\u7684Presto\u5f15\u64ce"); // 3-byte UTF-8 sequences (in Basic Plane, i.e. Plane 0)
-        assertBucketEquals("varchar(15)", "\uD843\uDFFC\uD843\uDFFD\uD843\uDFFE\uD843\uDFFF"); // 4 code points: 20FFC - 20FFF. 4-byte UTF-8 sequences in Supplementary Plane 2
         assertBucketEquals("string", null);
         assertBucketEquals("string", "");
         assertBucketEquals("string", "test string");
@@ -242,13 +235,7 @@ public class TestHiveBucketing
         int i = 0;
         for (Entry<ObjectInspector, Object> entry : columnBindings) {
             objectInspectors[i] = entry.getKey();
-            if (entry.getValue() != null && entry.getKey() instanceof JavaHiveVarcharObjectInspector) {
-                JavaHiveVarcharObjectInspector varcharObjectInspector = (JavaHiveVarcharObjectInspector) entry.getKey();
-                deferredObjects[i] = new GenericUDF.DeferredJavaObject(new HiveVarchar(((String) entry.getValue()), varcharObjectInspector.getMaxLength()));
-            }
-            else {
-                deferredObjects[i] = new GenericUDF.DeferredJavaObject(entry.getValue());
-            }
+            deferredObjects[i] = new GenericUDF.DeferredJavaObject(entry.getValue());
             i++;
         }
 
@@ -302,12 +289,6 @@ public class TestHiveBucketing
             }
             case StandardTypes.BOOLEAN:
                 type.writeBoolean(blockBuilder, (Boolean) element);
-                break;
-            case StandardTypes.TINYINT:
-                type.writeLong(blockBuilder, ((Number) element).byteValue());
-                break;
-            case StandardTypes.SMALLINT:
-                type.writeLong(blockBuilder, ((Number) element).shortValue());
                 break;
             case StandardTypes.INTEGER:
                 type.writeLong(blockBuilder, ((Number) element).intValue());

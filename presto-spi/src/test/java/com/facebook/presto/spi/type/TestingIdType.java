@@ -58,7 +58,8 @@ public class TestingIdType
     @Override
     public long hash(Block block, int position)
     {
-        return block.getLong(position, 0);
+        long value = block.getLong(position, 0);
+        return (int) (value ^ (value >>> 32));
     }
 
     @Override

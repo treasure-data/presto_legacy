@@ -71,7 +71,6 @@ public class CassandraSession
     private final int fetchSizeForPartitionKeySelect;
     private final int limitForPartitionKeySelect;
     private final JsonCodec<List<ExtraColumnMetadata>> extraColumnMetadataCodec;
-    private final int noHostAvailableRetryCount;
 
     private LoadingCache<String, Session> sessionBySchema;
 
@@ -79,14 +78,12 @@ public class CassandraSession
             final Builder clusterBuilder,
             int fetchSizeForPartitionKeySelect,
             int limitForPartitionKeySelect,
-            JsonCodec<List<ExtraColumnMetadata>> extraColumnMetadataCodec,
-            int noHostAvailableRetryCount)
+            JsonCodec<List<ExtraColumnMetadata>> extraColumnMetadataCodec)
     {
         this.connectorId = connectorId;
         this.fetchSizeForPartitionKeySelect = fetchSizeForPartitionKeySelect;
         this.limitForPartitionKeySelect = limitForPartitionKeySelect;
         this.extraColumnMetadataCodec = extraColumnMetadataCodec;
-        this.noHostAvailableRetryCount = noHostAvailableRetryCount;
 
         sessionBySchema = CacheBuilder.newBuilder()
                 .build(new CacheLoader<String, Session>()
@@ -446,7 +443,7 @@ public class CassandraSession
     public <T> T executeWithSession(String schemaName, SessionCallable<T> sessionCallable)
     {
         NoHostAvailableException lastException = null;
-        for (int i = 0; i <= noHostAvailableRetryCount; i++) {
+        for (int i = 0; i < 2; i++) {
             Session session = getSession(schemaName);
             try {
                 return sessionCallable.executeWithSession(session);

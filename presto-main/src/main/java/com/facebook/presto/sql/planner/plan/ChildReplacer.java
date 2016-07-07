@@ -89,7 +89,7 @@ public class ChildReplacer
                 node.getId(),
                 node.getType(),
                 node.getScope(),
-                node.getPartitioningScheme(),
+                node.getPartitionFunction(),
                 newChildren,
                 node.getInputs());
     }
@@ -148,7 +148,7 @@ public class ChildReplacer
     public PlanNode visitJoin(JoinNode node, List<PlanNode> newChildren)
     {
         checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
-        return new JoinNode(node.getId(), node.getType(), newChildren.get(0), newChildren.get(1), node.getCriteria(), node.getFilter(), node.getLeftHashSymbol(), node.getRightHashSymbol());
+        return new JoinNode(node.getId(), node.getType(), newChildren.get(0), newChildren.get(1), node.getCriteria(), node.getLeftHashSymbol(), node.getRightHashSymbol());
     }
 
     @Override
@@ -174,7 +174,7 @@ public class ChildReplacer
     @Override
     public PlanNode visitGroupId(GroupIdNode node, List<PlanNode> newChildren)
     {
-        return new GroupIdNode(node.getId(), Iterables.getOnlyElement(newChildren), node.getGroupingSets(), node.getIdentityMappings(), node.getGroupIdSymbol());
+        return new GroupIdNode(node.getId(), Iterables.getOnlyElement(newChildren), node.getInputSymbols(), node.getGroupingSets(), node.getGroupIdSymbol());
     }
 
     @Override
@@ -189,7 +189,10 @@ public class ChildReplacer
         return new WindowNode(
                 node.getId(),
                 Iterables.getOnlyElement(newChildren),
-                node.getSpecification(),
+                node.getPartitionBy(),
+                node.getOrderBy(),
+                node.getOrderings(),
+                node.getFrame(),
                 node.getWindowFunctions(),
                 node.getSignatures(),
                 node.getHashSymbol(),
@@ -232,7 +235,7 @@ public class ChildReplacer
                 node.getColumnNames(),
                 node.getOutputSymbols(),
                 node.getSampleWeightSymbol(),
-                node.getPartitioningScheme());
+                node.getPartitionFunction());
     }
 
     @Override
@@ -263,12 +266,5 @@ public class ChildReplacer
     public PlanNode visitEnforceSingleRow(EnforceSingleRowNode node, List<PlanNode> newChildren)
     {
         return new EnforceSingleRowNode(node.getId(), Iterables.getOnlyElement(newChildren));
-    }
-
-    @Override
-    public PlanNode visitApply(ApplyNode node, List<PlanNode> newChildren)
-    {
-        checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
-        return new ApplyNode(node.getId(), newChildren.get(0), newChildren.get(1), node.getCorrelation());
     }
 }

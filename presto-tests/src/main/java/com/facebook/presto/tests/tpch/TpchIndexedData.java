@@ -21,7 +21,9 @@ import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.tpch.TpchMetadata;
 import com.facebook.presto.tpch.TpchRecordSetProvider;
 import com.facebook.presto.tpch.TpchTableHandle;
+import com.google.common.base.Function;
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -39,8 +41,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
-import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkPositionIndex;
 import static com.google.common.base.Preconditions.checkState;
@@ -67,9 +67,9 @@ class TpchIndexedData
             Map<String, ColumnHandle> columnHandles = new LinkedHashMap<>(tpchMetadata.getColumnHandles(null, tableHandle));
             for (Set<String> columnNames : tpchIndexSpec.getColumnIndexes(table)) {
                 List<String> keyColumnNames = ImmutableList.copyOf(columnNames); // Finalize the key order
-                Set<TpchScaledColumn> keyColumns = keyColumnNames.stream()
-                        .map(name -> new TpchScaledColumn(table, name))
-                        .collect(toImmutableSet());
+                Set<TpchScaledColumn> keyColumns = FluentIterable.from(keyColumnNames)
+                        .transform(TpchScaledColumn.columnFunction(table))
+                        .toSet();
 
                 TpchTable<?> tpchTable = TpchTable.getTable(table.getTableName());
                 RecordSet recordSet = tpchRecordSetProvider.getRecordSet(tpchTable, ImmutableList.copyOf(columnHandles.values()), table.getScaleFactor(), 0, 1);
@@ -84,9 +84,9 @@ class TpchIndexedData
     public Optional<IndexedTable> getIndexedTable(String tableName, double scaleFactor, Set<String> indexColumnNames)
     {
         TpchScaledTable table = new TpchScaledTable(tableName, scaleFactor);
-        Set<TpchScaledColumn> indexColumns = indexColumnNames.stream()
-                .map(name -> new TpchScaledColumn(table, name))
-                .collect(toImmutableSet());
+        Set<TpchScaledColumn> indexColumns = FluentIterable.from(indexColumnNames)
+                .transform(TpchScaledColumn.columnFunction(table))
+                .toSet();
         return Optional.ofNullable(indexedTables.get(indexColumns));
     }
 
@@ -100,13 +100,13 @@ class TpchIndexedData
 
     private static IndexedTable indexTable(RecordSet recordSet, final List<String> outputColumns, List<String> keyColumns)
     {
-        List<Integer> keyPositions = keyColumns.stream()
-                .map(columnName -> {
+        List<Integer> keyPositions = FluentIterable.from(keyColumns)
+                .transform(columnName -> {
                     int position = outputColumns.indexOf(columnName);
                     checkState(position != -1);
                     return position;
                 })
-                .collect(toImmutableList());
+                .toList();
 
         ImmutableListMultimap.Builder<MaterializedTuple, MaterializedTuple> indexedValuesBuilder = ImmutableListMultimap.builder();
 
@@ -230,6 +230,11 @@ class TpchIndexedData
         {
             this.table = requireNonNull(table, "table is null");
             this.columnName = requireNonNull(columnName, "columnName is null");
+        }
+
+        public static Function<String, TpchScaledColumn> columnFunction(final TpchScaledTable table)
+        {
+            return name -> new TpchScaledColumn(table, name);
         }
 
         @Override

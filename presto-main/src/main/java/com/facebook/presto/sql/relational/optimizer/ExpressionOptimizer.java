@@ -41,7 +41,6 @@ import static com.facebook.presto.sql.relational.Signatures.IF;
 import static com.facebook.presto.sql.relational.Signatures.IN;
 import static com.facebook.presto.sql.relational.Signatures.IS_NULL;
 import static com.facebook.presto.sql.relational.Signatures.NULL_IF;
-import static com.facebook.presto.sql.relational.Signatures.ROW_CONSTRUCTOR;
 import static com.facebook.presto.sql.relational.Signatures.SWITCH;
 import static com.facebook.presto.sql.relational.Signatures.TRY;
 import static com.facebook.presto.sql.relational.Signatures.TRY_CAST;
@@ -134,8 +133,7 @@ public class ExpressionOptimizer
                     case "AND":
                     case "OR":
                     case IN:
-                    case DEREFERENCE:
-                    case ROW_CONSTRUCTOR: {
+                    case DEREFERENCE: {
                         List<RowExpression> arguments = call.getArguments().stream()
                                 .map(argument -> argument.accept(this, null))
                                 .collect(toImmutableList());

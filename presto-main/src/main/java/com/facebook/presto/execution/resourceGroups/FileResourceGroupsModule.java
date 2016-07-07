@@ -21,7 +21,6 @@ import com.google.inject.TypeLiteral;
 
 import java.util.List;
 
-import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 
 public class FileResourceGroupsModule
@@ -31,7 +30,6 @@ public class FileResourceGroupsModule
     public void configure(Binder binder)
     {
         jsonCodecBinder(binder).bindJsonCodec(ManagerSpec.class);
-        configBinder(binder).bindConfig(FileResourceGroupConfig.class);
         binder.bind(new TypeLiteral<List<? extends ResourceGroupSelector>>() {}).toProvider(FileResourceGroupConfigurationManager.class).in(Scopes.SINGLETON);
         binder.bind(ResourceGroupConfigurationManager.class).to(FileResourceGroupConfigurationManager.class).in(Scopes.SINGLETON);
     }

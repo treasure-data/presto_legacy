@@ -138,10 +138,10 @@ public class TpchRecordSet<E extends TpchEntity>
         {
             checkState(row != null, "No current row");
             TpchColumn<E> tpchColumn = getTpchColumn(field);
-            if (tpchColumn.getType().getBase() == TpchColumnType.Base.DATE) {
+            if (tpchColumn.getType() == TpchColumnType.DATE) {
                 return tpchColumn.getDate(row);
             }
-            if (tpchColumn.getType().getBase() == TpchColumnType.Base.INTEGER) {
+            if (tpchColumn.getType() == TpchColumnType.INTEGER) {
                 return tpchColumn.getInteger(row);
             }
             return tpchColumn.getIdentifier(row);

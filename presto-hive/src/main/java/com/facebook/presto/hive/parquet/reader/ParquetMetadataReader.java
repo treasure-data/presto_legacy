@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.hive.parquet.reader;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -62,9 +63,10 @@ public final class ParquetMetadataReader
 
     private ParquetMetadataReader() {}
 
-    public static ParquetMetadata readFooter(FileSystem fileSystem, Path file)
+    public static ParquetMetadata readFooter(Configuration configuration, Path file)
             throws IOException
     {
+        FileSystem fileSystem = file.getFileSystem(configuration);
         FileStatus fileStatus = fileSystem.getFileStatus(file);
         try (FSDataInputStream inputStream = fileSystem.open(file)) {
             // Parquet File Layout:

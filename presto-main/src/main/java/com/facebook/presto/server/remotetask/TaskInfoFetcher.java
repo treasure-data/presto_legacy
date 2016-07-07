@@ -22,7 +22,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.SetThreadName;
 import io.airlift.http.client.FullJsonResponseHandler;
 import io.airlift.http.client.HttpClient;
-import io.airlift.http.client.HttpUriBuilder;
 import io.airlift.http.client.Request;
 import io.airlift.json.JsonCodec;
 import io.airlift.log.Logger;
@@ -30,13 +29,11 @@ import io.airlift.units.Duration;
 
 import javax.annotation.concurrent.GuardedBy;
 
-import java.net.URI;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
@@ -70,7 +67,7 @@ public class TaskInfoFetcher
     private final AtomicLong currentRequestStartNanos = new AtomicLong();
 
     @GuardedBy("this")
-    private final AtomicReference<TaskStatus> taskStatusDone = new AtomicReference();
+    private final AtomicBoolean taskStatusDone = new AtomicBoolean();
 
     @GuardedBy("this")
     private final AtomicBoolean lastRequest = new AtomicBoolean();
@@ -131,22 +128,9 @@ public class TaskInfoFetcher
         scheduleUpdate();
     }
 
-    public synchronized void abort(TaskStatus taskStatus)
+    public synchronized void taskStatusDone()
     {
-        updateTaskInfo(taskInfo.get().withTaskStatus(taskStatus));
-        // For aborted tasks we do not care about the final task info, so stop the info fetcher
-        stop();
-    }
-
-    public synchronized void taskStatusDone(TaskStatus taskStatus)
-    {
-        if (running && !isDone(getTaskInfo())) {
-            // try to get the last task status from the remote task
-            taskStatusDone.set(taskStatus);
-        }
-        else {
-            getTaskInfo().withTaskStatus(taskStatus);
-        }
+        taskStatusDone.set(true);
     }
 
     private synchronized void stop()
@@ -156,9 +140,7 @@ public class TaskInfoFetcher
             future.cancel(true);
             future = null;
         }
-        if (scheduledFuture != null) {
-            scheduledFuture.cancel(true);
-        }
+        scheduledFuture.cancel(true);
     }
 
     private synchronized void scheduleUpdate()
@@ -195,7 +177,7 @@ public class TaskInfoFetcher
             return;
         }
 
-        if (taskStatusDone.get() != null) {
+        if (taskStatusDone.get()) {
             lastRequest.set(true);
         }
 
@@ -206,12 +188,8 @@ public class TaskInfoFetcher
             return;
         }
 
-        HttpUriBuilder httpUriBuilder = uriBuilderFrom(taskStatus.getSelf());
-        // if this is the last request, don't summarize, get the complete taskInfo
-        URI uri = lastRequest.get() ? httpUriBuilder.build() : httpUriBuilder.addParameter("summarize").build();
-
         Request request = prepareGet()
-                .setUri(uri)
+                .setUri(uriBuilderFrom(taskStatus.getSelf()).addParameter("summarize").build())
                 .setHeader(CONTENT_TYPE, JSON_UTF_8.toString())
                 .build();
 
@@ -249,9 +227,6 @@ public class TaskInfoFetcher
             // we have the final task info so we can stop
             if (lastRequest.get() && !newValue.getTaskStatus().getState().isDone()) {
                 log.error("%s taskStatus done but taskInfo is not", taskId);
-
-                // Since the task is already done, update the task status
-                updateTaskInfo(taskInfo.get().withTaskStatus(taskStatusDone.get()));
             }
 
             if (lastRequest.get()) {
@@ -274,9 +249,8 @@ public class TaskInfoFetcher
                 }
             }
             catch (Error e) {
-                // if task status is already done, ignore this failure, update the task status and stop fetching
-                if (taskStatusDone.get() != null) {
-                    updateTaskInfo(taskInfo.get().withTaskStatus(taskStatusDone.get()));
+                // if task status is already done, ignore this failure, and stop fetching
+                if (taskStatusDone.get()) {
                     stop();
                 }
                 onFail.accept(e);
@@ -292,9 +266,8 @@ public class TaskInfoFetcher
     public void fatal(Throwable cause)
     {
         try (SetThreadName ignored = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
-            // if task status is already done, ignore this failure, update the task status and stop fetching
-            if (taskStatusDone.get() != null) {
-                updateTaskInfo(taskInfo.get().withTaskStatus(taskStatusDone.get()));
+            // if task status is already done, ignore this failure, and stop fetching
+            if (taskStatusDone.get()) {
                 stop();
             }
             updateStats(currentRequestStartNanos.get());

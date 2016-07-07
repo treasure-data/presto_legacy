@@ -83,7 +83,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -91,15 +90,12 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static com.facebook.presto.client.PrestoHeaders.PRESTO_ADDED_PREPARE;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_SESSION;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_TRANSACTION_ID;
-import static com.facebook.presto.client.PrestoHeaders.PRESTO_DEALLOCATED_PREPARE;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_SET_SESSION;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_STARTED_TRANSACTION_ID;
 import static com.facebook.presto.server.ResourceUtil.assertRequest;
 import static com.facebook.presto.server.ResourceUtil.createSessionForRequest;
-import static com.facebook.presto.server.ResourceUtil.urlEncode;
 import static com.facebook.presto.spi.StandardErrorCode.INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.toErrorType;
 import static com.facebook.presto.util.Failures.toFailure;
@@ -214,18 +210,6 @@ public class StatementResource
         query.getResetSessionProperties().stream()
                 .forEach(name -> response.header(PRESTO_CLEAR_SESSION, name));
 
-        // add added prepare statements
-        for (Entry<String, String> entry : query.getAddedPreparedStatements().entrySet()) {
-            String encodedKey = urlEncode(entry.getKey());
-            String encodedValue = urlEncode(entry.getValue());
-            response.header(PRESTO_ADDED_PREPARE, encodedKey + '=' + encodedValue);
-        }
-
-        // add deallocated prepare statements
-        for (String name : query.getDeallocatedPreparedStatements()) {
-            response.header(PRESTO_DEALLOCATED_PREPARE, urlEncode(name));
-        }
-
         // add new transaction ID
         query.getStartedTransactionId()
                 .ifPresent(transactionId -> response.header(PRESTO_STARTED_TRANSACTION_ID, transactionId));
@@ -278,12 +262,6 @@ public class StatementResource
         private Set<String> resetSessionProperties;
 
         @GuardedBy("this")
-        private Map<String, String> addedPreparedStatements;
-
-        @GuardedBy("this")
-        private Set<String> deallocatedPreparedStatements;
-
-        @GuardedBy("this")
         private Optional<TransactionId> startedTransactionId;
 
         @GuardedBy("this")
@@ -334,16 +312,6 @@ public class StatementResource
         public synchronized Set<String> getResetSessionProperties()
         {
             return resetSessionProperties;
-        }
-
-        public synchronized Map<String, String> getAddedPreparedStatements()
-        {
-            return addedPreparedStatements;
-        }
-
-        public synchronized Set<String> getDeallocatedPreparedStatements()
-        {
-            return deallocatedPreparedStatements;
         }
 
         public synchronized Optional<TransactionId> getStartedTransactionId()
@@ -415,7 +383,7 @@ public class StatementResource
                 if (queryInfo.getState() != QueryState.FINISHED) {
                     exchangeClient.close();
                 }
-                else if (!queryInfo.getOutputStage().isPresent()) {
+                else if (queryInfo.getOutputStage() == null) {
                     // For simple executions (e.g. drop table), there will never be an output stage,
                     // so close the exchange as soon as the query is done.
                     exchangeClient.close();
@@ -428,17 +396,13 @@ public class StatementResource
 
             // only return a next if the query is not done or there is more data to send (due to buffering)
             URI nextResultsUri = null;
-            if ((!queryInfo.isFinalQueryInfo()) || (!exchangeClient.isClosed())) {
+            if ((!queryInfo.getState().isDone()) || (!exchangeClient.isClosed())) {
                 nextResultsUri = createNextResultsUri(uriInfo);
             }
 
             // update setSessionProperties
             setSessionProperties = queryInfo.getSetSessionProperties();
             resetSessionProperties = queryInfo.getResetSessionProperties();
-
-            // update preparedStatements
-            addedPreparedStatements = queryInfo.getAddedPreparedStatements();
-            deallocatedPreparedStatements = queryInfo.getDeallocatedPreparedStatements();
 
             // update startedTransactionId
             startedTransactionId = queryInfo.getStartedTransactionId();
@@ -479,9 +443,8 @@ public class StatementResource
                 queryInfo = queryManager.getQueryInfo(queryId);
             }
 
-            StageInfo outputStage = queryInfo.getOutputStage().orElse(null);
             // if query did not finish starting or does not have output, just return
-            if (!isQueryStarted(queryInfo) || outputStage == null) {
+            if (!isQueryStarted(queryInfo) || queryInfo.getOutputStage() == null) {
                 return null;
             }
 
@@ -489,9 +452,9 @@ public class StatementResource
                 columns = createColumnsList(queryInfo);
             }
 
-            List<Type> types = outputStage.getTypes();
+            List<Type> types = queryInfo.getOutputStage().getTypes();
 
-            updateExchangeClient(outputStage);
+            updateExchangeClient(queryInfo.getOutputStage());
 
             ImmutableList.Builder<RowIterable> pages = ImmutableList.builder();
             // wait up to max wait for data to arrive; then try to return at least DESIRED_RESULT_BYTES
@@ -575,10 +538,11 @@ public class StatementResource
         private static List<Column> createColumnsList(QueryInfo queryInfo)
         {
             requireNonNull(queryInfo, "queryInfo is null");
-            checkArgument(queryInfo.getOutputStage().isPresent(), "outputStage is not present");
+            StageInfo outputStage = queryInfo.getOutputStage();
+            requireNonNull(outputStage, "outputStage is null");
 
             List<String> names = queryInfo.getFieldNames();
-            List<Type> types = queryInfo.getOutputStage().get().getTypes();
+            List<Type> types = outputStage.getTypes();
 
             checkArgument(names.size() == types.size(), "names and types size mismatch");
 
@@ -595,13 +559,11 @@ public class StatementResource
         private static StatementStats toStatementStats(QueryInfo queryInfo)
         {
             QueryStats queryStats = queryInfo.getQueryStats();
-            StageInfo outputStage = queryInfo.getOutputStage().orElse(null);
 
             return StatementStats.builder()
                     .setState(queryInfo.getState().toString())
-                    .setQueued(queryInfo.getState() == QueryState.QUEUED)
                     .setScheduled(queryInfo.isScheduled())
-                    .setNodes(globalUniqueNodes(outputStage).size())
+                    .setNodes(globalUniqueNodes(queryInfo.getOutputStage()).size())
                     .setTotalSplits(queryStats.getTotalDrivers())
                     .setQueuedSplits(queryStats.getQueuedDrivers())
                     .setRunningSplits(queryStats.getRunningDrivers())
@@ -611,7 +573,7 @@ public class StatementResource
                     .setWallTimeMillis(queryStats.getTotalScheduledTime().toMillis())
                     .setProcessedRows(queryStats.getRawInputPositions())
                     .setProcessedBytes(queryStats.getRawInputDataSize().toBytes())
-                    .setRootStage(toStageStats(outputStage))
+                    .setRootStage(toStageStats(queryInfo.getOutputStage()))
                     .build();
         }
 
@@ -673,8 +635,13 @@ public class StatementResource
 
         private static URI findCancelableLeafStage(QueryInfo queryInfo)
         {
-            // if query is running, find the leaf-most running stage
-            return queryInfo.getOutputStage().map(Query::findCancelableLeafStage).orElse(null);
+            if (queryInfo.getOutputStage() == null) {
+                // query is not running yet, cannot cancel leaf stage
+                return null;
+            }
+
+            // query is running, find the leaf-most running stage
+            return findCancelableLeafStage(queryInfo.getOutputStage());
         }
 
         private static URI findCancelableLeafStage(StageInfo stage)

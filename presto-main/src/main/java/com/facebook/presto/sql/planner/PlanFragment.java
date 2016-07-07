@@ -48,7 +48,7 @@ public class PlanFragment
     private final List<Type> types;
     private final Set<PlanNode> partitionedSourceNodes;
     private final List<RemoteSourceNode> remoteSourceNodes;
-    private final PartitioningScheme partitioningScheme;
+    private final PartitionFunctionBinding partitionFunction;
 
     @JsonCreator
     public PlanFragment(
@@ -57,7 +57,7 @@ public class PlanFragment
             @JsonProperty("symbols") Map<Symbol, Type> symbols,
             @JsonProperty("partitioning") PartitioningHandle partitioning,
             @JsonProperty("partitionedSources") List<PlanNodeId> partitionedSources,
-            @JsonProperty("partitioningScheme") PartitioningScheme partitioningScheme)
+            @JsonProperty("partitionFunction") PartitionFunctionBinding partitionFunction)
     {
         this.id = requireNonNull(id, "id is null");
         this.root = requireNonNull(root, "root is null");
@@ -67,10 +67,10 @@ public class PlanFragment
         this.partitionedSourcesSet = ImmutableSet.copyOf(partitionedSources);
 
         checkArgument(partitionedSourcesSet.size() == partitionedSources.size(), "partitionedSources contains duplicates");
-        checkArgument(ImmutableSet.copyOf(root.getOutputSymbols()).containsAll(partitioningScheme.getOutputLayout()),
-                "Root node outputs (%s) does not include all fragment outputs (%s)", root.getOutputSymbols(), partitioningScheme.getOutputLayout());
+        checkArgument(ImmutableSet.copyOf(root.getOutputSymbols()).containsAll(partitionFunction.getOutputLayout()),
+                "Root node outputs (%s) does not include all fragment outputs (%s)", root.getOutputSymbols(), partitionFunction.getOutputLayout());
 
-        types = partitioningScheme.getOutputLayout().stream()
+        types = partitionFunction.getOutputLayout().stream()
                 .map(symbols::get)
                 .collect(toImmutableList());
 
@@ -80,7 +80,7 @@ public class PlanFragment
         findRemoteSourceNodes(root, remoteSourceNodes);
         this.remoteSourceNodes = remoteSourceNodes.build();
 
-        this.partitioningScheme = requireNonNull(partitioningScheme, "partitioningScheme is null");
+        this.partitionFunction = requireNonNull(partitionFunction, "partitionFunction is null");
     }
 
     @JsonProperty
@@ -119,9 +119,9 @@ public class PlanFragment
     }
 
     @JsonProperty
-    public PartitioningScheme getPartitioningScheme()
+    public PartitionFunctionBinding getPartitionFunction()
     {
-        return partitioningScheme;
+        return partitionFunction;
     }
 
     public List<Type> getTypes()
@@ -175,7 +175,7 @@ public class PlanFragment
 
     public PlanFragment withBucketToPartition(Optional<int[]> bucketToPartition)
     {
-        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitioningScheme.withBucketToPartition(bucketToPartition));
+        return new PlanFragment(id, root, symbols, partitioning, partitionedSources, partitionFunction.withBucketToPartition(bucketToPartition));
     }
 
     @Override
@@ -185,7 +185,7 @@ public class PlanFragment
                 .add("id", id)
                 .add("partitioning", partitioning)
                 .add("partitionedSource", partitionedSources)
-                .add("partitionFunction", partitioningScheme)
+                .add("partitionFunction", partitionFunction)
                 .toString();
     }
 }

@@ -38,7 +38,6 @@ import static com.facebook.presto.operator.aggregation.AggregationMetadata.Param
 import static com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata.ParameterType.STATE;
 import static com.facebook.presto.operator.aggregation.AggregationUtils.generateAggregationName;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
-import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.util.Reflection.methodHandle;
 
 public class CountColumn
@@ -52,11 +51,7 @@ public class CountColumn
 
     public CountColumn()
     {
-        super(NAME,
-                ImmutableList.of(typeVariable("T")),
-                ImmutableList.of(),
-                parseTypeSignature(StandardTypes.BIGINT),
-                ImmutableList.of(parseTypeSignature("T")));
+        super(NAME, ImmutableList.of(typeVariable("T")), ImmutableList.of(), StandardTypes.BIGINT, ImmutableList.of("T"));
     }
 
     @Override
