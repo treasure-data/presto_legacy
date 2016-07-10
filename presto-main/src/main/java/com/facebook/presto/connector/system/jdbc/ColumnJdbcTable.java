@@ -146,7 +146,7 @@ public class ColumnJdbcTable
                     null,
                     null,
                     null,
-                    charOctecLength(column.getType()),
+                    charOctetLength(column.getType()),
                     ordinalPosition,
                     "",
                     null,
@@ -250,7 +250,7 @@ public class ColumnJdbcTable
         return null;
     }
 
-    private static Integer charOctecLength(Type type)
+    private static Integer charOctetLength(Type type)
     {
         if (type instanceof VarcharType) {
             return ((VarcharType) type).getLength();
