@@ -20,24 +20,34 @@ import com.facebook.presto.operator.aggregation.ApproximateCountColumnAggregatio
 import com.facebook.presto.operator.aggregation.ApproximateCountDistinctAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateDoublePercentileAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateDoublePercentileArrayAggregations;
+import com.facebook.presto.operator.aggregation.ApproximateFloatPercentileAggregations;
+import com.facebook.presto.operator.aggregation.ApproximateFloatPercentileArrayAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateLongPercentileAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateLongPercentileArrayAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateSetAggregation;
 import com.facebook.presto.operator.aggregation.ApproximateSumAggregations;
+import com.facebook.presto.operator.aggregation.ArrayAggregationFunction;
 import com.facebook.presto.operator.aggregation.AverageAggregations;
 import com.facebook.presto.operator.aggregation.BooleanAndAggregation;
 import com.facebook.presto.operator.aggregation.BooleanOrAggregation;
-import com.facebook.presto.operator.aggregation.CorrelationAggregation;
 import com.facebook.presto.operator.aggregation.CountAggregation;
 import com.facebook.presto.operator.aggregation.CountIfAggregation;
-import com.facebook.presto.operator.aggregation.CovarianceAggregation;
+import com.facebook.presto.operator.aggregation.DoubleCorrelationAggregation;
+import com.facebook.presto.operator.aggregation.DoubleCovarianceAggregation;
+import com.facebook.presto.operator.aggregation.DoubleHistogramAggregation;
+import com.facebook.presto.operator.aggregation.DoubleRegressionAggregation;
 import com.facebook.presto.operator.aggregation.DoubleSumAggregation;
+import com.facebook.presto.operator.aggregation.FloatAverageAggregation;
+import com.facebook.presto.operator.aggregation.FloatCorrelationAggregation;
+import com.facebook.presto.operator.aggregation.FloatCovarianceAggregation;
+import com.facebook.presto.operator.aggregation.FloatGeometricMeanAggregations;
+import com.facebook.presto.operator.aggregation.FloatHistogramAggregation;
+import com.facebook.presto.operator.aggregation.FloatRegressionAggregation;
+import com.facebook.presto.operator.aggregation.FloatSumAggregation;
 import com.facebook.presto.operator.aggregation.GeometricMeanAggregations;
 import com.facebook.presto.operator.aggregation.InternalAggregationFunction;
 import com.facebook.presto.operator.aggregation.LongSumAggregation;
 import com.facebook.presto.operator.aggregation.MergeHyperLogLogAggregation;
-import com.facebook.presto.operator.aggregation.NumericHistogramAggregation;
-import com.facebook.presto.operator.aggregation.RegressionAggregation;
 import com.facebook.presto.operator.aggregation.VarianceAggregation;
 import com.facebook.presto.operator.scalar.ArrayCardinalityFunction;
 import com.facebook.presto.operator.scalar.ArrayConcatFunction;
@@ -163,7 +173,6 @@ import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.metadata.FunctionKind.WINDOW;
 import static com.facebook.presto.metadata.Signature.internalOperator;
 import static com.facebook.presto.operator.aggregation.ArbitraryAggregationFunction.ARBITRARY_AGGREGATION;
-import static com.facebook.presto.operator.aggregation.ArrayAggregationFunction.ARRAY_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.ChecksumAggregationFunction.CHECKSUM_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.CountColumn.COUNT_COLUMN;
 import static com.facebook.presto.operator.aggregation.Histogram.HISTOGRAM;
@@ -329,41 +338,46 @@ public class FunctionRegistry
                 });
 
         FunctionListBuilder builder = new FunctionListBuilder()
-                .window("row_number", BIGINT, ImmutableList.<Type>of(), RowNumberFunction.class)
-                .window("rank", BIGINT, ImmutableList.<Type>of(), RankFunction.class)
-                .window("dense_rank", BIGINT, ImmutableList.<Type>of(), DenseRankFunction.class)
-                .window("percent_rank", DOUBLE, ImmutableList.<Type>of(), PercentRankFunction.class)
-                .window("cume_dist", DOUBLE, ImmutableList.<Type>of(), CumulativeDistributionFunction.class)
-                .window("ntile", BIGINT, ImmutableList.<Type>of(BIGINT), NTileFunction.class)
-                .window("first_value", FirstValueFunction.class, "T", "T")
-                .window("last_value", LastValueFunction.class, "T", "T")
-                .window("nth_value", NthValueFunction.class, "T", "T", "bigint")
-                .window("lag", LagFunction.class, "T", "T")
-                .window("lag", LagFunction.class, "T", "T", "bigint")
-                .window("lag", LagFunction.class, "T", "T", "bigint", "T")
-                .window("lead", LeadFunction.class, "T", "T")
-                .window("lead", LeadFunction.class, "T", "T", "bigint")
-                .window("lead", LeadFunction.class, "T", "T", "bigint", "T")
+                .window(RowNumberFunction.class)
+                .window(RankFunction.class)
+                .window(DenseRankFunction.class)
+                .window(PercentRankFunction.class)
+                .window(CumulativeDistributionFunction.class)
+                .window(NTileFunction.class)
+                .window(FirstValueFunction.class)
+                .window(LastValueFunction.class)
+                .window(NthValueFunction.class)
+                .window(LagFunction.class)
+                .window(LeadFunction.class)
                 .aggregate(CountAggregation.class)
                 .aggregate(VarianceAggregation.class)
                 .aggregate(ApproximateLongPercentileAggregations.class)
                 .aggregate(ApproximateLongPercentileArrayAggregations.class)
                 .aggregate(ApproximateDoublePercentileAggregations.class)
                 .aggregate(ApproximateDoublePercentileArrayAggregations.class)
+                .aggregate(ApproximateFloatPercentileAggregations.class)
+                .aggregate(ApproximateFloatPercentileArrayAggregations.class)
                 .aggregate(CountIfAggregation.class)
                 .aggregate(BooleanAndAggregation.class)
                 .aggregate(BooleanOrAggregation.class)
                 .aggregate(DoubleSumAggregation.class)
+                .aggregate(FloatSumAggregation.class)
                 .aggregate(LongSumAggregation.class)
                 .aggregate(AverageAggregations.class)
+                .aggregate(FloatAverageAggregation.class)
                 .aggregate(GeometricMeanAggregations.class)
+                .aggregate(FloatGeometricMeanAggregations.class)
                 .aggregate(ApproximateCountDistinctAggregations.class)
                 .aggregate(MergeHyperLogLogAggregation.class)
                 .aggregate(ApproximateSetAggregation.class)
-                .aggregate(NumericHistogramAggregation.class)
-                .aggregate(CovarianceAggregation.class)
-                .aggregate(RegressionAggregation.class)
-                .aggregate(CorrelationAggregation.class)
+                .aggregate(DoubleHistogramAggregation.class)
+                .aggregate(FloatHistogramAggregation.class)
+                .aggregate(DoubleCovarianceAggregation.class)
+                .aggregate(FloatCovarianceAggregation.class)
+                .aggregate(DoubleRegressionAggregation.class)
+                .aggregate(FloatRegressionAggregation.class)
+                .aggregate(DoubleCorrelationAggregation.class)
+                .aggregate(FloatCorrelationAggregation.class)
                 .scalars(SequenceFunction.class)
                 .scalars(StringFunctions.class)
                 .scalars(VarbinaryFunctions.class)
@@ -451,7 +465,6 @@ public class FunctionRegistry
                 .function(VARCHAR_TO_VARCHAR_CAST)
                 .function(IDENTITY_CAST)
                 .function(ARBITRARY_AGGREGATION)
-                .function(ARRAY_AGGREGATION)
                 .functions(GREATEST, LEAST)
                 .functions(MAX_BY, MIN_BY, MAX_BY_N_AGGREGATION, MIN_BY_N_AGGREGATION)
                 .functions(MAX_AGGREGATION, MIN_AGGREGATION, MAX_N_AGGREGATION, MIN_N_AGGREGATION)
@@ -460,6 +473,8 @@ public class FunctionRegistry
                 .function(CONCAT)
                 .function(DECIMAL_TO_DECIMAL_CAST)
                 .function(TRY_CAST);
+
+        builder.function(new ArrayAggregationFunction(featuresConfig.isLegacyArrayAgg()));
 
         switch (featuresConfig.getRegexLibrary()) {
             case JONI:

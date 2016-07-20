@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.execution.scheduler;
 
+import com.facebook.presto.OutputBuffers.OutputBufferId;
 import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.execution.LocationFactory;
 import com.facebook.presto.execution.MockRemoteTaskFactory;
@@ -22,7 +23,6 @@ import com.facebook.presto.execution.QueryId;
 import com.facebook.presto.execution.RemoteTask;
 import com.facebook.presto.execution.SqlStageExecution;
 import com.facebook.presto.execution.StageId;
-import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TestSqlTaskManager.MockLocationFactory;
 import com.facebook.presto.metadata.InMemoryNodeManager;
 import com.facebook.presto.metadata.PrestoNode;
@@ -68,7 +68,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import static com.facebook.presto.OutputBuffers.INITIAL_EMPTY_OUTPUT_BUFFERS;
+import static com.facebook.presto.OutputBuffers.BufferType.PARTITIONED;
+import static com.facebook.presto.OutputBuffers.createInitialEmptyOutputBuffers;
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.spi.StandardErrorCode.NO_NODES_AVAILABLE;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
@@ -86,7 +87,7 @@ import static org.testng.Assert.fail;
 
 public class TestSourcePartitionedScheduler
 {
-    public static final TaskId OUT = new TaskId("query", "stage", "out");
+    public static final OutputBufferId OUT = new OutputBufferId(0);
     private static final String CONNECTOR_ID = "test";
 
     private final ExecutorService executor = newCachedThreadPool(daemonThreadsNamed("stageExecutor-%s"));
@@ -457,7 +458,7 @@ public class TestSourcePartitionedScheduler
         for (int i = 0; i < splitCount; i++) {
             splits.add(splitFactory.get());
         }
-        return new FixedSplitSource(CONNECTOR_ID, splits.build());
+        return new FixedSplitSource(splits.build());
     }
 
     private SqlStageExecution createSqlStageExecution(StageExecutionPlan tableScanPlan, NodeTaskMap nodeTaskMap)
@@ -472,7 +473,7 @@ public class TestSourcePartitionedScheduler
                 nodeTaskMap,
                 executor);
 
-        stage.setOutputBuffers(INITIAL_EMPTY_OUTPUT_BUFFERS
+        stage.setOutputBuffers(createInitialEmptyOutputBuffers(PARTITIONED)
                 .withBuffer(OUT, 0)
                 .withNoMoreBufferIds());
 
@@ -501,12 +502,6 @@ public class TestSourcePartitionedScheduler
                 queue.add(splitFactory.get());
                 notEmptyFuture.complete(null);
             }
-        }
-
-        @Override
-        public String getDataSourceName()
-        {
-            return CONNECTOR_ID;
         }
 
         @Override
