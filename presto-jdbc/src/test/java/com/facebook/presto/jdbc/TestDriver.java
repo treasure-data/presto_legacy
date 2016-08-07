@@ -20,14 +20,11 @@ import com.facebook.presto.spi.type.BooleanType;
 import com.facebook.presto.spi.type.DateType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.DoubleType;
-import com.facebook.presto.spi.type.FloatType;
 import com.facebook.presto.spi.type.IntegerType;
-import com.facebook.presto.spi.type.SmallintType;
 import com.facebook.presto.spi.type.TimeType;
 import com.facebook.presto.spi.type.TimeWithTimeZoneType;
 import com.facebook.presto.spi.type.TimestampType;
 import com.facebook.presto.spi.type.TimestampWithTimeZoneType;
-import com.facebook.presto.spi.type.TinyintType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.VarbinaryType;
 import com.facebook.presto.spi.type.VarcharType;
@@ -740,9 +737,6 @@ public class TestDriver
                         "c_boolean boolean, " +
                         "c_bigint bigint, " +
                         "c_integer integer, " +
-                        "c_smallint smallint, " +
-                        "c_tinyint tinyint, " +
-                        "c_float float, " +
                         "c_double double, " +
                         "c_varchar_1234 varchar(1234), " +
                         "c_varchar varchar, " +
@@ -763,9 +757,6 @@ public class TestDriver
                 assertColumnSpec(rs, Types.BOOLEAN, null, null, null, BooleanType.BOOLEAN);
                 assertColumnSpec(rs, Types.BIGINT, 19L, null, null, BigintType.BIGINT);
                 assertColumnSpec(rs, Types.INTEGER, 10L, null, null, IntegerType.INTEGER);
-                assertColumnSpec(rs, Types.SMALLINT, 5L, null, null, SmallintType.SMALLINT);
-                assertColumnSpec(rs, Types.TINYINT, 3L, null, null, TinyintType.TINYINT);
-                assertColumnSpec(rs, Types.FLOAT, null, null, null, FloatType.FLOAT);
                 assertColumnSpec(rs, Types.DOUBLE, null, null, null, DoubleType.DOUBLE);
                 assertColumnSpec(rs, Types.LONGNVARCHAR, 1234L, null, 1234L, VarcharType.createVarcharType(1234));
                 assertColumnSpec(rs, Types.LONGNVARCHAR, (long) Integer.MAX_VALUE, null, (long) Integer.MAX_VALUE, VarcharType.createUnboundedVarcharType());

@@ -48,9 +48,7 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
-import static com.facebook.presto.spi.type.FloatType.FLOAT;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
-import static com.facebook.presto.spi.type.SmallintType.SMALLINT;
 import static com.facebook.presto.spi.type.TimeType.TIME;
 import static com.facebook.presto.spi.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
@@ -172,19 +170,10 @@ public class ColumnJdbcTable
         if (type.equals(INTEGER)) {
             return Types.INTEGER;
         }
-        if (type.equals(SMALLINT)) {
-            return Types.SMALLINT;
-        }
-        if (type.equals(TINYINT)) {
-            return Types.TINYINT;
-        }
-        if (type.equals(FLOAT)) {
-            return Types.FLOAT;
-        }
         if (type.equals(DOUBLE)) {
             return Types.DOUBLE;
         }
-        if (type.equals(VARCHAR)) {
+        if (type instanceof VarcharType) { // We can use type.equals(VARCHAR) from 0.150
             return Types.LONGNVARCHAR;
         }
         if (type.equals(VARBINARY)) {
@@ -221,12 +210,6 @@ public class ColumnJdbcTable
         }
         if (type.equals(INTEGER)) {
             return 10;  // 2**31-1
-        }
-        if (type.equals(SMALLINT)) {
-            return 5;   // 2**15-1
-        }
-        if (type.equals(TINYINT)) {
-            return 3;   // 2**7-1
         }
         if (type instanceof DecimalType) {
             return ((DecimalType) type).getPrecision();
