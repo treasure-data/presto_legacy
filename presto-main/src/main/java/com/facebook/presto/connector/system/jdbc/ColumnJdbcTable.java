@@ -144,7 +144,7 @@ public class ColumnJdbcTable
                     columnSize(column.getType()),
                     0,
                     decimalDigits(column.getType()),
-                    10,
+                    numPrecRadix(column.getType()),
                     DatabaseMetaData.columnNullableUnknown,
                     column.getComment(),
                     null,
@@ -233,6 +233,12 @@ public class ColumnJdbcTable
         if (type instanceof DecimalType) {
             return ((DecimalType) type).getPrecision();
         }
+        if (type.equals(FLOAT)) {
+            return 24;  // IEEE 754
+        }
+        if (type.equals(DOUBLE)) {
+            return 53;  // IEEE 754
+        }
         if (type instanceof VarcharType) {
             return ((VarcharType) type).getLength();
         }
@@ -273,6 +279,32 @@ public class ColumnJdbcTable
         }
         if (type.equals(VARBINARY)) {
             return Integer.MAX_VALUE;
+        }
+        return null;
+    }
+
+    private static Integer numPrecRadix(Type type)
+    {
+        if (type.equals(BIGINT)) {
+            return 10;
+        }
+        if (type.equals(INTEGER)) {
+            return 10;
+        }
+        if (type.equals(SMALLINT)) {
+            return 10;
+        }
+        if (type.equals(TINYINT)) {
+            return 10;
+        }
+        if (type instanceof DecimalType) {
+            return 10;
+        }
+        if (type.equals(FLOAT)) {
+            return 2;
+        }
+        if (type.equals(DOUBLE)) {
+            return 2;
         }
         return null;
     }
