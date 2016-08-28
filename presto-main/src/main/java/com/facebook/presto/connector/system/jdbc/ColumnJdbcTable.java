@@ -27,7 +27,9 @@ import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
+import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.type.VarcharType;
 import com.facebook.presto.type.ArrayType;
 
 import javax.inject.Inject;
@@ -46,6 +48,7 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
+import static com.facebook.presto.spi.type.FloatType.FLOAT;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.SmallintType.SMALLINT;
 import static com.facebook.presto.spi.type.TimeType.TIME;
@@ -138,16 +141,16 @@ public class ColumnJdbcTable
                     column.getName(),
                     jdbcDataType(column.getType()),
                     column.getType().getDisplayName(),
-                    0,
+                    columnSize(column.getType()),
                     0,
                     decimalDigits(column.getType()),
-                    10,
+                    numPrecRadix(column.getType()),
                     DatabaseMetaData.columnNullableUnknown,
                     column.getComment(),
                     null,
                     null,
                     null,
-                    0,
+                    charOctetLength(column.getType()),
                     ordinalPosition,
                     "",
                     null,
@@ -177,8 +180,14 @@ public class ColumnJdbcTable
         if (type.equals(TINYINT)) {
             return Types.TINYINT;
         }
+        if (type.equals(FLOAT)) {
+            return Types.FLOAT;
+        }
         if (type.equals(DOUBLE)) {
             return Types.DOUBLE;
+        }
+        if (type instanceof DecimalType) {
+            return Types.DECIMAL;
         }
         if (isVarcharType(type)) {
             return Types.LONGNVARCHAR;
@@ -207,10 +216,84 @@ public class ColumnJdbcTable
         return Types.JAVA_OBJECT;
     }
 
-    private static Integer decimalDigits(Type type)
+    private static Integer columnSize(Type type)
     {
         if (type.equals(BIGINT)) {
-            return 19;
+            return 19;  // 2**63-1
+        }
+        if (type.equals(INTEGER)) {
+            return 10;  // 2**31-1
+        }
+        if (type.equals(SMALLINT)) {
+            return 5;   // 2**15-1
+        }
+        if (type.equals(TINYINT)) {
+            return 3;   // 2**7-1
+        }
+        if (type instanceof DecimalType) {
+            return ((DecimalType) type).getPrecision();
+        }
+        if (type.equals(FLOAT)) {
+            return 24; // IEEE 754
+        }
+        if (type.equals(DOUBLE)) {
+            return 53; // IEEE 754
+        }
+        if (isVarcharType(type)) {
+            return ((VarcharType) type).getLength();
+        }
+        if (type.equals(VARBINARY)) {
+            return Integer.MAX_VALUE;
+        }
+        if (type.equals(TIME)) {
+            return 8; // 00:00:00
+        }
+        if (type.equals(TIME_WITH_TIME_ZONE)) {
+            return 8 + 6; // 00:00:00+00:00
+        }
+        if (type.equals(DATE)) {
+            return 14; // +5881580-07-11 (2**31-1 days)
+        }
+        if (type.equals(TIMESTAMP)) {
+            return 15 + 8;
+        }
+        if (type.equals(TIMESTAMP_WITH_TIME_ZONE)) {
+            return 15 + 8 + 6;
+        }
+        return null;
+    }
+
+    // DECIMAL_DIGITS is the number of fractional digits
+    private static Integer decimalDigits(Type type)
+    {
+        if (type instanceof DecimalType) {
+            return ((DecimalType) type).getScale();
+        }
+        return null;
+    }
+
+    private static Integer charOctetLength(Type type)
+    {
+        if (isVarcharType(type)) {
+            return ((VarcharType) type).getLength();
+        }
+        if (type.equals(VARBINARY)) {
+            return Integer.MAX_VALUE;
+        }
+        return null;
+    }
+
+    private static Integer numPrecRadix(Type type)
+    {
+        if (type.equals(BIGINT) ||
+                type.equals(INTEGER) ||
+                type.equals(SMALLINT) ||
+                type.equals(TINYINT) ||
+                (type instanceof DecimalType)) {
+            return 10;
+        }
+        if (type.equals(FLOAT) || type.equals(DOUBLE)) {
+            return 2;
         }
         return null;
     }
