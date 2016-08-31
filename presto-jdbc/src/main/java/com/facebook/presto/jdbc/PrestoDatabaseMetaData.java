@@ -924,6 +924,12 @@ public class PrestoDatabaseMetaData
                 "  SELF_REFERENCING_COL_NAME, REF_GENERATION\n" +
                 "FROM system.jdbc.tables");
 
+        if (catalog == null) {
+            catalog = connection.getCatalog();
+        }
+        if (schemaPattern == null) {
+            schemaPattern = connection.getSchema();
+        }
         List<String> filters = new ArrayList<>();
         emptyStringEqualsFilter(filters, "TABLE_CAT", catalog);
         emptyStringLikeFilter(filters, "TABLE_SCHEM", schemaPattern);
@@ -979,6 +985,12 @@ public class PrestoDatabaseMetaData
                 "  SOURCE_DATA_TYPE, IS_AUTOINCREMENT, IS_GENERATEDCOLUMN\n" +
                 "FROM system.jdbc.columns\n");
 
+        if (catalog == null) {
+            catalog = connection.getCatalog();
+        }
+        if (schemaPattern == null) {
+            schemaPattern = connection.getSchema();
+        }
         List<String> filters = new ArrayList<>();
         emptyStringEqualsFilter(filters, "TABLE_CAT", catalog);
         emptyStringLikeFilter(filters, "TABLE_SCHEM", schemaPattern);
@@ -1308,6 +1320,12 @@ public class PrestoDatabaseMetaData
                 "SELECT TABLE_SCHEM, TABLE_CATALOG\n" +
                 "FROM system.jdbc.schemas");
 
+        if (catalog == null) {
+            catalog = connection.getCatalog();
+        }
+        if (schemaPattern == null) {
+            schemaPattern = connection.getSchema();
+        }
         List<String> filters = new ArrayList<>();
         emptyStringEqualsFilter(filters, "TABLE_CATALOG", catalog);
         optionalStringLikeFilter(filters, "TABLE_SCHEM", schemaPattern);

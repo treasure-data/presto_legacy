@@ -104,7 +104,7 @@ public class PrestoConnection
             throws SQLException
     {
         checkOpen();
-        throw new NotImplementedException("Connection", "prepareStatement");
+        return new PrestoPreparedStatement(this, sql);
     }
 
     @Override
@@ -575,13 +575,13 @@ public class PrestoConnection
         return queryExecutor.getServerInfo(getHttpUri());
     }
 
-    StatementClient startQuery(String sql)
+    ClientSession createSession()
     {
         URI uri = getHttpUri();
 
         String source = firstNonNull(clientInfo.get("ApplicationName"), "presto-jdbc");
 
-        ClientSession session = new ClientSession(
+        return new ClientSession(
                 uri,
                 user,
                 source,
@@ -593,7 +593,10 @@ public class PrestoConnection
                 transactionId.get(),
                 false,
                 new Duration(2, MINUTES));
+    }
 
+    StatementClient startQuery(ClientSession session, String sql)
+    {
         return queryExecutor.startQuery(session, sql);
     }
 

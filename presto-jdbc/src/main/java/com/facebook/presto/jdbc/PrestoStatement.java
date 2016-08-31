@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.jdbc;
 
+import com.facebook.presto.client.ClientSession;
 import com.facebook.presto.client.StatementClient;
 import com.google.common.primitives.Ints;
 
@@ -66,7 +67,13 @@ public class PrestoStatement
     public ResultSet executeQuery(String sql)
             throws SQLException
     {
-        if (!execute(sql)) {
+        return executeQuery(connection.get().createSession(), sql);
+    }
+
+    protected ResultSet executeQuery(ClientSession session, String sql)
+            throws SQLException
+    {
+        if (!execute(session, sql)) {
             throw new SQLException("SQL statement is not a query: " + sql);
         }
         return currentResult.get();
@@ -198,13 +205,19 @@ public class PrestoStatement
     public boolean execute(String sql)
             throws SQLException
     {
+        return execute(connection.get().createSession(), sql);
+    }
+
+    protected boolean execute(ClientSession session, String sql)
+            throws SQLException
+    {
         clearCurrentResults();
         checkOpen();
 
         StatementClient client = null;
         ResultSet resultSet = null;
         try {
-            client = connection().startQuery(sql);
+            client = connection().startQuery(session, sql);
             if (client.isFailed()) {
                 throw resultsException(client.finalResults());
             }
@@ -423,7 +436,13 @@ public class PrestoStatement
     public long executeLargeUpdate(String sql)
             throws SQLException
     {
-        if (execute(sql)) {
+        return executeLargeUpdate(connection.get().createSession(), sql);
+    }
+
+    protected long executeLargeUpdate(ClientSession session, String sql)
+            throws SQLException
+    {
+        if (execute(session, sql)) {
             throw new SQLException("SQL is not an update statement: " + sql);
         }
         return currentUpdateCount.get();
