@@ -16,18 +16,22 @@ package com.facebook.presto.operator.scalar.annotations;
 import com.facebook.presto.metadata.BoundVariables;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.LongVariableConstraint;
-import com.facebook.presto.metadata.OperatorType;
 import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.metadata.SignatureBinder;
 import com.facebook.presto.metadata.TypeVariableConstraint;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.function.LiteralParameters;
+import com.facebook.presto.spi.function.OperatorDependency;
+import com.facebook.presto.spi.function.OperatorType;
+import com.facebook.presto.spi.function.SqlType;
+import com.facebook.presto.spi.function.TypeParameter;
+import com.facebook.presto.spi.function.TypeParameterSpecialization;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.type.Constraint;
-import com.facebook.presto.type.LiteralParameters;
-import com.facebook.presto.type.SqlType;
+import com.facebook.presto.type.LiteralParameter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -52,20 +56,20 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
-import static com.facebook.presto.metadata.OperatorType.BETWEEN;
-import static com.facebook.presto.metadata.OperatorType.CAST;
-import static com.facebook.presto.metadata.OperatorType.EQUAL;
-import static com.facebook.presto.metadata.OperatorType.GREATER_THAN;
-import static com.facebook.presto.metadata.OperatorType.GREATER_THAN_OR_EQUAL;
-import static com.facebook.presto.metadata.OperatorType.HASH_CODE;
-import static com.facebook.presto.metadata.OperatorType.LESS_THAN;
-import static com.facebook.presto.metadata.OperatorType.LESS_THAN_OR_EQUAL;
-import static com.facebook.presto.metadata.OperatorType.NOT_EQUAL;
 import static com.facebook.presto.metadata.Signature.comparableTypeParameter;
 import static com.facebook.presto.metadata.Signature.internalOperator;
 import static com.facebook.presto.metadata.Signature.orderableTypeParameter;
 import static com.facebook.presto.metadata.Signature.typeVariable;
 import static com.facebook.presto.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_ERROR;
+import static com.facebook.presto.spi.function.OperatorType.BETWEEN;
+import static com.facebook.presto.spi.function.OperatorType.CAST;
+import static com.facebook.presto.spi.function.OperatorType.EQUAL;
+import static com.facebook.presto.spi.function.OperatorType.GREATER_THAN;
+import static com.facebook.presto.spi.function.OperatorType.GREATER_THAN_OR_EQUAL;
+import static com.facebook.presto.spi.function.OperatorType.HASH_CODE;
+import static com.facebook.presto.spi.function.OperatorType.LESS_THAN;
+import static com.facebook.presto.spi.function.OperatorType.LESS_THAN_OR_EQUAL;
+import static com.facebook.presto.spi.function.OperatorType.NOT_EQUAL;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
@@ -130,13 +134,13 @@ public class ScalarImplementation
         }
         MethodHandle methodHandle = this.methodHandle;
         for (ImplementationDependency dependency : dependencies) {
-            methodHandle = methodHandle.bindTo(dependency.resolve(boundVariables.getTypeVariables(), typeManager, functionRegistry));
+            methodHandle = methodHandle.bindTo(dependency.resolve(boundVariables, typeManager, functionRegistry));
         }
         MethodHandle constructor = null;
         if (this.constructor.isPresent()) {
             constructor = this.constructor.get();
             for (ImplementationDependency dependency : constructorDependencies) {
-                constructor = constructor.bindTo(dependency.resolve(boundVariables.getTypeVariables(), typeManager, functionRegistry));
+                constructor = constructor.bindTo(dependency.resolve(boundVariables, typeManager, functionRegistry));
             }
         }
         return Optional.of(new MethodHandleAndConstructor(methodHandle, Optional.ofNullable(constructor)));
@@ -204,7 +208,7 @@ public class ScalarImplementation
 
     private interface ImplementationDependency
     {
-        Object resolve(Map<String, Type> types, TypeManager typeManager, FunctionRegistry functionRegistry);
+        Object resolve(BoundVariables boundVariables, TypeManager typeManager, FunctionRegistry functionRegistry);
     }
 
     private static final class OperatorImplementationDependency
@@ -232,9 +236,9 @@ public class ScalarImplementation
         }
 
         @Override
-        public MethodHandle resolve(Map<String, Type> types, TypeManager typeManager, FunctionRegistry functionRegistry)
+        public MethodHandle resolve(BoundVariables boundVariables, TypeManager typeManager, FunctionRegistry functionRegistry)
         {
-            Signature signature = SignatureBinder.bindVariables(this.signature, new BoundVariables(types, ImmutableMap.of()), this.signature.getArgumentTypes().size());
+            Signature signature = SignatureBinder.bindVariables(this.signature, boundVariables, this.signature.getArgumentTypes().size());
             return functionRegistry.getScalarFunctionImplementation(signature).getMethodHandle();
         }
     }
@@ -250,9 +254,26 @@ public class ScalarImplementation
         }
 
         @Override
-        public Type resolve(Map<String, Type> types, TypeManager typeManager, FunctionRegistry functionRegistry)
+        public Type resolve(BoundVariables boundVariables, TypeManager typeManager, FunctionRegistry functionRegistry)
         {
-            return typeManager.getType(SignatureBinder.bindVariables(signature, new BoundVariables(types, ImmutableMap.of())));
+            return typeManager.getType(SignatureBinder.bindVariables(signature, boundVariables));
+        }
+    }
+
+    private static final class LiteralImplementationDependency
+            implements ImplementationDependency
+    {
+        private final String literalName;
+
+        private LiteralImplementationDependency(String literalName)
+        {
+            this.literalName = requireNonNull(literalName, "literalName is null");
+        }
+
+        @Override
+        public Long resolve(BoundVariables boundVariables, TypeManager typeManager, FunctionRegistry functionRegistry)
+        {
+            return boundVariables.getLongVariable(literalName);
         }
     }
 
@@ -332,6 +353,9 @@ public class ScalarImplementation
                     Annotation annotation = annotations[0];
                     if (annotation instanceof TypeParameter) {
                         checkArgument(typeParameters.contains(annotation), "Injected type parameters must be declared with @TypeParameter annotation on the method [%s]", method);
+                    }
+                    if (annotation instanceof LiteralParameter) {
+                        checkArgument(literalParameters.contains(((LiteralParameter) annotation).value()), "Parameter injected by @LiteralParameter must be declared in @LiteralParameter.");
                     }
                     dependencies.add(parseDependency(annotation));
                 }
@@ -485,6 +509,9 @@ public class ScalarImplementation
                         parseTypeSignature(operator.returnType()),
                         asList(operator.argumentTypes()).stream().map(TypeSignature::parseTypeSignature).collect(toImmutableList()));
             }
+            if (annotation instanceof LiteralParameter) {
+                return new LiteralImplementationDependency(((LiteralParameter) annotation).value());
+            }
             throw new IllegalArgumentException("Unsupported annotation " + annotation.getClass().getSimpleName());
         }
 
@@ -495,6 +522,9 @@ public class ScalarImplementation
                     return true;
                 }
                 if (annotation instanceof OperatorDependency) {
+                    return true;
+                }
+                if (annotation instanceof LiteralParameter) {
                     return true;
                 }
             }

@@ -116,7 +116,7 @@ public class TestShardOrganizerUtil
                 .property("temporal_column", "orderdate")
                 .build());
         Table tableInfo = metadataDao.getTableInformation(tableName.getSchemaName(), tableName.getTableName());
-        List<TableColumn> tableColumns = metadataDao.getTableColumns(tableInfo.getTableId());
+        List<TableColumn> tableColumns = metadataDao.listTableColumns(tableInfo.getTableId());
         Map<String, TableColumn> tableColumnMap = Maps.uniqueIndex(tableColumns, TableColumn::getColumnName);
 
         long orderDate = tableColumnMap.get("orderdate").getColumnId();
@@ -148,7 +148,7 @@ public class TestShardOrganizerUtil
                 .build();
 
         long transactionId = shardManager.beginTransaction();
-        shardManager.commitShards(transactionId, tableInfo.getTableId(), COLUMNS, shards, Optional.empty());
+        shardManager.commitShards(transactionId, tableInfo.getTableId(), COLUMNS, shards, Optional.empty(), 0);
         Set<ShardMetadata> shardMetadatas = shardManager.getNodeShards("node1");
 
         Long temporalColumnId = metadataDao.getTemporalColumnId(tableInfo.getTableId());

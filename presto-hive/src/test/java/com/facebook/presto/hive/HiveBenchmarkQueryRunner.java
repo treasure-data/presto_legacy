@@ -16,8 +16,10 @@ package com.facebook.presto.hive;
 import com.facebook.presto.GroupByHashPageIndexerFactory;
 import com.facebook.presto.Session;
 import com.facebook.presto.benchmark.BenchmarkSuite;
+import com.facebook.presto.hive.metastore.BridgingHiveMetastore;
 import com.facebook.presto.hive.metastore.InMemoryHiveMetastore;
 import com.facebook.presto.metadata.InMemoryNodeManager;
+import com.facebook.presto.spi.ServerInfo;
 import com.facebook.presto.testing.LocalQueryRunner;
 import com.facebook.presto.tpch.TpchConnectorFactory;
 import com.facebook.presto.type.TypeRegistry;
@@ -75,10 +77,11 @@ public final class HiveBenchmarkQueryRunner
                 "hive",
                 ImmutableMap.of("node.environment", "test"),
                 HiveBenchmarkQueryRunner.class.getClassLoader(),
-                metastore,
+                new BridgingHiveMetastore(metastore),
                 new TypeRegistry(),
                 new GroupByHashPageIndexerFactory(),
-                nodeManager);
+                nodeManager,
+                new ServerInfo("test_id", "test_environment", "test_version"));
 
         Map<String, String> hiveCatalogConfig = ImmutableMap.<String, String>builder()
                 .put("hive.metastore.uri", "thrift://none.invalid:0")

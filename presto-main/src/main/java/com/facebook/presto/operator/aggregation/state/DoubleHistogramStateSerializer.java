@@ -17,6 +17,7 @@ import com.facebook.presto.operator.aggregation.DoubleHistogramAggregation;
 import com.facebook.presto.operator.aggregation.NumericHistogram;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.function.AccumulatorStateSerializer;
 import com.facebook.presto.spi.type.Type;
 
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
@@ -44,8 +45,6 @@ public class DoubleHistogramStateSerializer
     @Override
     public void deserialize(Block block, int index, DoubleHistogramAggregation.State state)
     {
-        if (!block.isNull(index)) {
-            state.set(new NumericHistogram(VARBINARY.getSlice(block, index), DoubleHistogramAggregation.ENTRY_BUFFER_SIZE));
-        }
+        state.set(new NumericHistogram(VARBINARY.getSlice(block, index), DoubleHistogramAggregation.ENTRY_BUFFER_SIZE));
     }
 }

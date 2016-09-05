@@ -22,9 +22,15 @@ import org.skife.jdbi.v2.sqlobject.SqlUpdate;
 import org.skife.jdbi.v2.sqlobject.customizers.Mapper;
 
 import java.util.List;
+import java.util.Set;
 
 public interface MetadataDao
 {
+    String TABLE_COLUMN_SELECT = "" +
+            "SELECT t.schema_name, t.table_name, c.column_id, c.column_name, c.data_type\n" +
+            "FROM tables t\n" +
+            "JOIN columns c ON (t.table_id = c.table_id)\n";
+
     @SqlQuery("SELECT t.table_id, t.distribution_id, d.bucket_count, t.temporal_column_id\n" +
             "FROM tables t\n" +
             "LEFT JOIN distributions d ON (t.distribution_id = d.distribution_id)\n" +
@@ -42,24 +48,13 @@ public interface MetadataDao
             @Bind("schemaName") String schemaName,
             @Bind("tableName") String tableName);
 
-    @SqlQuery("SELECT t.schema_name, t.table_name,\n" +
-            "  c.column_id, c.column_name, c.ordinal_position, c.data_type\n" +
-            "FROM tables t\n" +
-            "JOIN columns c ON (t.table_id = c.table_id)\n" +
+    @SqlQuery(TABLE_COLUMN_SELECT +
             "WHERE t.table_id = :tableId\n" +
             "  AND c.column_id = :columnId\n" +
             "ORDER BY c.ordinal_position\n")
     TableColumn getTableColumn(
             @Bind("tableId") long tableId,
             @Bind("columnId") long columnId);
-
-    @SqlQuery("SELECT t.schema_name, t.table_name,\n" +
-            "  c.column_id, c.column_name, c.ordinal_position, c.data_type\n" +
-            "FROM tables t\n" +
-            "JOIN columns c ON (t.table_id = c.table_id)\n" +
-            "WHERE t.table_id = :tableId\n" +
-            "ORDER BY c.ordinal_position")
-    List<TableColumn> getTableColumns(@Bind("tableId") long tableId);
 
     @SqlQuery("SELECT schema_name, table_name\n" +
             "FROM tables\n" +
@@ -71,9 +66,7 @@ public interface MetadataDao
     @SqlQuery("SELECT DISTINCT schema_name FROM tables")
     List<String> listSchemaNames();
 
-    @SqlQuery("SELECT t.schema_name, t.table_name, c.column_id, c.column_name, c.data_type\n" +
-            "FROM tables t\n" +
-            "JOIN columns c ON (t.table_id = c.table_id)\n" +
+    @SqlQuery(TABLE_COLUMN_SELECT +
             "WHERE (schema_name = :schemaName OR :schemaName IS NULL)\n" +
             "  AND (table_name = :tableName OR :tableName IS NULL)\n" +
             "ORDER BY schema_name, table_name, ordinal_position")
@@ -81,25 +74,18 @@ public interface MetadataDao
             @Bind("schemaName") String schemaName,
             @Bind("tableName") String tableName);
 
-    @SqlQuery("SELECT t.schema_name, t.table_name, c.column_id, c.column_name, c.data_type\n" +
-            "FROM tables t\n" +
-            "JOIN columns c ON (t.table_id = c.table_id)\n" +
+    @SqlQuery(TABLE_COLUMN_SELECT +
             "WHERE t.table_id = :tableId\n" +
             "ORDER BY c.ordinal_position")
     List<TableColumn> listTableColumns(@Bind("tableId") long tableId);
 
-    @SqlQuery("SELECT t.schema_name, t.table_name,\n" +
-            "  c.column_id, c.column_name, c.ordinal_position, c.data_type\n" +
-            "FROM tables t\n" +
-            "JOIN columns c ON (t.table_id = c.table_id)\n" +
+    @SqlQuery(TABLE_COLUMN_SELECT +
             "WHERE t.table_id = :tableId\n" +
             "  AND c.sort_ordinal_position IS NOT NULL\n" +
             "ORDER BY c.sort_ordinal_position")
     List<TableColumn> listSortColumns(@Bind("tableId") long tableId);
 
-    @SqlQuery("SELECT t.schema_name, t.table_name, c.column_id, c.column_name, c.data_type\n" +
-            "FROM tables t\n" +
-            "JOIN columns c ON (t.table_id = c.table_id)\n" +
+    @SqlQuery(TABLE_COLUMN_SELECT +
             "WHERE t.table_id = :tableId\n" +
             "  AND c.bucket_ordinal_position IS NOT NULL\n" +
             "ORDER BY c.bucket_ordinal_position")
@@ -122,14 +108,43 @@ public interface MetadataDao
             @Bind("schemaName") String schemaName,
             @Bind("tableName") String tableName);
 
-    @SqlUpdate("INSERT INTO tables (schema_name, table_name, compaction_enabled, distribution_id)\n" +
-            "VALUES (:schemaName, :tableName, :compactionEnabled, :distributionId)")
+    @SqlUpdate("INSERT INTO tables (\n" +
+            "  schema_name, table_name, compaction_enabled, organization_enabled, distribution_id,\n" +
+            "  create_time, update_time, table_version,\n" +
+            "  shard_count, row_count, compressed_size, uncompressed_size)\n" +
+            "VALUES (\n" +
+            "  :schemaName, :tableName, :compactionEnabled, :organizationEnabled, :distributionId,\n" +
+            "  :createTime, :createTime, 0,\n" +
+            "  0, 0, 0, 0)\n")
     @GetGeneratedKeys
     long insertTable(
             @Bind("schemaName") String schemaName,
             @Bind("tableName") String tableName,
             @Bind("compactionEnabled") boolean compactionEnabled,
-            @Bind("distributionId") Long distributionId);
+            @Bind("organizationEnabled") boolean organizationEnabled,
+            @Bind("distributionId") Long distributionId,
+            @Bind("createTime") long createTime);
+
+    @SqlUpdate("UPDATE tables SET\n" +
+            "  update_time = :updateTime\n" +
+            ", table_version = table_version + 1\n" +
+            "WHERE table_id = :tableId")
+    void updateTableVersion(
+            @Bind("tableId") long tableId,
+            @Bind("updateTime") long updateTime);
+
+    @SqlUpdate("UPDATE tables SET\n" +
+            "  shard_count = shard_count + :shardCount \n" +
+            ", row_count = row_count + :rowCount\n" +
+            ", compressed_size = compressed_size + :compressedSize\n" +
+            ", uncompressed_size = uncompressed_size + :uncompressedSize\n" +
+            "WHERE table_id = :tableId")
+    void updateTableStats(
+            @Bind("tableId") long tableId,
+            @Bind("shardCount") long shardCount,
+            @Bind("rowCount") long rowCount,
+            @Bind("compressedSize") long compressedSize,
+            @Bind("uncompressedSize") long uncompressedSize);
 
     @SqlUpdate("INSERT INTO columns (table_id, column_id, column_name, ordinal_position, data_type, sort_ordinal_position, bucket_ordinal_position)\n" +
             "VALUES (:tableId, :columnId, :columnName, :ordinalPosition, :dataType, :sortOrdinalPosition, :bucketOrdinalPosition)")
@@ -242,4 +257,24 @@ public interface MetadataDao
     List<ColumnMetadataRow> getColumnMetadataRows(
             @Bind("schemaName") String schemaName,
             @Bind("tableName") String tableName);
+
+    @SqlQuery("SELECT schema_name, table_name, create_time, update_time, table_version,\n" +
+            "  shard_count, row_count, compressed_size, uncompressed_size\n" +
+            "FROM tables\n" +
+            "WHERE (schema_name = :schemaName OR :schemaName IS NULL)\n" +
+            "  AND (table_name = :tableName OR :tableName IS NULL)\n" +
+            "ORDER BY schema_name, table_name")
+    @Mapper(TableStatsRow.Mapper.class)
+    List<TableStatsRow> getTableStatsRows(
+            @Bind("schemaName") String schemaName,
+            @Bind("tableName") String tableName);
+
+    @SqlQuery("SELECT table_id\n" +
+            "FROM tables\n" +
+            "WHERE organization_enabled\n" +
+            "  AND table_id IN\n" +
+            "       (SELECT table_id\n" +
+            "        FROM columns\n" +
+            "        WHERE sort_ordinal_position IS NOT NULL)")
+    Set<Long> getOrganizationEligibleTables();
 }
