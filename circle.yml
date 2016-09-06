@@ -5,7 +5,7 @@ machine:
   java:
     version: oraclejdk8
   environment:
-    _JAVA_OPTIONS: -Xmx4g -XX:ReservedCodeCacheSize=300M
+    _JAVA_OPTIONS: -Xmx4g -XX:ReservedCodeCacheSize=300M -XX:MaxPermSize=300M -XX:InitiatingHeapOccupancyPercent=30
     JAVA_HOME: $HOME/.java/jdk1.8.0_92
     M2_HOME: $HOME/.m2/apache-maven-3.3.9  # .m2 is cached
     M2:      $HOME/.m2/apache-maven-3.3.9/bin
