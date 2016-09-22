@@ -40,6 +40,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.Primitives;
 import io.airlift.slice.Slice;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -184,11 +185,15 @@ public class CursorProcessorCompiler
         TryExpressionExtractor tryExtractor = new TryExpressionExtractor();
         projection.accept(tryExtractor, null);
         List<CallExpression> tryExpressions = tryExtractor.getTryExpressionsPreOrder();
+        HashSet<CallExpression> genTryExpressions = new HashSet<>();
 
         ImmutableMap.Builder<CallExpression, MethodDefinition> tryMethodMap = ImmutableMap.builder();
 
         int methodId = 0;
         for (CallExpression tryExpression : tryExpressions) {
+            if (!genTryExpressions.add(tryExpression)) {
+                continue;
+            }
             Parameter session = arg("session", ConnectorSession.class);
             Parameter cursor = arg("cursor", RecordCursor.class);
             Parameter wasNull = arg("wasNull", boolean.class);

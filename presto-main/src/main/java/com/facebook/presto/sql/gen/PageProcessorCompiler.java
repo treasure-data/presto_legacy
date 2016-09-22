@@ -52,6 +52,7 @@ import io.airlift.slice.Slices;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -742,11 +743,15 @@ public class PageProcessorCompiler
         TryExpressionExtractor tryExtractor = new TryExpressionExtractor();
         projection.accept(tryExtractor, null);
         List<CallExpression> tryExpressions = tryExtractor.getTryExpressionsPreOrder();
+        HashSet<CallExpression> genTryExpressions = new HashSet<>();
 
         ImmutableMap.Builder<CallExpression, MethodDefinition> tryMethodMap = ImmutableMap.builder();
 
         int methodId = 0;
         for (CallExpression tryExpression : tryExpressions) {
+            if (!genTryExpressions.add(tryExpression)) {
+                continue;
+            }
             Parameter session = arg("session", ConnectorSession.class);
             List<Parameter> blocks = toBlockParameters(getInputChannels(tryExpression.getArguments()));
             Parameter position = arg("position", int.class);
