@@ -2,8 +2,8 @@
  <servers>
   <server>
    <id>treasuredata</id>
-   <username>${env.ARTIFACTORY_USER}</username>
-   <password>${env.ARTIFACTORY_PASSWORD}</password>
+   <username>${env.TD_ARTIFACTORY_USERNAME}</username>
+   <password>${env.TD_ARTIFACTORY_PASSWORD}</password>
   </server>
  </servers>
 </settings>
