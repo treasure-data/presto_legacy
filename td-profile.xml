@@ -24,9 +24,14 @@
   </properties>
   <distributionManagement>
     <repository>
-      <id>td-maven-repository</id>
-      <name>Treasure Data private repository</name>
-      <url>s3://td-maven-repository</url>
+      <id>treasuredata</id>
+      <name>treasuredata-releases</name>
+      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-release-local</url>
     </repository>
+    <snapshotRepository>
+      <id>treasuredata</id>
+      <name>treasuredata-snapshots</name>
+      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-snapshot-local</url>
+    </snapshotRepository>
   </distributionManagement>
 </profile>

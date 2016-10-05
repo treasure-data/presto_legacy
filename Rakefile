@@ -91,7 +91,7 @@ desc "deploy presto"
 task "deploy" do
   # Deploy
   # Deploy presto-root
-  sh "mvn deploy -P td -N -DskipTests"
+  sh "mvn -s settings.xml deploy -P td -N -DskipTests"
   # Deploy presot modules
-  sh "mvn deploy -P td -pl #{compile_target_modules.join(",")} -DskipTests"
+  sh "mvn -s settings.xml deploy -P td -pl #{compile_target_modules.join(",")} -DskipTests"
 end
