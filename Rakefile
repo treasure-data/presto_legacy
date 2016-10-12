@@ -13,7 +13,10 @@ EXCLUDE_MODULES = %w|
  presto-mysql presto-postgresql presto-hive
  presto-hive-hadoop1 presto-hive-hadoop2
  presto-verifier presto-testing-server-launcher presto-jmx
- presto-hive-cdh4 presto-hive-cdh5 presto-raptor presto-server-rpm|
+ presto-hive-cdh4 presto-hive-cdh5 presto-raptor presto-server-rpm
+ presto-array presto-record-decoder presto-kafka presto-orc
+ presto-local-file presto-parser presto-ml presto-product-tests
+ presto-server-rpm presto-plugin-toolkit|
 
 EXCLUDE_FROM_COMPILE = %w|presto-docs presto-server-rpm|
 
@@ -37,12 +40,12 @@ end
 
 desc "compile codes"
 task "compile" do
-  sh "mvn test-compile -pl #{compile_target_modules.join(",")} -DskipTests"
+  sh "./mvnw test-compile -pl #{compile_target_modules.join(",")} -DskipTests"
 end
 
 desc "run tests"
 task "test" do
-  sh "mvn -P td -pl #{active_modules.join(",")} test"
+  sh "./mvnw -P td -pl #{active_modules.join(",")} test"
 end
 
 desc "set a unique version and td-specific settings"
@@ -56,7 +59,7 @@ task "update-pom" do
 
   # Set (presto-version)-(git revision number:first 7 characters) version to pom.xml files
   version = "#{presto_version.text.gsub("-SNAPSHOT", "")}-#{rev[0...7]}"
-  sh "mvn versions:set -DgenerateBackupPoms=false -DnewVersion=#{version} -N"
+  sh "./mvnw versions:set -DgenerateBackupPoms=false -DnewVersion=#{version} -N"
 
   # Reload pom.xml
   pom = REXML::Document.new(File.read("pom.xml"))
@@ -91,7 +94,7 @@ desc "deploy presto"
 task "deploy" do
   # Deploy
   # Deploy presto-root
-  sh "mvn -s settings.xml deploy -P td -N -DskipTests"
+  sh "./mvnw deploy -P td -N -DskipTests"
   # Deploy presot modules
-  sh "mvn -s settings.xml deploy -P td -pl #{compile_target_modules.join(",")} -DskipTests"
+  sh "./mvnw deploy -P td -pl #{compile_target_modules.join(",")} -DskipTests"
 end
