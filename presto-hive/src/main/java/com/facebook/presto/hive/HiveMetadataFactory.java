@@ -13,8 +13,9 @@
  */
 package com.facebook.presto.hive;
 
+import com.facebook.presto.hive.metastore.CachingHiveMetastore;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
-import com.facebook.presto.spi.ServerInfo;
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
 import com.facebook.presto.spi.type.TypeManager;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.json.JsonCodec;
@@ -36,7 +37,7 @@ public class HiveMetadataFactory
     private final boolean respectTableFormat;
     private final boolean bucketExecutionEnabled;
     private final boolean bucketWritingEnabled;
-    private final boolean forceIntegralToBigint;
+    private final boolean skipDeletionForAlter;
     private final HiveStorageFormat defaultStorageFormat;
     private final ExtendedHiveMetastore metastore;
     private final HdfsEnvironment hdfsEnvironment;
@@ -48,7 +49,7 @@ public class HiveMetadataFactory
     private final JsonCodec<PartitionUpdate> partitionUpdateCodec;
     private final BoundedExecutor renameExecution;
     private final TypeTranslator typeTranslator;
-    private final ServerInfo serverInfo;
+    private final String prestoVersion;
 
     @Inject
     @SuppressWarnings("deprecation")
@@ -64,7 +65,7 @@ public class HiveMetadataFactory
             TableParameterCodec tableParameterCodec,
             JsonCodec<PartitionUpdate> partitionUpdateCodec,
             TypeTranslator typeTranslator,
-            ServerInfo serverInfo)
+            NodeVersion nodeVersion)
     {
         this(connectorId,
                 metastore,
@@ -74,9 +75,9 @@ public class HiveMetadataFactory
                 hiveClientConfig.getMaxConcurrentFileRenames(),
                 hiveClientConfig.getAllowCorruptWritesForTesting(),
                 hiveClientConfig.isRespectTableFormat(),
+                hiveClientConfig.isSkipDeletionForAlter(),
                 hiveClientConfig.isBucketExecutionEnabled(),
                 hiveClientConfig.isBucketWritingEnabled(),
-                hiveClientConfig.isForceIntegralToBigint(),
                 hiveClientConfig.getHiveStorageFormat(),
                 typeManager,
                 locationService,
@@ -84,7 +85,7 @@ public class HiveMetadataFactory
                 partitionUpdateCodec,
                 executorService,
                 typeTranslator,
-                serverInfo);
+                nodeVersion.toString());
     }
 
     public HiveMetadataFactory(
@@ -96,9 +97,9 @@ public class HiveMetadataFactory
             int maxConcurrentFileRenames,
             boolean allowCorruptWritesForTesting,
             boolean respectTableFormat,
+            boolean skipDeletionForAlter,
             boolean bucketExecutionEnabled,
             boolean bucketWritingEnabled,
-            boolean forceIntegralToBigint,
             HiveStorageFormat defaultStorageFormat,
             TypeManager typeManager,
             LocationService locationService,
@@ -106,15 +107,15 @@ public class HiveMetadataFactory
             JsonCodec<PartitionUpdate> partitionUpdateCodec,
             ExecutorService executorService,
             TypeTranslator typeTranslator,
-            ServerInfo serverInfo)
+            String prestoVersion)
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null").toString();
 
         this.allowCorruptWritesForTesting = allowCorruptWritesForTesting;
         this.respectTableFormat = respectTableFormat;
+        this.skipDeletionForAlter = skipDeletionForAlter;
         this.bucketExecutionEnabled = bucketExecutionEnabled;
         this.bucketWritingEnabled = bucketWritingEnabled;
-        this.forceIntegralToBigint = forceIntegralToBigint;
         this.defaultStorageFormat = requireNonNull(defaultStorageFormat, "defaultStorageFormat is null");
 
         this.metastore = requireNonNull(metastore, "metastore is null");
@@ -126,7 +127,7 @@ public class HiveMetadataFactory
         this.tableParameterCodec = requireNonNull(tableParameterCodec, "tableParameterCodec is null");
         this.partitionUpdateCodec = requireNonNull(partitionUpdateCodec, "partitionUpdateCodec is null");
         this.typeTranslator = requireNonNull(typeTranslator, "typeTranslator is null");
-        this.serverInfo = requireNonNull(serverInfo, "serverInfo is null");
+        this.prestoVersion = requireNonNull(prestoVersion, "prestoVersion is null");
 
         if (!allowCorruptWritesForTesting && !timeZone.equals(DateTimeZone.getDefault())) {
             log.warn("Hive writes are disabled. " +
@@ -142,7 +143,11 @@ public class HiveMetadataFactory
     {
         return new HiveMetadata(
                 connectorId,
-                metastore,
+                new SemiTransactionalHiveMetastore(
+                        hdfsEnvironment,
+                        CachingHiveMetastore.memoizeMetastore(metastore), // per-transaction cache
+                        renameExecution,
+                        skipDeletionForAlter),
                 hdfsEnvironment,
                 partitionManager,
                 timeZone,
@@ -150,14 +155,12 @@ public class HiveMetadataFactory
                 respectTableFormat,
                 bucketExecutionEnabled,
                 bucketWritingEnabled,
-                forceIntegralToBigint,
                 defaultStorageFormat,
                 typeManager,
                 locationService,
                 tableParameterCodec,
                 partitionUpdateCodec,
-                renameExecution,
                 typeTranslator,
-                serverInfo);
+                prestoVersion);
     }
 }

@@ -14,7 +14,9 @@
 package com.facebook.presto.operator.scalar;
 
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.function.LiteralParameters;
 import com.facebook.presto.spi.function.ScalarOperator;
+import com.facebook.presto.spi.function.SqlNullable;
 import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.type.BigintOperators;
 import com.facebook.presto.type.BooleanOperators;
@@ -28,8 +30,6 @@ import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
 import io.airlift.slice.Slices;
-
-import javax.annotation.Nullable;
 
 import java.io.IOException;
 
@@ -59,8 +59,9 @@ public final class JsonOperators
     }
 
     @ScalarOperator(CAST)
-    @Nullable
-    @SqlType(VARCHAR)
+    @SqlNullable
+    @LiteralParameters("x")
+    @SqlType("varchar(x)")
     public static Slice castToVarchar(@SqlType(JSON) Slice json)
     {
         try (JsonParser parser = createJsonParser(JSON_FACTORY, json)) {
@@ -100,7 +101,7 @@ public final class JsonOperators
     }
 
     @ScalarOperator(CAST)
-    @Nullable
+    @SqlNullable
     @SqlType(BIGINT)
     public static Long castToBigint(@SqlType(JSON) Slice json)
     {
@@ -138,7 +139,7 @@ public final class JsonOperators
     }
 
     @ScalarOperator(CAST)
-    @Nullable
+    @SqlNullable
     @SqlType(INTEGER)
     public static Long castToInteger(@SqlType(JSON) Slice json)
     {
@@ -176,7 +177,7 @@ public final class JsonOperators
     }
 
     @ScalarOperator(CAST)
-    @Nullable
+    @SqlNullable
     @SqlType(DOUBLE)
     public static Double castToDouble(@SqlType(JSON) Slice json)
     {
@@ -216,7 +217,7 @@ public final class JsonOperators
     }
 
     @ScalarOperator(CAST)
-    @Nullable
+    @SqlNullable
     @SqlType(BOOLEAN)
     public static Boolean castToBoolean(@SqlType(JSON) Slice json)
     {
@@ -254,8 +255,10 @@ public final class JsonOperators
     }
 
     @ScalarOperator(CAST)
+    @LiteralParameters("x")
     @SqlType(JSON)
-    public static Slice castFromVarchar(@SqlType(VARCHAR) Slice slice) throws IOException
+    public static Slice castFromVarchar(@SqlType(VARCHAR) Slice slice)
+            throws IOException
     {
         try {
             SliceOutput output = new DynamicSliceOutput(slice.length() + 2);
@@ -271,7 +274,8 @@ public final class JsonOperators
 
     @ScalarOperator(CAST)
     @SqlType(JSON)
-    public static Slice castFromInteger(@SqlType(INTEGER) long value) throws IOException
+    public static Slice castFromInteger(@SqlType(INTEGER) long value)
+            throws IOException
     {
         try {
             SliceOutput output = new DynamicSliceOutput(20);
@@ -287,7 +291,8 @@ public final class JsonOperators
 
     @ScalarOperator(CAST)
     @SqlType(JSON)
-    public static Slice castFromBigint(@SqlType(BIGINT) long value) throws IOException
+    public static Slice castFromBigint(@SqlType(BIGINT) long value)
+            throws IOException
     {
         try {
             SliceOutput output = new DynamicSliceOutput(20);
@@ -303,7 +308,8 @@ public final class JsonOperators
 
     @ScalarOperator(CAST)
     @SqlType(JSON)
-    public static Slice castFromDouble(@SqlType(DOUBLE) double value) throws IOException
+    public static Slice castFromDouble(@SqlType(DOUBLE) double value)
+            throws IOException
     {
         try {
             SliceOutput output = new DynamicSliceOutput(32);
@@ -319,7 +325,8 @@ public final class JsonOperators
 
     @ScalarOperator(CAST)
     @SqlType(JSON)
-    public static Slice castFromBoolean(@SqlType(BOOLEAN) boolean value) throws IOException
+    public static Slice castFromBoolean(@SqlType(BOOLEAN) boolean value)
+            throws IOException
     {
         try {
             SliceOutput output = new DynamicSliceOutput(5);

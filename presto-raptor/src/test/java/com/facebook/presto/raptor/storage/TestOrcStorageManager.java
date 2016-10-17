@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.raptor.storage;
 
-import com.facebook.presto.metadata.InMemoryNodeManager;
 import com.facebook.presto.orc.OrcDataSource;
 import com.facebook.presto.orc.OrcRecordReader;
 import com.facebook.presto.raptor.RaptorColumnHandle;
@@ -37,6 +36,7 @@ import com.facebook.presto.spi.type.SqlTimestamp;
 import com.facebook.presto.spi.type.SqlVarbinary;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.testing.MaterializedResult;
+import com.facebook.presto.testing.TestingNodeManager;
 import com.facebook.presto.type.TypeRegistry;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -97,6 +97,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
+import static org.testng.FileAssert.assertDirectory;
 import static org.testng.FileAssert.assertFile;
 
 @Test(singleThreaded = true)
@@ -115,7 +116,7 @@ public class TestOrcStorageManager
     private static final Duration MISSING_SHARD_DISCOVERY = new Duration(5, TimeUnit.MINUTES);
     private static final ReaderAttributes READER_ATTRIBUTES = new ReaderAttributes(new DataSize(1, MEGABYTE), new DataSize(1, MEGABYTE), new DataSize(1, MEGABYTE));
 
-    private final NodeManager nodeManager = new InMemoryNodeManager();
+    private final NodeManager nodeManager = new TestingNodeManager();
     private Handle dummyHandle;
     private File temporary;
     private StorageService storageService;
@@ -352,9 +353,10 @@ public class TestOrcStorageManager
     public void testWriterRollback()
             throws Exception
     {
-        // verify staging directory does not exist
+        // verify staging directory is empty
         File staging = new File(new File(temporary, "data"), "staging");
-        assertFalse(staging.exists());
+        assertDirectory(staging);
+        assertEquals(staging.list(), new String[] {});
 
         // create a shard in staging
         OrcStorageManager manager = createOrcStorageManager();
@@ -571,7 +573,7 @@ public class TestOrcStorageManager
         ShardRecoveryManager recoveryManager = new ShardRecoveryManager(
                 storageService,
                 backupStore,
-                new InMemoryNodeManager(),
+                new TestingNodeManager(),
                 shardManager,
                 MISSING_SHARD_DISCOVERY,
                 10);

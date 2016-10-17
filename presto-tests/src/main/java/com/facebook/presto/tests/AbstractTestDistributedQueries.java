@@ -264,19 +264,19 @@ public abstract class AbstractTestDistributedQueries
         assertTrue(value.contains("Cost: "), format("Expected output to contain \"Cost: \", but it is %s", value));
     }
 
-    private void assertCreateTableAsSelect(String table, @Language("SQL") String query, @Language("SQL") String rowCountQuery)
+    protected void assertCreateTableAsSelect(String table, @Language("SQL") String query, @Language("SQL") String rowCountQuery)
             throws Exception
     {
         assertCreateTableAsSelect(getSession(), table, query, query, rowCountQuery);
     }
 
-    private void assertCreateTableAsSelect(String table, @Language("SQL") String query, @Language("SQL") String expectedQuery, @Language("SQL") String rowCountQuery)
+    protected void assertCreateTableAsSelect(String table, @Language("SQL") String query, @Language("SQL") String expectedQuery, @Language("SQL") String rowCountQuery)
             throws Exception
     {
         assertCreateTableAsSelect(getSession(), table, query, expectedQuery, rowCountQuery);
     }
 
-    private void assertCreateTableAsSelect(Session session, String table, @Language("SQL") String query, @Language("SQL") String expectedQuery, @Language("SQL") String rowCountQuery)
+    protected void assertCreateTableAsSelect(Session session, String table, @Language("SQL") String query, @Language("SQL") String expectedQuery, @Language("SQL") String rowCountQuery)
             throws Exception
     {
         assertUpdate(session, "CREATE TABLE " + table + " AS " + query, rowCountQuery);
@@ -565,6 +565,16 @@ public abstract class AbstractTestDistributedQueries
         assertQuery("SELECT * FROM " + name, query);
 
         assertUpdate("DROP VIEW test_view");
+    }
+
+    @Test
+    public void testViewCaseSensitivity()
+            throws Exception
+    {
+        computeActual("CREATE VIEW test_view_uppercase AS SELECT X FROM (SELECT 123 X)");
+        computeActual("CREATE VIEW test_view_mixedcase AS SELECT XyZ FROM (SELECT 456 XyZ)");
+        assertQuery("SELECT * FROM test_view_uppercase", "SELECT X FROM (SELECT 123 X)");
+        assertQuery("SELECT * FROM test_view_mixedcase", "SELECT XyZ FROM (SELECT 456 XyZ)");
     }
 
     @Test

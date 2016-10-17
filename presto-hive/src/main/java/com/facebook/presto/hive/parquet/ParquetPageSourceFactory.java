@@ -17,7 +17,6 @@ import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePageSourceFactory;
-import com.facebook.presto.hive.HivePartitionKey;
 import com.facebook.presto.hive.parquet.predicate.ParquetPredicate;
 import com.facebook.presto.hive.parquet.reader.ParquetMetadataReader;
 import com.facebook.presto.hive.parquet.reader.ParquetReader;
@@ -59,10 +58,12 @@ import static com.facebook.presto.hive.parquet.predicate.ParquetPredicateUtils.b
 import static com.facebook.presto.hive.parquet.predicate.ParquetPredicateUtils.predicateMatches;
 import static com.facebook.presto.spi.type.StandardTypes.BIGINT;
 import static com.facebook.presto.spi.type.StandardTypes.BOOLEAN;
+import static com.facebook.presto.spi.type.StandardTypes.CHAR;
 import static com.facebook.presto.spi.type.StandardTypes.DATE;
 import static com.facebook.presto.spi.type.StandardTypes.DECIMAL;
 import static com.facebook.presto.spi.type.StandardTypes.DOUBLE;
 import static com.facebook.presto.spi.type.StandardTypes.INTEGER;
+import static com.facebook.presto.spi.type.StandardTypes.REAL;
 import static com.facebook.presto.spi.type.StandardTypes.SMALLINT;
 import static com.facebook.presto.spi.type.StandardTypes.TIMESTAMP;
 import static com.facebook.presto.spi.type.StandardTypes.TINYINT;
@@ -79,8 +80,8 @@ public class ParquetPageSourceFactory
             .add("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
             .add("parquet.hive.serde.ParquetHiveSerDe")
             .build();
-    private static final Set<String> SUPPORTED_COLUMN_TYPES = ImmutableSet.of(INTEGER, BIGINT, BOOLEAN, DOUBLE, TIMESTAMP, VARCHAR, VARBINARY, DATE, DECIMAL);
-    private static final Set<String> SUPPORTED_PARTITION_TYPES = ImmutableSet.of(TINYINT, SMALLINT, INTEGER, BIGINT, BOOLEAN, DOUBLE, TIMESTAMP, VARCHAR, DATE, DECIMAL);
+    private static final Set<String> SUPPORTED_COLUMN_TYPES = ImmutableSet.of(INTEGER, BIGINT, BOOLEAN, DOUBLE, REAL, TIMESTAMP, VARCHAR, CHAR, VARBINARY, DATE, DECIMAL);
+    private static final Set<String> SUPPORTED_PARTITION_TYPES = ImmutableSet.of(TINYINT, SMALLINT, INTEGER, BIGINT, BOOLEAN, DOUBLE, REAL, TIMESTAMP, VARCHAR, CHAR, DATE, DECIMAL);
 
     private final TypeManager typeManager;
     private final boolean useParquetColumnNames;
@@ -108,7 +109,6 @@ public class ParquetPageSourceFactory
             long length,
             Properties schema,
             List<HiveColumnHandle> columns,
-            List<HivePartitionKey> partitionKeys,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             DateTimeZone hiveStorageTimeZone)
     {
@@ -133,9 +133,7 @@ public class ParquetPageSourceFactory
                 length,
                 schema,
                 columns,
-                partitionKeys,
                 useParquetColumnNames,
-                hiveStorageTimeZone,
                 typeManager,
                 isParquetPredicatePushdownEnabled(session),
                 effectivePredicate));
@@ -150,9 +148,7 @@ public class ParquetPageSourceFactory
             long length,
             Properties schema,
             List<HiveColumnHandle> columns,
-            List<HivePartitionKey> partitionKeys,
             boolean useParquetColumnNames,
-            DateTimeZone hiveStorageTimeZone,
             TypeManager typeManager,
             boolean predicatePushdownEnabled,
             TupleDomain<HiveColumnHandle> effectivePredicate)
@@ -190,11 +186,8 @@ public class ParquetPageSourceFactory
             }
 
             ParquetReader parquetReader = new ParquetReader(
-                    fileMetaData.getSchema(),
-                    fileMetaData.getKeyValueMetaData(),
                     requestedSchema,
                     blocks,
-                    configuration,
                     dataSource);
 
             return new ParquetPageSource(
@@ -205,12 +198,9 @@ public class ParquetPageSourceFactory
                     length,
                     schema,
                     columns,
-                    partitionKeys,
                     effectivePredicate,
-                    hiveStorageTimeZone,
                     typeManager,
-                    useParquetColumnNames,
-                    path);
+                    useParquetColumnNames);
         }
         catch (Exception e) {
             try {
