@@ -15,11 +15,12 @@ package com.facebook.presto.sql.analyzer;
 
 import com.google.common.collect.ImmutableMap;
 import io.airlift.configuration.testing.ConfigAssertions;
+import io.airlift.units.DataSize;
 import org.testng.annotations.Test;
 
+import java.nio.file.Paths;
 import java.util.Map;
 
-import static com.facebook.presto.sql.analyzer.FeaturesConfig.FILE_BASED_RESOURCE_GROUP_MANAGER;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.ProcessingOptimization.COLUMNAR_DICTIONARY;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.ProcessingOptimization.DISABLED;
 import static com.facebook.presto.sql.analyzer.RegexLibrary.JONI;
@@ -50,7 +51,10 @@ public class TestFeaturesConfig
                 .setRegexLibrary(JONI)
                 .setRe2JDfaStatesLimit(Integer.MAX_VALUE)
                 .setRe2JDfaRetries(5)
-                .setResourceGroupManager(FILE_BASED_RESOURCE_GROUP_MANAGER));
+                .setSpillEnabled(false)
+                .setOperatorMemoryLimitBeforeSpill(DataSize.valueOf("4MB"))
+                .setSpillerSpillPath(Paths.get(System.getProperty("java.io.tmpdir"), "presto", "spills").toString())
+                .setSpillerThreads(4));
     }
 
     @Test
@@ -73,7 +77,10 @@ public class TestFeaturesConfig
                 .put("regex-library", "RE2J")
                 .put("re2j.dfa-states-limit", "42")
                 .put("re2j.dfa-retries", "42")
-                .put("resource-group-manager", "test")
+                .put("experimental.spill-enabled", "true")
+                .put("experimental.operator-memory-limit-before-spill", "100MB")
+                .put("experimental.spiller-spill-path", "/tmp/custom/spill/path")
+                .put("experimental.spiller-threads", "42")
                 .build();
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
                 .put("experimental-syntax-enabled", "true")
@@ -92,7 +99,10 @@ public class TestFeaturesConfig
                 .put("regex-library", "RE2J")
                 .put("re2j.dfa-states-limit", "42")
                 .put("re2j.dfa-retries", "42")
-                .put("resource-group-manager", "test")
+                .put("experimental.spill-enabled", "true")
+                .put("experimental.operator-memory-limit-before-spill", "100MB")
+                .put("experimental.spiller-spill-path", "/tmp/custom/spill/path")
+                .put("experimental.spiller-threads", "42")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -112,7 +122,10 @@ public class TestFeaturesConfig
                 .setRegexLibrary(RE2J)
                 .setRe2JDfaStatesLimit(42)
                 .setRe2JDfaRetries(42)
-                .setResourceGroupManager("test");
+                .setSpillEnabled(true)
+                .setOperatorMemoryLimitBeforeSpill(DataSize.valueOf("100MB"))
+                .setSpillerSpillPath("/tmp/custom/spill/path")
+                .setSpillerThreads(42);
 
         assertFullMapping(properties, expected);
         assertDeprecatedEquivalence(FeaturesConfig.class, properties, propertiesLegacy);

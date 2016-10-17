@@ -22,8 +22,6 @@ import com.facebook.presto.hive.HiveCompressionCodec;
 import com.facebook.presto.hive.HivePageSink.DataColumn;
 import com.facebook.presto.hive.HivePageSink.HiveRecordWriter;
 import com.facebook.presto.hive.HivePageSourceFactory;
-import com.facebook.presto.hive.HivePartitionKey;
-import com.facebook.presto.hive.HiveRecordCursor;
 import com.facebook.presto.hive.HiveRecordCursorProvider;
 import com.facebook.presto.hive.HiveStorageFormat;
 import com.facebook.presto.hive.HiveType;
@@ -33,9 +31,11 @@ import com.facebook.presto.hive.orc.DwrfPageSourceFactory;
 import com.facebook.presto.hive.orc.OrcPageSourceFactory;
 import com.facebook.presto.hive.parquet.ParquetPageSourceFactory;
 import com.facebook.presto.hive.parquet.ParquetRecordCursorProvider;
+import com.facebook.presto.hive.rcfile.RcFilePageSourceFactory;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordPageSource;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.predicate.TupleDomain;
@@ -43,7 +43,6 @@ import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.type.TypeRegistry;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.JobConf;
@@ -69,8 +68,8 @@ public enum FileFormat
         @Override
         public ConnectorPageSource createFileFormatReader(ConnectorSession session, HdfsEnvironment hdfsEnvironment, File targetFile, List<String> columnNames, List<Type> columnTypes)
         {
-            HiveRecordCursorProvider cursorProvider = new ColumnarBinaryHiveRecordCursorProvider(hdfsEnvironment);
-            return createPageSource(cursorProvider, session, targetFile, columnNames, columnTypes, HiveStorageFormat.RCBINARY);
+            HivePageSourceFactory pageSourceFactory = new RcFilePageSourceFactory(TYPE_MANAGER, hdfsEnvironment);
+            return createPageSource(pageSourceFactory, session, targetFile, columnNames, columnTypes, HiveStorageFormat.RCBINARY);
         }
 
         @Override
@@ -90,8 +89,8 @@ public enum FileFormat
         @Override
         public ConnectorPageSource createFileFormatReader(ConnectorSession session, HdfsEnvironment hdfsEnvironment, File targetFile, List<String> columnNames, List<Type> columnTypes)
         {
-            HiveRecordCursorProvider cursorProvider = new ColumnarTextHiveRecordCursorProvider(hdfsEnvironment);
-            return createPageSource(cursorProvider, session, targetFile, columnNames, columnTypes, HiveStorageFormat.RCTEXT);
+            HivePageSourceFactory pageSourceFactory = new RcFilePageSourceFactory(TYPE_MANAGER, hdfsEnvironment);
+            return createPageSource(pageSourceFactory, session, targetFile, columnNames, columnTypes, HiveStorageFormat.RCTEXT);
         }
 
         @Override
@@ -332,8 +331,8 @@ public enum FileFormat
             columnHandles.add(new HiveColumnHandle("test", columnName, HiveType.toHiveType(typeTranslator, columnType), columnType.getTypeSignature(), i, REGULAR));
         }
 
-        HiveRecordCursor recordCursor = cursorProvider
-                .createHiveRecordCursor(
+        RecordCursor recordCursor = cursorProvider
+                .createRecordCursor(
                         "test",
                         conf,
                         session,
@@ -342,7 +341,6 @@ public enum FileFormat
                         targetFile.length(),
                         createSchema(format, columnNames, columnTypes),
                         columnHandles,
-                        ImmutableList.<HivePartitionKey>of(),
                         TupleDomain.all(),
                         DateTimeZone.forID(session.getTimeZoneKey().getId()),
                         TYPE_MANAGER)
@@ -375,7 +373,6 @@ public enum FileFormat
                         targetFile.length(),
                         createSchema(format, columnNames, columnTypes),
                         columnHandles,
-                        ImmutableList.<HivePartitionKey>of(),
                         TupleDomain.all(),
                         DateTimeZone.forID(session.getTimeZoneKey().getId()))
                 .get();

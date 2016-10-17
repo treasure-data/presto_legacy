@@ -16,10 +16,8 @@ package com.facebook.presto.kafka;
 import com.facebook.presto.spi.Plugin;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.connector.ConnectorFactory;
-import com.facebook.presto.spi.connector.ConnectorFactoryContext;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 import java.util.Optional;
@@ -34,13 +32,6 @@ public class KafkaPlugin
         implements Plugin
 {
     private Optional<Supplier<Map<SchemaTableName, KafkaTopicDescription>>> tableDescriptionSupplier = Optional.empty();
-    private Map<String, String> optionalConfig = ImmutableMap.of();
-
-    @Override
-    public synchronized void setOptionalConfig(Map<String, String> optionalConfig)
-    {
-        this.optionalConfig = ImmutableMap.copyOf(requireNonNull(optionalConfig, "optionalConfig is null"));
-    }
 
     @VisibleForTesting
     public synchronized void setTableDescriptionSupplier(Supplier<Map<SchemaTableName, KafkaTopicDescription>> tableDescriptionSupplier)
@@ -49,12 +40,8 @@ public class KafkaPlugin
     }
 
     @Override
-    public synchronized Iterable<ConnectorFactory> getConnectorFactories(ConnectorFactoryContext context)
+    public synchronized Iterable<ConnectorFactory> getConnectorFactories()
     {
-        return ImmutableList.of(new KafkaConnectorFactory(
-                context.getTypeManager(),
-                context.getNodeManager(),
-                tableDescriptionSupplier,
-                optionalConfig));
+        return ImmutableList.of(new KafkaConnectorFactory(tableDescriptionSupplier));
     }
 }
