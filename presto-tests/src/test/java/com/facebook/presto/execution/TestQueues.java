@@ -14,6 +14,9 @@
 package com.facebook.presto.execution;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.resourceGroups.ResourceGroupManagerPlugin;
+import com.facebook.presto.spi.QueryId;
+import com.facebook.presto.sql.parser.SqlParserOptions;
 import com.facebook.presto.tests.DistributedQueryRunner;
 import com.facebook.presto.tpch.TpchPlugin;
 import com.google.common.collect.ImmutableMap;
@@ -55,7 +58,6 @@ public class TestQueues
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         if (resourceGroups) {
             builder.put("experimental.resource-groups-enabled", "true");
-            builder.put("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json"));
         }
         else {
             builder.put("query.queue-config-file", getResourceFilePath("queue_config_dashboard.json"));
@@ -63,6 +65,9 @@ public class TestQueues
         Map<String, String> properties = builder.build();
 
         try (DistributedQueryRunner queryRunner = createQueryRunner(properties)) {
+            queryRunner.installPlugin(new ResourceGroupManagerPlugin());
+            queryRunner.getCoordinator().getResourceGroupManager().get().setConfigurationManager("file", ImmutableMap.of("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json")));
+
             QueryManager queryManager = queryRunner.getCoordinator().getQueryManager();
 
             // submit first "dashboard" query
@@ -127,7 +132,6 @@ public class TestQueues
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         if (resourceGroups) {
             builder.put("experimental.resource-groups-enabled", "true");
-            builder.put("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json"));
         }
         else {
             builder.put("query.queue-config-file", getResourceFilePath("queue_config_dashboard.json"));
@@ -135,6 +139,9 @@ public class TestQueues
         Map<String, String> properties = builder.build();
 
         try (DistributedQueryRunner queryRunner = createQueryRunner(properties)) {
+            queryRunner.installPlugin(new ResourceGroupManagerPlugin());
+            queryRunner.getCoordinator().getResourceGroupManager().get().setConfigurationManager("file", ImmutableMap.of("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json")));
+
             QueryId firstDashboardQuery = createQuery(queryRunner, newDashboardSession(), LONG_LASTING_QUERY);
             QueryId secondDashboardQuery = createQuery(queryRunner, newDashboardSession(), LONG_LASTING_QUERY);
 
@@ -164,7 +171,6 @@ public class TestQueues
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         if (resourceGroups) {
             builder.put("experimental.resource-groups-enabled", "true");
-            builder.put("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json"));
         }
         else {
             builder.put("query.queue-config-file", getResourceFilePath("queue_config_dashboard.json"));
@@ -172,6 +178,9 @@ public class TestQueues
         Map<String, String> properties = builder.build();
 
         try (DistributedQueryRunner queryRunner = createQueryRunner(properties)) {
+            queryRunner.installPlugin(new ResourceGroupManagerPlugin());
+            queryRunner.getCoordinator().getResourceGroupManager().get().setConfigurationManager("file", ImmutableMap.of("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json")));
+
             QueryId firstDashboardQuery = createQuery(queryRunner, newDashboardSession(), LONG_LASTING_QUERY);
             waitForQueryState(queryRunner, firstDashboardQuery, RUNNING);
 
@@ -203,7 +212,6 @@ public class TestQueues
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         if (resourceGroups) {
             builder.put("experimental.resource-groups-enabled", "true");
-            builder.put("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json"));
         }
         else {
             builder.put("query.queue-config-file", getResourceFilePath("queue_config_dashboard.json"));
@@ -211,6 +219,9 @@ public class TestQueues
         Map<String, String> properties = builder.build();
 
         try (DistributedQueryRunner queryRunner = createQueryRunner(properties)) {
+            queryRunner.installPlugin(new ResourceGroupManagerPlugin());
+            queryRunner.getCoordinator().getResourceGroupManager().get().setConfigurationManager("file", ImmutableMap.of("resource-groups.config-file", getResourceFilePath("resource_groups_config_dashboard.json")));
+
             QueryId queryId = createQuery(queryRunner, newRejectionSession(), LONG_LASTING_QUERY);
             waitForQueryState(queryRunner, queryId, FAILED);
             QueryManager queryManager = queryRunner.getCoordinator().getQueryManager();
@@ -252,7 +263,7 @@ public class TestQueues
     private static DistributedQueryRunner createQueryRunner(Map<String, String> properties)
             throws Exception
     {
-        DistributedQueryRunner queryRunner = new DistributedQueryRunner(testSessionBuilder().build(), 2, ImmutableMap.of(), properties);
+        DistributedQueryRunner queryRunner = new DistributedQueryRunner(testSessionBuilder().build(), 2, ImmutableMap.of(), properties, new SqlParserOptions());
 
         try {
             queryRunner.installPlugin(new TpchPlugin());

@@ -18,6 +18,7 @@ import com.facebook.presto.hive.HiveViewNotSupportedException;
 import com.facebook.presto.hive.PartitionAlreadyExistsException;
 import com.facebook.presto.hive.PartitionNotFoundException;
 import com.facebook.presto.hive.RetryDriver;
+import com.facebook.presto.hive.SchemaAlreadyExistsException;
 import com.facebook.presto.hive.TableAlreadyExistsException;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaNotFoundException;
@@ -52,6 +53,7 @@ import org.weakref.jmx.Managed;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,9 +63,14 @@ import java.util.function.Function;
 
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
 import static com.facebook.presto.hive.HiveUtil.PRESTO_VIEW_FLAG;
+import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.parsePrivilege;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.toGrants;
+import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.Iterables.getOnlyElement;
+import static com.google.common.collect.Sets.newHashSet;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -236,6 +243,81 @@ public class ThriftHiveMetastore
     }
 
     @Override
+    public void createDatabase(Database database)
+    {
+        try {
+            retry()
+                    .stopOn(AlreadyExistsException.class, InvalidObjectException.class, MetaException.class)
+                    .stopOnIllegalExceptions()
+                    .run("createDatabase", stats.getCreateDatabase().wrap(() -> {
+                        try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
+                            client.createDatabase(database);
+                        }
+                        return null;
+                    }));
+        }
+        catch (AlreadyExistsException e) {
+            throw new SchemaAlreadyExistsException(database.getName());
+        }
+        catch (TException e) {
+            throw new PrestoException(HIVE_METASTORE_ERROR, e);
+        }
+        catch (Exception e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    @Override
+    public void dropDatabase(String databaseName)
+    {
+        try {
+            retry()
+                    .stopOn(NoSuchObjectException.class, InvalidOperationException.class)
+                    .stopOnIllegalExceptions()
+                    .run("dropDatabase", stats.getDropDatabase().wrap(() -> {
+                        try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
+                            client.dropDatabase(databaseName, false, false);
+                        }
+                        return null;
+                    }));
+        }
+        catch (NoSuchObjectException e) {
+            throw new SchemaNotFoundException(databaseName);
+        }
+        catch (TException e) {
+            throw new PrestoException(HIVE_METASTORE_ERROR, e);
+        }
+        catch (Exception e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    @Override
+    public void alterDatabase(String databaseName, Database database)
+    {
+        try {
+            retry()
+                    .stopOn(NoSuchObjectException.class, MetaException.class)
+                    .stopOnIllegalExceptions()
+                    .run("alterDatabase", stats.getAlterDatabase().wrap(() -> {
+                        try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
+                            client.alterDatabase(databaseName, database);
+                        }
+                        return null;
+                    }));
+        }
+        catch (NoSuchObjectException e) {
+            throw new SchemaNotFoundException(databaseName);
+        }
+        catch (TException e) {
+            throw new PrestoException(HIVE_METASTORE_ERROR, e);
+        }
+        catch (Exception e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    @Override
     public void createTable(Table table)
     {
         try {
@@ -264,7 +346,7 @@ public class ThriftHiveMetastore
     }
 
     @Override
-    public void dropTable(String databaseName, String tableName)
+    public void dropTable(String databaseName, String tableName, boolean deleteData)
     {
         try {
             retry()
@@ -272,7 +354,7 @@ public class ThriftHiveMetastore
                     .stopOnIllegalExceptions()
                     .run("dropTable", stats.getDropTable().wrap(() -> {
                         try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
-                            client.dropTable(databaseName, tableName, true);
+                            client.dropTable(databaseName, tableName, deleteData);
                         }
                         return null;
                     }));
@@ -409,7 +491,7 @@ public class ThriftHiveMetastore
     }
 
     @Override
-    public void dropPartition(String databaseName, String tableName, List<String> parts)
+    public void dropPartition(String databaseName, String tableName, List<String> parts, boolean deleteData)
     {
         try {
             retry()
@@ -417,13 +499,38 @@ public class ThriftHiveMetastore
                     .stopOnIllegalExceptions()
                     .run("dropPartition", stats.getDropPartition().wrap(() -> {
                         try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
-                            client.dropPartition(databaseName, tableName, parts, true);
+                            client.dropPartition(databaseName, tableName, parts, deleteData);
                         }
                         return null;
                     }));
         }
         catch (NoSuchObjectException e) {
             throw new PartitionNotFoundException(new SchemaTableName(databaseName, tableName), parts);
+        }
+        catch (TException e) {
+            throw new PrestoException(HIVE_METASTORE_ERROR, e);
+        }
+        catch (Exception e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    @Override
+    public void alterPartition(String databaseName, String tableName, Partition partition)
+    {
+        try {
+            retry()
+                    .stopOn(NoSuchObjectException.class, MetaException.class)
+                    .stopOnIllegalExceptions()
+                    .run("alterPartition", stats.getAlterPartition().wrap(() -> {
+                        try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
+                            client.alterPartition(databaseName, tableName, partition);
+                        }
+                        return null;
+                    }));
+        }
+        catch (NoSuchObjectException e) {
+            throw new PartitionNotFoundException(new SchemaTableName(databaseName, tableName), partition.getValues());
         }
         catch (TException e) {
             throw new PrestoException(HIVE_METASTORE_ERROR, e);
@@ -539,9 +646,35 @@ public class ThriftHiveMetastore
     }
 
     @Override
-    public void grantTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> privilegeGrantInfoSet)
+    public void grantTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> requestedPrivileges)
     {
+        checkArgument(!containsAllPrivilege(requestedPrivileges), "\"ALL\" not supported in PrivilegeGrantInfo.privilege");
+
         try {
+            Set<HivePrivilegeInfo> existingPrivileges = getTablePrivileges(grantee, databaseName, tableName);
+
+            Set<PrivilegeGrantInfo> privilegesToGrant = newHashSet(requestedPrivileges);
+            for (Iterator<PrivilegeGrantInfo> iterator = privilegesToGrant.iterator(); iterator.hasNext(); ) {
+                HivePrivilegeInfo requestedPrivilege = getOnlyElement(parsePrivilege(iterator.next()));
+
+                for (HivePrivilegeInfo existingPrivilege : existingPrivileges) {
+                    if ((requestedPrivilege.isContainedIn(existingPrivilege))) {
+                        iterator.remove();
+                    }
+                    else if (existingPrivilege.isContainedIn(requestedPrivilege)) {
+                        throw new PrestoException(NOT_SUPPORTED, format(
+                                "Granting %s WITH GRANT OPTION is not supported while %s possesses %s",
+                                requestedPrivilege.getHivePrivilege().name(),
+                                grantee,
+                                requestedPrivilege.getHivePrivilege().name()));
+                    }
+              }
+            }
+
+            if (privilegesToGrant.isEmpty()) {
+                return;
+            }
+
             retry()
                     .stopOnIllegalExceptions()
                     .run("grantTablePrivileges", stats.getGrantTablePrivileges().wrap(() -> {
@@ -556,7 +689,7 @@ public class ThriftHiveMetastore
                             }
 
                             ImmutableList.Builder<HiveObjectPrivilege> privilegeBagBuilder = ImmutableList.builder();
-                            for (PrivilegeGrantInfo privilegeGrantInfo : privilegeGrantInfoSet) {
+                            for (PrivilegeGrantInfo privilegeGrantInfo : privilegesToGrant) {
                                 privilegeBagBuilder.add(
                                         new HiveObjectPrivilege(new HiveObjectRef(HiveObjectType.TABLE, databaseName, tableName, null, null),
                                                 grantee,
@@ -564,7 +697,6 @@ public class ThriftHiveMetastore
                                                 privilegeGrantInfo));
                             }
                             // TODO: Check whether the user/role exists in the hive metastore.
-                            // TODO: Check whether the user already has the given privilege.
                             metastoreClient.grantPrivileges(new PrivilegeBag(privilegeBagBuilder.build()));
                         }
                         return null;
@@ -579,9 +711,23 @@ public class ThriftHiveMetastore
     }
 
     @Override
-    public void revokeTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> privilegeGrantInfoSet)
+    public void revokeTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> requestedPrivileges)
     {
+        checkArgument(!containsAllPrivilege(requestedPrivileges), "\"ALL\" not supported in PrivilegeGrantInfo.privilege");
+
         try {
+            Set<HivePrivilege> existingHivePrivileges = getTablePrivileges(grantee, databaseName, tableName).stream()
+                    .map(HivePrivilegeInfo::getHivePrivilege)
+                    .collect(toSet());
+
+            Set<PrivilegeGrantInfo> privilegesToRevoke = requestedPrivileges.stream()
+                    .filter(privilegeGrantInfo -> existingHivePrivileges.contains(getOnlyElement(parsePrivilege(privilegeGrantInfo)).getHivePrivilege()))
+                    .collect(toSet());
+
+            if (privilegesToRevoke.isEmpty()) {
+                return;
+            }
+
             retry()
                     .stopOnIllegalExceptions()
                     .run("revokeTablePrivileges", stats.getRevokeTablePrivileges().wrap(() -> {
@@ -596,7 +742,7 @@ public class ThriftHiveMetastore
                             }
 
                             ImmutableList.Builder<HiveObjectPrivilege> privilegeBagBuilder = ImmutableList.builder();
-                            for (PrivilegeGrantInfo privilegeGrantInfo : privilegeGrantInfoSet) {
+                            for (PrivilegeGrantInfo privilegeGrantInfo : privilegesToRevoke) {
                                 privilegeBagBuilder.add(
                                         new HiveObjectPrivilege(
                                                 new HiveObjectRef(HiveObjectType.TABLE, databaseName, tableName, null, null),
@@ -605,7 +751,6 @@ public class ThriftHiveMetastore
                                                 privilegeGrantInfo));
                             }
                             // TODO: Check whether the user/role exists in the hive metastore.
-                            // TODO: Check whether the user possesses the given privilege before revoking.
                             metastoreClient.revokePrivileges(new PrivilegeBag(privilegeBagBuilder.build()));
                         }
                         return null;
@@ -622,6 +767,12 @@ public class ThriftHiveMetastore
         }
     }
 
+    private boolean containsAllPrivilege(Set<PrivilegeGrantInfo> requestedPrivileges)
+    {
+        return requestedPrivileges.stream()
+                .anyMatch(privilege -> privilege.getPrivilege().equalsIgnoreCase("all"));
+    }
+
     private Set<HivePrivilegeInfo> getPrivileges(String user, HiveObjectRef objectReference)
     {
         try {
@@ -636,8 +787,11 @@ public class ThriftHiveMetastore
                                 if (userPrivileges != null) {
                                     privileges.addAll(toGrants(userPrivileges.get(user)));
                                 }
-                                for (List<PrivilegeGrantInfo> rolePrivileges : privilegeSet.getRolePrivileges().values()) {
-                                    privileges.addAll(toGrants(rolePrivileges));
+                                Map<String, List<PrivilegeGrantInfo>> rolePrivilegesMap = privilegeSet.getRolePrivileges();
+                                if (rolePrivilegesMap != null) {
+                                    for (List<PrivilegeGrantInfo> rolePrivileges : rolePrivilegesMap.values()) {
+                                        privileges.addAll(toGrants(rolePrivileges));
+                                    }
                                 }
                                 // We do not add the group permissions as Hive does not seem to process these
                             }
@@ -652,19 +806,6 @@ public class ThriftHiveMetastore
         catch (Exception e) {
             throw propagate(e);
         }
-    }
-
-    private static Set<HivePrivilegeInfo> toGrants(List<PrivilegeGrantInfo> userGrants)
-    {
-        if (userGrants == null) {
-            return ImmutableSet.of();
-        }
-
-        ImmutableSet.Builder<HivePrivilegeInfo> privileges = ImmutableSet.builder();
-        for (PrivilegeGrantInfo userGrant : userGrants) {
-            privileges.addAll(parsePrivilege(userGrant));
-        }
-        return privileges.build();
     }
 
     private RetryDriver retry()

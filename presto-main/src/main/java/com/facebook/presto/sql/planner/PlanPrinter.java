@@ -35,6 +35,8 @@ import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.FunctionInvoker;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
+import com.facebook.presto.sql.planner.plan.ApplyNode;
+import com.facebook.presto.sql.planner.plan.AssignUniqueId;
 import com.facebook.presto.sql.planner.plan.DeleteNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
@@ -492,8 +494,8 @@ public class PlanPrinter
                 type = format("(%s)", node.getStep().toString());
             }
             String key = "";
-            if (!node.getGroupBy().isEmpty()) {
-                key = node.getGroupBy().toString();
+            if (!node.getGroupingKeys().isEmpty()) {
+                key = node.getGroupingKeys().toString();
             }
             String sampleWeight = "";
             if (node.getSampleWeight().isPresent()) {
@@ -575,8 +577,9 @@ public class PlanPrinter
             print(indent, "- Window[%s] => [%s]", Joiner.on(", ").join(args), formatOutputs(node.getOutputSymbols()));
             printStats(indent + 2, node.getId());
 
-            for (Map.Entry<Symbol, FunctionCall> entry : node.getWindowFunctions().entrySet()) {
-                print(indent + 2, "%s := %s(%s)", entry.getKey(), entry.getValue().getName(), Joiner.on(", ").join(entry.getValue().getArguments()));
+            for (Map.Entry<Symbol, WindowNode.Function> entry : node.getWindowFunctions().entrySet()) {
+                FunctionCall call = entry.getValue().getFunctionCall();
+                print(indent + 2, "%s := %s(%s)", entry.getKey(), call.getName(), Joiner.on(", ").join(call.getArguments()));
             }
             return processChildren(node, indent + 1);
         }
@@ -866,7 +869,25 @@ public class PlanPrinter
         }
 
         @Override
-        protected Void visitPlan(PlanNode node, Integer context)
+        public Void visitAssignUniqueId(AssignUniqueId node, Integer indent)
+        {
+            print(indent, "- AssignUniqueId => [%s]", formatOutputs(node.getOutputSymbols()));
+            printStats(indent + 2, node.getId());
+
+            return processChildren(node, indent + 1);
+        }
+
+        @Override
+        public Void visitApply(ApplyNode node, Integer indent)
+        {
+            print(indent, "- Apply[%s] => [%s]", node.getCorrelation(), formatOutputs(node.getOutputSymbols()));
+            printStats(indent + 2, node.getId());
+
+            return processChildren(node, indent + 1);
+        }
+
+        @Override
+        protected Void visitPlan(PlanNode node, Integer indent)
         {
             throw new UnsupportedOperationException("not yet implemented: " + node.getClass().getName());
         }

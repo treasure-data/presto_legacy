@@ -55,6 +55,7 @@ import static java.util.Objects.requireNonNull;
 public class Analysis
 {
     private final Statement root;
+    private final List<Expression> parameters;
     private String updateType;
 
     private final IdentityHashMap<Table, Query> namedQueries = new IdentityHashMap<>();
@@ -95,9 +96,16 @@ public class Analysis
 
     private Optional<Insert> insert = Optional.empty();
 
-    public Analysis(Statement root)
+    // for describe input and describe output
+    private final boolean isDescribe;
+
+    public Analysis(Statement root, List<Expression> parameters, boolean isDescribe)
     {
+        requireNonNull(parameters);
+
         this.root = root;
+        this.parameters = parameters;
+        this.isDescribe = isDescribe;
     }
 
     public Statement getStatement()
@@ -486,6 +494,16 @@ public class Analysis
     {
         Preconditions.checkState(sampleRatios.containsKey(relation), "Sample ratio missing for %s. Broken analysis?", relation);
         return sampleRatios.get(relation);
+    }
+
+    public List<Expression> getParameters()
+    {
+        return parameters;
+    }
+
+    public boolean isDescribe()
+    {
+        return isDescribe;
     }
 
     @Immutable

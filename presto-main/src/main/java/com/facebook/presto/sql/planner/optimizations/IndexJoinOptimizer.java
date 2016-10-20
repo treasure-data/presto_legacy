@@ -37,7 +37,6 @@ import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.BooleanLiteral;
 import com.facebook.presto.sql.tree.Expression;
-import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.sql.tree.WindowFrame;
 import com.google.common.base.Functions;
@@ -327,7 +326,7 @@ public class IndexJoinOptimizer
         public PlanNode visitWindow(WindowNode node, RewriteContext<Context> context)
         {
             if (!node.getWindowFunctions().values().stream()
-                    .map(FunctionCall::getName)
+                    .map(function -> function.getFunctionCall().getName())
                     .allMatch(metadata.getFunctionRegistry()::isAggregationFunction)) {
                 return node;
             }
@@ -340,7 +339,7 @@ public class IndexJoinOptimizer
             // Only RANGE frame type currently supported for aggregation functions because it guarantees the
             // same value for each peer group.
             // ROWS frame type requires the ordering to be fully deterministic (e.g. deterministically sorted on all columns)
-            if (node.getFrame().getType() != WindowFrame.Type.RANGE) {
+            if (node.getFrames().stream().map(WindowNode.Frame::getType).anyMatch(type -> type != WindowFrame.Type.RANGE)) { // TODO: extract frames of type RANGE and allow optimization on them
                 return node;
             }
 
@@ -389,7 +388,7 @@ public class IndexJoinOptimizer
         {
             // Lookup symbols can only be passed through if they are part of the group by columns
             Set<Symbol> groupByLookupSymbols = context.get().getLookupSymbols().stream()
-                    .filter(node.getGroupBy()::contains)
+                    .filter(node.getGroupingKeys()::contains)
                     .collect(toImmutableSet());
 
             if (groupByLookupSymbols.isEmpty()) {
@@ -506,7 +505,7 @@ public class IndexJoinOptimizer
             public Map<Symbol, Symbol> visitAggregation(AggregationNode node, Set<Symbol> lookupSymbols)
             {
                 Set<Symbol> groupByLookupSymbols = lookupSymbols.stream()
-                        .filter(node.getGroupBy()::contains)
+                        .filter(node.getGroupingKeys()::contains)
                         .collect(toImmutableSet());
                 checkState(!groupByLookupSymbols.isEmpty(), "No lookup symbols were able to pass through the aggregation group by");
                 return node.getSource().accept(this, groupByLookupSymbols);
