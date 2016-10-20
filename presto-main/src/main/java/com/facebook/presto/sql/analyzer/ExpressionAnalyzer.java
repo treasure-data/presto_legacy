@@ -67,6 +67,7 @@ import com.facebook.presto.sql.tree.Node;
 import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.Parameter;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.sql.tree.Row;
@@ -118,6 +119,7 @@ import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.EXPRESSION_NOT_CONSTANT;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_LITERAL;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PARAMETER_USAGE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MULTIPLE_FIELDS_FROM_SUBQUERY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.TYPE_MISMATCH;
@@ -146,6 +148,7 @@ public class ExpressionAnalyzer
     private final TypeManager typeManager;
     private final Function<Node, StatementAnalyzer> statementAnalyzerFactory;
     private final Map<Symbol, Type> symbolTypes;
+    private final boolean isDescribe;
 
     private final IdentityHashMap<FunctionCall, Signature> resolvedFunctions = new IdentityHashMap<>();
     private final Set<SubqueryExpression> scalarSubqueries = newIdentityHashSet();
@@ -157,19 +160,24 @@ public class ExpressionAnalyzer
     private final IdentityHashMap<Expression, Type> expressionTypes = new IdentityHashMap<>();
 
     private final Session session;
+    private final List<Expression> parameters;
 
     public ExpressionAnalyzer(
             FunctionRegistry functionRegistry,
             TypeManager typeManager,
             Function<Node, StatementAnalyzer> statementAnalyzerFactory,
             Session session,
-            Map<Symbol, Type> symbolTypes)
+            Map<Symbol, Type> symbolTypes,
+            List<Expression> parameters,
+            boolean isDescribe)
     {
         this.functionRegistry = requireNonNull(functionRegistry, "functionRegistry is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.statementAnalyzerFactory = requireNonNull(statementAnalyzerFactory, "statementAnalyzerFactory is null");
         this.session = requireNonNull(session, "session is null");
         this.symbolTypes = ImmutableMap.copyOf(requireNonNull(symbolTypes, "symbolTypes is null"));
+        this.parameters = requireNonNull(parameters, "parameters is null");
+        this.isDescribe = isDescribe;
     }
 
     public IdentityHashMap<FunctionCall, Signature> getResolvedFunctions()
@@ -302,9 +310,6 @@ public class ExpressionAnalyzer
 
         private Type handleResolvedField(Expression node, ResolvedField resolvedField)
         {
-            if (scope != resolvedField.getScope()) {
-                throw new SemanticException(NOT_SUPPORTED, node, "Correlated queries not yet supported. Invalid column reference: '%s'", node);
-            }
             columnReferences.add(node);
             expressionTypes.put(node, resolvedField.getType());
             return resolvedField.getType();
@@ -567,7 +572,7 @@ public class ExpressionAnalyzer
 
         protected Type visitCharLiteral(CharLiteral node, StackableAstVisitorContext<Void> context)
         {
-            CharType type = CharType.createCharType(SliceUtf8.countCodePoints(node.getSlice()));
+            CharType type = CharType.createCharType(node.getValue().length());
             expressionTypes.put(node, type);
             return type;
         }
@@ -782,6 +787,25 @@ public class ExpressionAnalyzer
             }
             expressionTypes.put(node, resultType);
 
+            return resultType;
+        }
+
+        @Override
+        protected Type visitParameter(Parameter node, StackableAstVisitorContext<Void> context)
+        {
+            if (isDescribe) {
+                expressionTypes.put(node, UNKNOWN);
+                return UNKNOWN;
+            }
+            if (parameters.size() == 0) {
+                throw new SemanticException(INVALID_PARAMETER_USAGE, node, "query takes no parameters");
+            }
+            if (node.getPosition() >= parameters.size()) {
+                throw new SemanticException(INVALID_PARAMETER_USAGE, node, "invalid parameter index %s, max value is %s", node.getPosition(), parameters.size() - 1);
+            }
+
+            Type resultType = process(parameters.get(node.getPosition()), context);
+            expressionTypes.put(node, resultType);
             return resultType;
         }
 
@@ -1077,9 +1101,10 @@ public class ExpressionAnalyzer
             Metadata metadata,
             SqlParser sqlParser,
             Map<Symbol, Type> types,
-            Expression expression)
+            Expression expression,
+            List<Expression> parameters)
     {
-        return getExpressionTypes(session, metadata, sqlParser, types, ImmutableList.of(expression));
+        return getExpressionTypes(session, metadata, sqlParser, types, expression, parameters, false);
     }
 
     public static IdentityHashMap<Expression, Type> getExpressionTypes(
@@ -1087,9 +1112,23 @@ public class ExpressionAnalyzer
             Metadata metadata,
             SqlParser sqlParser,
             Map<Symbol, Type> types,
-            Iterable<Expression> expressions)
+            Expression expression,
+            List<Expression> parameters,
+            boolean isDescribe)
     {
-        return analyzeExpressionsWithSymbols(session, metadata, sqlParser, types, expressions).getExpressionTypes();
+        return getExpressionTypes(session, metadata, sqlParser, types, ImmutableList.of(expression), parameters, isDescribe);
+    }
+
+    public static IdentityHashMap<Expression, Type> getExpressionTypes(
+            Session session,
+            Metadata metadata,
+            SqlParser sqlParser,
+            Map<Symbol, Type> types,
+            Iterable<Expression> expressions,
+            List<Expression> parameters,
+            boolean isDescribe)
+    {
+        return analyzeExpressionsWithSymbols(session, metadata, sqlParser, types, expressions, parameters, isDescribe).getExpressionTypes();
     }
 
     public static IdentityHashMap<Expression, Type> getExpressionTypesFromInput(
@@ -1097,9 +1136,10 @@ public class ExpressionAnalyzer
             Metadata metadata,
             SqlParser sqlParser,
             Map<Integer, Type> types,
-            Expression expression)
+            Expression expression,
+            List<Expression> parameters)
     {
-        return getExpressionTypesFromInput(session, metadata, sqlParser, types, ImmutableList.of(expression));
+        return getExpressionTypesFromInput(session, metadata, sqlParser, types, ImmutableList.of(expression), parameters);
     }
 
     public static IdentityHashMap<Expression, Type> getExpressionTypesFromInput(
@@ -1107,9 +1147,10 @@ public class ExpressionAnalyzer
             Metadata metadata,
             SqlParser sqlParser,
             Map<Integer, Type> types,
-            Iterable<Expression> expressions)
+            Iterable<Expression> expressions,
+            List<Expression> parameters)
     {
-        return analyzeExpressionsWithInputs(session, metadata, sqlParser, types, expressions).getExpressionTypes();
+        return analyzeExpressionsWithInputs(session, metadata, sqlParser, types, expressions, parameters).getExpressionTypes();
     }
 
     public static ExpressionAnalysis analyzeExpressionsWithSymbols(
@@ -1117,9 +1158,11 @@ public class ExpressionAnalyzer
             Metadata metadata,
             SqlParser sqlParser,
             Map<Symbol, Type> types,
-            Iterable<Expression> expressions)
+            Iterable<Expression> expressions,
+            List<Expression> parameters,
+            boolean isDescribe)
     {
-        return analyzeExpressions(session, metadata, sqlParser, new RelationType(), types, expressions);
+        return analyzeExpressions(session, metadata, sqlParser, new RelationType(), types, expressions, parameters, isDescribe);
     }
 
     private static ExpressionAnalysis analyzeExpressionsWithInputs(
@@ -1127,7 +1170,8 @@ public class ExpressionAnalyzer
             Metadata metadata,
             SqlParser sqlParser,
             Map<Integer, Type> types,
-            Iterable<Expression> expressions)
+            Iterable<Expression> expressions,
+            List<Expression> parameters)
     {
         Field[] fields = new Field[types.size()];
         for (Entry<Integer, Type> entry : types.entrySet()) {
@@ -1135,7 +1179,7 @@ public class ExpressionAnalyzer
         }
         RelationType tupleDescriptor = new RelationType(fields);
 
-        return analyzeExpressions(session, metadata, sqlParser, tupleDescriptor, ImmutableMap.of(), expressions);
+        return analyzeExpressions(session, metadata, sqlParser, tupleDescriptor, ImmutableMap.of(), expressions, parameters);
     }
 
     private static ExpressionAnalysis analyzeExpressions(
@@ -1144,11 +1188,26 @@ public class ExpressionAnalyzer
             SqlParser sqlParser,
             RelationType tupleDescriptor,
             Map<Symbol, Type> types,
-            Iterable<? extends Expression> expressions)
+            Iterable<? extends Expression> expressions,
+            List<Expression> parameters)
+    {
+        return analyzeExpressions(session, metadata, sqlParser, tupleDescriptor, types, expressions, parameters, false);
+    }
+
+    private static ExpressionAnalysis analyzeExpressions(
+            Session session,
+            Metadata metadata,
+            SqlParser sqlParser,
+            RelationType tupleDescriptor,
+            Map<Symbol, Type> types,
+            Iterable<? extends Expression> expressions,
+            List<Expression> parameters,
+            boolean isDescribe)
     {
         // expressions at this point can not have sub queries so deny all access checks
         // in the future, we will need a full access controller here to verify access to functions
-        ExpressionAnalyzer analyzer = create(new Analysis(null), session, metadata, sqlParser, new DenyAllAccessControl(), types, false);
+        Analysis analysis = new Analysis(null, parameters, isDescribe);
+        ExpressionAnalyzer analyzer = create(analysis, session, metadata, sqlParser, new DenyAllAccessControl(), types, false);
         for (Expression expression : expressions) {
             analyzer.analyze(expression, Scope.builder().withRelationType(tupleDescriptor).build());
         }
@@ -1221,23 +1280,46 @@ public class ExpressionAnalyzer
                 metadata.getTypeManager(),
                 node -> new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session, experimentalSyntaxEnabled),
                 session,
-                types);
+                types,
+                analysis.getParameters(),
+                analysis.isDescribe());
     }
 
-    public static ExpressionAnalyzer createConstantAnalyzer(Metadata metadata, Session session)
+    public static ExpressionAnalyzer createConstantAnalyzer(Metadata metadata, Session session, List<Expression> parameters)
     {
         return createWithoutSubqueries(
                 metadata.getFunctionRegistry(),
                 metadata.getTypeManager(),
                 session,
+                parameters,
                 EXPRESSION_NOT_CONSTANT,
-                "Constant expression cannot contain a subquery");
+                "Constant expression cannot contain a subquery",
+                false);
     }
 
-    public static ExpressionAnalyzer createWithoutSubqueries(FunctionRegistry functionRegistry, TypeManager typeManager, Session session, SemanticErrorCode errorCode, String message)
+    public static ExpressionAnalyzer createConstantAnalyzer(Metadata metadata, Session session, List<Expression> parameters, boolean isDescribe)
+    {
+        return createWithoutSubqueries(
+                metadata.getFunctionRegistry(),
+                metadata.getTypeManager(),
+                session,
+                parameters,
+                EXPRESSION_NOT_CONSTANT,
+                "Constant expression cannot contain a subquery",
+                isDescribe);
+    }
+
+    public static ExpressionAnalyzer createWithoutSubqueries(
+            FunctionRegistry functionRegistry,
+            TypeManager typeManager,
+            Session session,
+            List<Expression> parameters,
+            SemanticErrorCode errorCode,
+            String message,
+            boolean isDescribe)
     {
         return new ExpressionAnalyzer(functionRegistry, typeManager, node -> {
             throw new SemanticException(errorCode, node, message);
-        }, session, ImmutableMap.of());
+        }, session, ImmutableMap.of(), parameters, isDescribe);
     }
 }

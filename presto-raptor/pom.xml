@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.facebook.presto</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.152.3</version>
+        <version>0.154</version>
     </parent>
 
     <artifactId>presto-raptor</artifactId>
@@ -59,6 +59,11 @@
 
         <dependency>
             <groupId>io.airlift</groupId>
+            <artifactId>discovery</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
             <artifactId>http-client</artifactId>
         </dependency>
 
@@ -70,11 +75,6 @@
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>node</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>io.airlift</groupId>
-            <artifactId>units</artifactId>
         </dependency>
 
         <dependency>
@@ -161,6 +161,18 @@
         </dependency>
 
         <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>units</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.openjdk.jol</groupId>
+            <artifactId>jol-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
             <scope>provided</scope>
@@ -225,6 +237,12 @@
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-tests</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>testing-mysql-server</artifactId>
             <scope>test</scope>
         </dependency>
 

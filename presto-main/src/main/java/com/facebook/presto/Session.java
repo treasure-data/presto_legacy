@@ -14,9 +14,10 @@
 package com.facebook.presto;
 
 import com.facebook.presto.client.ClientSession;
-import com.facebook.presto.execution.QueryId;
+import com.facebook.presto.connector.ConnectorId;
 import com.facebook.presto.metadata.SessionPropertyManager;
 import com.facebook.presto.spi.ConnectorSession;
+import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.type.TimeZoneKey;
 import com.facebook.presto.sql.tree.Execute;
@@ -202,7 +203,11 @@ public final class Session
 
     public String getPreparedStatementFromExecute(Execute execute)
     {
-        String name = execute.getName();
+        return getPreparedStatement(execute.getName());
+    }
+
+    public String getPreparedStatement(String name)
+    {
         String sql = preparedStatements.get(name);
         checkCondition(sql != null, NOT_FOUND, "Prepared statement not found: " + name);
         return sql;
@@ -335,17 +340,17 @@ public final class Session
         return new FullConnectorSession(queryId.toString(), identity, timeZoneKey, locale, startTime);
     }
 
-    public ConnectorSession toConnectorSession(String catalog)
+    public ConnectorSession toConnectorSession(ConnectorId connectorId)
     {
-        requireNonNull(catalog, "catalog is null");
+        requireNonNull(connectorId, "connectorId is null");
         return new FullConnectorSession(
                 queryId.toString(),
                 identity,
                 timeZoneKey,
                 locale,
                 startTime,
-                catalogProperties.getOrDefault(catalog, ImmutableMap.of()),
-                catalog,
+                catalogProperties.getOrDefault(connectorId.getCatalogName(), ImmutableMap.of()),
+                connectorId.getCatalogName(),
                 sessionPropertyManager);
     }
 

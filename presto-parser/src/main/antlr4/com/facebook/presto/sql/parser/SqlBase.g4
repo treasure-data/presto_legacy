@@ -30,6 +30,10 @@ statement
     : query                                                            #statementDefault
     | USE schema=identifier                                            #use
     | USE catalog=identifier '.' schema=identifier                     #use
+    | CREATE SCHEMA (IF NOT EXISTS)? qualifiedName
+        (WITH tableProperties)?                                        #createSchema
+    | DROP SCHEMA (IF EXISTS)? qualifiedName (CASCADE | RESTRICT)?     #dropSchema
+    | ALTER SCHEMA qualifiedName RENAME TO identifier                  #renameSchema
     | CREATE TABLE (IF NOT EXISTS)? qualifiedName
         (WITH tableProperties)? AS query
         (WITH (NO)? DATA)?                                             #createTableAsSelect
@@ -43,7 +47,7 @@ statement
     | ALTER TABLE tableName=qualifiedName
         RENAME COLUMN from=identifier TO to=identifier                 #renameColumn
     | ALTER TABLE tableName=qualifiedName
-        ADD COLUMN column=tableElement                                 #addColumn
+        ADD COLUMN column=columnDefinition                             #addColumn
     | CREATE (OR REPLACE)? VIEW qualifiedName AS query                 #createView
     | DROP VIEW (IF EXISTS)? qualifiedName                             #dropView
     | CALL qualifiedName '(' (callArgument (',' callArgument)*)? ')'   #call
@@ -78,7 +82,8 @@ statement
         (LIMIT limit=(INTEGER_VALUE | ALL))?                           #showPartitions
     | PREPARE identifier FROM statement                                #prepare
     | DEALLOCATE PREPARE identifier                                    #deallocate
-    | EXECUTE identifier                                               #execute
+    | EXECUTE identifier (USING expression (',' expression)*)?         #execute
+    | DESCRIBE INPUT identifier                                        #describeInput
     ;
 
 query
@@ -90,7 +95,16 @@ with
     ;
 
 tableElement
+    : columnDefinition
+    | likeClause
+    ;
+
+columnDefinition
     : identifier type
+    ;
+
+likeClause
+    : LIKE qualifiedName (optionType=(INCLUDING | EXCLUDING) PROPERTIES)?
     ;
 
 tableProperties
@@ -260,10 +274,12 @@ primaryExpression
     : NULL                                                                           #nullLiteral
     | interval                                                                       #intervalLiteral
     | identifier STRING                                                              #typeConstructor
+    | DOUBLE_PRECISION STRING                                                        #typeConstructor
     | number                                                                         #numericLiteral
     | booleanValue                                                                   #booleanLiteral
     | STRING                                                                         #stringLiteral
     | BINARY_LITERAL                                                                 #binaryLiteral
+    | '?'                                                                            #parameter
     | POSITION '(' valueExpression IN valueExpression ')'                            #position
     | '(' expression (',' expression)+ ')'                                           #rowConstructor
     | ROW '(' expression (',' expression)* ')'                                       #rowConstructor
@@ -329,6 +345,7 @@ typeParameter
 baseType
     : TIME_WITH_TIME_ZONE
     | TIMESTAMP_WITH_TIME_ZONE
+    | DOUBLE_PRECISION
     | identifier
     ;
 
@@ -427,6 +444,8 @@ nonReserved
     | CALL
     | GRANT | REVOKE | PRIVILEGES | PUBLIC | OPTION
     | SUBSTRING
+    | SCHEMA | CASCADE | RESTRICT
+    | INPUT
     ;
 
 normalForm
@@ -523,6 +542,7 @@ WITH: 'WITH';
 RECURSIVE: 'RECURSIVE';
 VALUES: 'VALUES';
 CREATE: 'CREATE';
+SCHEMA: 'SCHEMA';
 TABLE: 'TABLE';
 VIEW: 'VIEW';
 REPLACE: 'REPLACE';
@@ -595,6 +615,12 @@ CALL: 'CALL';
 PREPARE: 'PREPARE';
 DEALLOCATE: 'DEALLOCATE';
 EXECUTE: 'EXECUTE';
+INPUT: 'INPUT';
+CASCADE: 'CASCADE';
+RESTRICT: 'RESTRICT';
+INCLUDING: 'INCLUDING';
+EXCLUDING: 'EXCLUDING';
+PROPERTIES: 'PROPERTIES';
 
 NORMALIZE: 'NORMALIZE';
 NFD : 'NFD';
@@ -664,6 +690,10 @@ TIME_WITH_TIME_ZONE
 
 TIMESTAMP_WITH_TIME_ZONE
     : 'TIMESTAMP' WS 'WITH' WS 'TIME' WS 'ZONE'
+    ;
+
+DOUBLE_PRECISION
+    : 'DOUBLE' WS 'PRECISION'
     ;
 
 fragment EXPONENT

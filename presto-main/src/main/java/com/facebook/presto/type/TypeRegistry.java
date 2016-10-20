@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.type;
 
+import com.facebook.presto.spi.type.CharType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.ParametricType;
 import com.facebook.presto.spi.type.StandardTypes;
@@ -253,7 +254,7 @@ public final class TypeRegistry
             }
 
             if (isCovariantParametrizedType(firstType)) {
-                return getCommonSupperTypeForCovariantParametrizedType(firstType, secondType);
+                return getCommonSuperTypeForCovariantParametrizedType(firstType, secondType);
             }
             return Optional.empty();
         }
@@ -285,7 +286,7 @@ public final class TypeRegistry
         return createVarcharType(Math.max(firstType.getLength(), secondType.getLength()));
     }
 
-    private Optional<Type> getCommonSupperTypeForCovariantParametrizedType(Type firstType, Type secondType)
+    private Optional<Type> getCommonSuperTypeForCovariantParametrizedType(Type firstType, Type secondType)
     {
         checkState(firstType.getClass().equals(secondType.getClass()));
         ImmutableList.Builder<TypeSignatureParameter> commonParameterTypes = ImmutableList.builder();
@@ -483,6 +484,25 @@ public final class TypeRegistry
                         return Optional.empty();
                 }
             }
+            case StandardTypes.CHAR: {
+                switch (resultTypeBase) {
+                    case StandardTypes.VARCHAR:
+                        CharType charType = (CharType) sourceType;
+                        return Optional.of(createVarcharType(charType.getLength()));
+                    case JoniRegexpType.NAME:
+                        return Optional.of(JONI_REGEXP);
+                    case Re2JRegexpType.NAME:
+                        return Optional.of(RE2J_REGEXP);
+                    case LikePatternType.NAME:
+                        return Optional.of(LIKE_PATTERN);
+                    case JsonPathType.NAME:
+                        return Optional.of(JSON_PATH);
+                    case CodePointsType.NAME:
+                        return Optional.of(CODE_POINTS);
+                    default:
+                        return Optional.empty();
+                }
+            }
             case StandardTypes.P4_HYPER_LOG_LOG: {
                 switch (resultTypeBase) {
                     case StandardTypes.HYPER_LOG_LOG:
@@ -500,5 +520,10 @@ public final class TypeRegistry
     {
         // if we ever introduce contravariant, this function should be changed to return an enumeration: INVARIANT, COVARIANT, CONTRAVARIANT
         return type instanceof MapType || type instanceof ArrayType;
+    }
+
+    public static boolean isCovariantTypeBase(String typeBase)
+    {
+        return typeBase.equals(StandardTypes.ARRAY) || typeBase.equals(StandardTypes.MAP);
     }
 }

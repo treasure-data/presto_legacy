@@ -31,8 +31,10 @@ import com.facebook.presto.sql.tree.CallArgument;
 import com.facebook.presto.sql.tree.Cast;
 import com.facebook.presto.sql.tree.CharLiteral;
 import com.facebook.presto.sql.tree.CoalesceExpression;
+import com.facebook.presto.sql.tree.ColumnDefinition;
 import com.facebook.presto.sql.tree.Commit;
 import com.facebook.presto.sql.tree.ComparisonExpression;
+import com.facebook.presto.sql.tree.CreateSchema;
 import com.facebook.presto.sql.tree.CreateTable;
 import com.facebook.presto.sql.tree.CreateTableAsSelect;
 import com.facebook.presto.sql.tree.CreateView;
@@ -42,7 +44,9 @@ import com.facebook.presto.sql.tree.Deallocate;
 import com.facebook.presto.sql.tree.DecimalLiteral;
 import com.facebook.presto.sql.tree.Delete;
 import com.facebook.presto.sql.tree.DereferenceExpression;
+import com.facebook.presto.sql.tree.DescribeInput;
 import com.facebook.presto.sql.tree.DoubleLiteral;
+import com.facebook.presto.sql.tree.DropSchema;
 import com.facebook.presto.sql.tree.DropTable;
 import com.facebook.presto.sql.tree.DropView;
 import com.facebook.presto.sql.tree.Except;
@@ -75,6 +79,7 @@ import com.facebook.presto.sql.tree.JoinCriteria;
 import com.facebook.presto.sql.tree.JoinOn;
 import com.facebook.presto.sql.tree.JoinUsing;
 import com.facebook.presto.sql.tree.LambdaExpression;
+import com.facebook.presto.sql.tree.LikeClause;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
@@ -84,6 +89,7 @@ import com.facebook.presto.sql.tree.NodeLocation;
 import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.Parameter;
 import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
@@ -92,6 +98,7 @@ import com.facebook.presto.sql.tree.QueryBody;
 import com.facebook.presto.sql.tree.QuerySpecification;
 import com.facebook.presto.sql.tree.Relation;
 import com.facebook.presto.sql.tree.RenameColumn;
+import com.facebook.presto.sql.tree.RenameSchema;
 import com.facebook.presto.sql.tree.RenameTable;
 import com.facebook.presto.sql.tree.ResetSession;
 import com.facebook.presto.sql.tree.Revoke;
@@ -159,6 +166,8 @@ import static java.util.stream.Collectors.toList;
 class AstBuilder
         extends SqlBaseBaseVisitor<Node>
 {
+    private int parameterPosition = 0;
+
     @Override
     public Node visitSingleStatement(SqlBaseParser.SingleStatementContext context)
     {
@@ -177,6 +186,35 @@ class AstBuilder
     public Node visitUse(SqlBaseParser.UseContext context)
     {
         return new Use(getLocation(context), getTextIfPresent(context.catalog), context.schema.getText());
+    }
+
+    @Override
+    public Node visitCreateSchema(SqlBaseParser.CreateSchemaContext context)
+    {
+        return new CreateSchema(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                context.EXISTS() != null,
+                processTableProperties(context.tableProperties()));
+    }
+
+    @Override
+    public Node visitDropSchema(SqlBaseParser.DropSchemaContext context)
+    {
+        return new DropSchema(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                context.EXISTS() != null,
+                context.CASCADE() != null);
+    }
+
+    @Override
+    public Node visitRenameSchema(SqlBaseParser.RenameSchemaContext context)
+    {
+        return new RenameSchema(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                context.identifier().getText());
     }
 
     @Override
@@ -253,7 +291,7 @@ class AstBuilder
     @Override
     public Node visitAddColumn(SqlBaseParser.AddColumnContext context)
     {
-        return new AddColumn(getLocation(context), getQualifiedName(context.qualifiedName()), (TableElement) visit(context.tableElement()));
+        return new AddColumn(getLocation(context), getQualifiedName(context.qualifiedName()), (ColumnDefinition) visit(context.columnDefinition()));
     }
 
     @Override
@@ -347,7 +385,14 @@ class AstBuilder
     public Node visitExecute(SqlBaseParser.ExecuteContext context)
     {
         String name = context.identifier().getText();
-        return new Execute(getLocation(context), name);
+        return new Execute(getLocation(context), name, visit(context.expression(), Expression.class));
+    }
+
+    @Override
+    public Node visitDescribeInput(SqlBaseParser.DescribeInputContext context)
+    {
+        String name = context.identifier().getText();
+        return new DescribeInput(getLocation(context), name);
     }
 
     // ********************** query expressions ********************
@@ -423,6 +468,7 @@ class AstBuilder
     public Node visitQuerySpecification(SqlBaseParser.QuerySpecificationContext context)
     {
         Optional<Relation> from = Optional.empty();
+        List<SelectItem> selectItems = visit(context.selectItem(), SelectItem.class);
 
         List<Relation> relations = visit(context.relation(), Relation.class);
         if (!relations.isEmpty()) {
@@ -439,13 +485,13 @@ class AstBuilder
 
         return new QuerySpecification(
                 getLocation(context),
-                new Select(getLocation(context.SELECT()), isDistinct(context.setQuantifier()), visit(context.selectItem(), SelectItem.class)),
+                new Select(getLocation(context.SELECT()), isDistinct(context.setQuantifier()), selectItems),
                 from,
                 visitIfPresent(context.where, Expression.class),
                 visitIfPresent(context.groupBy(), GroupBy.class),
                 visitIfPresent(context.having, Expression.class),
                 ImmutableList.of(),
-                Optional.<String>empty());
+                Optional.empty());
     }
 
     @Override
@@ -1166,6 +1212,7 @@ class AstBuilder
             return new CoalesceExpression(getLocation(context), visit(context.expression(), Expression.class));
         }
         if (name.toString().equalsIgnoreCase("try")) {
+            check(context.expression().size() == 1, "The 'try' function must have exactly one argument", context);
             check(!window.isPresent(), "OVER clause not valid for 'try' function", context);
             check(!distinct, "DISTINCT not valid for 'try' function", context);
 
@@ -1203,9 +1250,19 @@ class AstBuilder
     }
 
     @Override
-    public Node visitTableElement(SqlBaseParser.TableElementContext context)
+    public Node visitColumnDefinition(SqlBaseParser.ColumnDefinitionContext context)
     {
-        return new TableElement(getLocation(context), context.identifier().getText(), getType(context.type()));
+        return new ColumnDefinition(getLocation(context), context.identifier().getText(), getType(context.type()));
+    }
+
+    @Override
+    public Node visitLikeClause(SqlBaseParser.LikeClauseContext context)
+    {
+        return new LikeClause(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                Optional.ofNullable(context.optionType)
+                        .map(AstBuilder::getPropertiesOption));
     }
 
     @Override
@@ -1274,9 +1331,14 @@ class AstBuilder
     @Override
     public Node visitTypeConstructor(SqlBaseParser.TypeConstructorContext context)
     {
-        String type = context.identifier().getText();
         String value = unquote(context.STRING().getText());
 
+        if (context.DOUBLE_PRECISION() != null) {
+            // TODO: Temporary hack that should be removed with new planner.
+            return new GenericLiteral(getLocation(context), "DOUBLE", value);
+        }
+
+        String type = context.identifier().getText();
         if (type.equalsIgnoreCase("time")) {
             return new TimeLiteral(getLocation(context), value);
         }
@@ -1325,6 +1387,14 @@ class AstBuilder
                         .map((x) -> x.getChild(0).getPayload())
                         .map(Token.class::cast)
                         .map(AstBuilder::getIntervalFieldType));
+    }
+
+    @Override
+    public Node visitParameter(SqlBaseParser.ParameterContext context)
+    {
+        Parameter parameter = new Parameter(getLocation(context), parameterPosition);
+        parameterPosition++;
+        return parameter;
     }
 
     // ***************** arguments *****************
@@ -1382,6 +1452,17 @@ class AstBuilder
     {
         return value.substring(1, value.length() - 1)
                 .replace("''", "'");
+    }
+
+    private static LikeClause.PropertiesOption getPropertiesOption(Token token)
+    {
+        switch (token.getType()) {
+            case SqlBaseLexer.INCLUDING:
+                return LikeClause.PropertiesOption.INCLUDING;
+            case SqlBaseLexer.EXCLUDING:
+                return LikeClause.PropertiesOption.EXCLUDING;
+        }
+        throw new IllegalArgumentException("Unsupported LIKE option type: " + token.getText());
     }
 
     private static QualifiedName getQualifiedName(SqlBaseParser.QualifiedNameContext context)
@@ -1601,6 +1682,10 @@ class AstBuilder
     {
         if (type.baseType() != null) {
             String signature = type.baseType().getText();
+            if (type.baseType().DOUBLE_PRECISION() != null) {
+                // TODO: Temporary hack that should be removed with new planner.
+                signature = "DOUBLE";
+            }
             if (!type.typeParameter().isEmpty()) {
                 String typeParameterSignature = type
                         .typeParameter()
