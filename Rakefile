@@ -15,7 +15,7 @@ EXCLUDE_MODULES = %w|
  presto-verifier presto-testing-server-launcher presto-jmx
  presto-hive-cdh4 presto-hive-cdh5 presto-raptor presto-server-rpm
  presto-array presto-record-decoder presto-kafka presto-orc
- presto-local-file presto-parser presto-ml presto-product-tests
+ presto-local-file presto-ml presto-product-tests
  presto-server-rpm presto-plugin-toolkit|
 
 EXCLUDE_FROM_COMPILE = %w|presto-docs presto-server-rpm|
@@ -85,6 +85,45 @@ EOF
   profiles = REXML::XPath.first(pom, "/project/profiles")
   profiles.add_element(REXML::Document.new(File.read("td-profile.xml")))
 
+  distribution_management = <<EOF
+    <distributionManagement>
+      <repository>
+      	<id>treasuredata</id>
+	      <name>treasuredata-releases</name>
+	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-release-local</url>
+      </repository>
+      <snapshotRepository>
+	      <id>treasuredata</id>
+	      <name>treasuredata-snapshots</name>
+	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-snapshot-local</url>
+      </snapshotRepository>
+    </distributionManagement>
+EOF
+
+  repositories = <<EOF
+    <repositories>
+      <repository>
+	      <id>treasuredata</id>
+	      <name>treasuredata-releases</name>
+	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-release</url>
+	      <snapshots>
+          <enabled>false</enabled>
+      	</snapshots>
+      </repository>
+      <repository>
+	      <id>treasuredata-snapshots</id>
+	      <name>treasuredata-snapshots</name>
+	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-snapshot</url>
+	      <releases>
+          <enabled>false</enabled>
+	      </releases>
+      </repository>
+    </repositories>
+EOF
+
+  REXML::XPath.first(pom, "/project").add_element(REXML::Document.new(distribution_management))
+  REXML::XPath.first(pom, "/project").add_element(REXML::Document.new(repositories))
+
   # Dump pom.xml
   File.open('pom.xml', 'w'){|f| pom.write(f) }
 
@@ -94,7 +133,7 @@ desc "deploy presto"
 task "deploy" do
   # Deploy
   # Deploy presto-root
-  sh "./mvnw deploy -P td -N -DskipTests"
+  sh "./mvnw -s settings.xml deploy -P td -N -DskipTests"
   # Deploy presot modules
-  sh "./mvnw deploy -P td -pl #{compile_target_modules.join(",")} -DskipTests"
+  sh "./mvnw -s settings.xml deploy -P td -pl #{compile_target_modules.join(",")} -DskipTests"
 end
