@@ -28,6 +28,7 @@ import com.facebook.presto.memory.ReservedSystemMemoryConfig;
 import com.facebook.presto.operator.ExchangeClient;
 import com.facebook.presto.operator.ExchangeClientSupplier;
 import com.facebook.presto.spi.Node;
+import com.facebook.presto.spi.QueryId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.json.ObjectMapperProvider;
@@ -57,7 +58,7 @@ import static org.testng.Assert.assertNull;
 @Test
 public class TestSqlTaskManager
 {
-    private static final TaskId TASK_ID = new TaskId("query", "stage", 1);
+    private static final TaskId TASK_ID = new TaskId("query", 0, 1);
     public static final OutputBufferId OUT = new OutputBufferId(0);
 
     private final TaskExecutor taskExecutor;

@@ -16,11 +16,12 @@ package com.facebook.presto.operator.scalar;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.function.Description;
+import com.facebook.presto.spi.function.LiteralParameters;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.spi.type.StandardTypes;
-import com.facebook.presto.util.ThreadLocalCache;
 import com.google.common.primitives.Ints;
+import io.airlift.concurrent.ThreadLocalCache;
 import io.airlift.slice.Slice;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeField;
@@ -54,14 +55,8 @@ import static org.joda.time.DateTimeZone.UTC;
 
 public final class DateTimeFunctions
 {
-    private static final ThreadLocalCache<Slice, DateTimeFormatter> DATETIME_FORMATTER_CACHE = new ThreadLocalCache<Slice, DateTimeFormatter>(100)
-    {
-        @Override
-        protected DateTimeFormatter load(Slice format)
-        {
-            return createDateTimeFormatter(format);
-        }
-    };
+    private static final ThreadLocalCache<Slice, DateTimeFormatter> DATETIME_FORMATTER_CACHE =
+            new ThreadLocalCache<>(100, DateTimeFunctions::createDateTimeFormatter);
 
     private static final ISOChronology UTC_CHRONOLOGY = ISOChronology.getInstance(UTC);
     private static final DateTimeField SECOND_OF_MINUTE = UTC_CHRONOLOGY.secondOfMinute();
@@ -154,6 +149,14 @@ public final class DateTimeFunctions
         return packDateTimeWithZone(Math.round(unixTime * 1000), (int) (hoursOffset * 60 + minutesOffset));
     }
 
+    @ScalarFunction("from_unixtime")
+    @LiteralParameters("x")
+    @SqlType(StandardTypes.TIMESTAMP_WITH_TIME_ZONE)
+    public static long fromUnixTime(@SqlType(StandardTypes.DOUBLE) double unixTime, @SqlType("varchar(x)") Slice zoneId)
+    {
+        return packDateTimeWithZone(Math.round(unixTime * 1000), zoneId.toStringUtf8());
+    }
+
     @ScalarFunction("to_unixtime")
     @SqlType(StandardTypes.DOUBLE)
     public static double toUnixTime(@SqlType(StandardTypes.TIMESTAMP) long timestamp)
@@ -217,8 +220,9 @@ public final class DateTimeFunctions
     }
 
     @ScalarFunction(value = "at_timezone", hidden = true)
+    @LiteralParameters("x")
     @SqlType(StandardTypes.TIME_WITH_TIME_ZONE)
-    public static long timeAtTimeZone(@SqlType(StandardTypes.TIME_WITH_TIME_ZONE) long timeWithTimeZone, @SqlType(StandardTypes.VARCHAR) Slice zoneId)
+    public static long timeAtTimeZone(@SqlType(StandardTypes.TIME_WITH_TIME_ZONE) long timeWithTimeZone, @SqlType("varchar(x)") Slice zoneId)
     {
         return packDateTimeWithZone(unpackMillisUtc(timeWithTimeZone), zoneId.toStringUtf8());
     }
@@ -233,8 +237,9 @@ public final class DateTimeFunctions
     }
 
     @ScalarFunction(value = "at_timezone", hidden = true)
+    @LiteralParameters("x")
     @SqlType(StandardTypes.TIMESTAMP_WITH_TIME_ZONE)
-    public static long timestampAtTimeZone(@SqlType(StandardTypes.TIMESTAMP_WITH_TIME_ZONE) long timestampWithTimeZone, @SqlType(StandardTypes.VARCHAR) Slice zoneId)
+    public static long timestampAtTimeZone(@SqlType(StandardTypes.TIMESTAMP_WITH_TIME_ZONE) long timestampWithTimeZone, @SqlType("varchar(x)") Slice zoneId)
     {
         return packDateTimeWithZone(unpackMillisUtc(timestampWithTimeZone), zoneId.toStringUtf8());
     }

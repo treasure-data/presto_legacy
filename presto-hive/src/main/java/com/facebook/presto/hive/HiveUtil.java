@@ -18,8 +18,10 @@ import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.spi.ConnectorTableHandle;
 import com.facebook.presto.spi.ErrorCodeSupplier;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.predicate.NullableValue;
+import com.facebook.presto.spi.type.CharType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.StandardTypes;
@@ -88,10 +90,13 @@ import static com.facebook.presto.hive.util.Types.checkType;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.spi.type.Chars.isCharType;
+import static com.facebook.presto.spi.type.Chars.trimSpaces;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DecimalType.createDecimalType;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
+import static com.facebook.presto.spi.type.RealType.REAL;
 import static com.facebook.presto.spi.type.SmallintType.SMALLINT;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.TinyintType.TINYINT;
@@ -100,12 +105,15 @@ import static com.google.common.collect.Iterables.filter;
 import static com.google.common.collect.Lists.transform;
 import static java.lang.Byte.parseByte;
 import static java.lang.Double.parseDouble;
+import static java.lang.Float.floatToRawIntBits;
+import static java.lang.Float.parseFloat;
 import static java.lang.Integer.parseInt;
 import static java.lang.Long.parseLong;
 import static java.lang.Short.parseShort;
 import static java.lang.String.format;
 import static java.math.BigDecimal.ROUND_UNNECESSARY;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static org.apache.hadoop.hive.common.FileUtils.unescapePathName;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static org.apache.hadoop.hive.serde.serdeConstants.DECIMAL_TYPE_NAME;
@@ -446,6 +454,16 @@ public final class HiveUtil
             return NullableValue.of(TIMESTAMP, timestampPartitionKey(value, timeZone, partitionName));
         }
 
+        if (REAL.equals(type)) {
+            if (isNull) {
+                return NullableValue.asNull(REAL);
+            }
+            if (value.isEmpty()) {
+                return NullableValue.of(REAL, (long) floatToRawIntBits(0.0f));
+            }
+            return NullableValue.of(REAL, floatPartitionKey(value, partitionName));
+        }
+
         if (DOUBLE.equals(type)) {
             if (isNull) {
                 return NullableValue.asNull(DOUBLE);
@@ -461,6 +479,13 @@ public final class HiveUtil
                 return NullableValue.asNull(type);
             }
             return NullableValue.of(type, varcharPartitionKey(value, partitionName, type));
+        }
+
+        if (isCharType(type)) {
+            if (isNull) {
+                return NullableValue.asNull(type);
+            }
+            return NullableValue.of(type, charPartitionKey(value, partitionName, type));
         }
 
         throw new PrestoException(NOT_SUPPORTED, format("Unsupported Type [%s] for partition: %s", type, partitionName));
@@ -580,6 +605,16 @@ public final class HiveUtil
         }
     }
 
+    public static long floatPartitionKey(String value, String name)
+    {
+        try {
+            return floatToRawIntBits(parseFloat(value));
+        }
+        catch (NumberFormatException e) {
+            throw new PrestoException(HIVE_INVALID_PARTITION_VALUE, format("Invalid partition value '%s' for FLOAT partition key: %s", value, name));
+        }
+    }
+
     public static double doublePartitionKey(String value, String name)
     {
         try {
@@ -649,20 +684,30 @@ public final class HiveUtil
         return partitionKey;
     }
 
+    public static Slice charPartitionKey(String value, String name, Type columnType)
+    {
+        Slice partitionKey = trimSpaces(Slices.utf8Slice(value));
+        CharType charType = checkType(columnType, CharType.class, "columnType");
+        if (SliceUtf8.countCodePoints(partitionKey) > charType.getLength()) {
+            throw new PrestoException(HIVE_INVALID_PARTITION_VALUE, format("Invalid partition value '%s' for %s partition key: %s", value, columnType.toString(), name));
+        }
+        return partitionKey;
+    }
+
     public static SchemaTableName schemaTableName(ConnectorTableHandle tableHandle)
     {
         return checkType(tableHandle, HiveTableHandle.class, "tableHandle").getSchemaTableName();
     }
 
-    public static List<HiveColumnHandle> hiveColumnHandles(String connectorId, Table table, boolean forceIntegralToBigint)
+    public static List<HiveColumnHandle> hiveColumnHandles(String connectorId, Table table)
     {
         ImmutableList.Builder<HiveColumnHandle> columns = ImmutableList.builder();
 
         // add the data fields first
-        columns.addAll(getRegularColumnHandles(connectorId, table, forceIntegralToBigint));
+        columns.addAll(getRegularColumnHandles(connectorId, table));
 
         // add the partition keys last (like Hive does)
-        columns.addAll(getPartitionKeyColumnHandles(connectorId, table, forceIntegralToBigint));
+        columns.addAll(getPartitionKeyColumnHandles(connectorId, table));
 
         // add hidden column
         columns.add(pathColumnHandle(connectorId));
@@ -670,7 +715,7 @@ public final class HiveUtil
         return columns.build();
     }
 
-    public static List<HiveColumnHandle> getRegularColumnHandles(String connectorId, Table table, boolean forceIntegralToBigint)
+    public static List<HiveColumnHandle> getRegularColumnHandles(String connectorId, Table table)
     {
         ImmutableList.Builder<HiveColumnHandle> columns = ImmutableList.builder();
 
@@ -679,7 +724,7 @@ public final class HiveUtil
             // ignore unsupported types rather than failing
             HiveType hiveType = field.getType();
             if (hiveType.isSupportedType()) {
-                columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(forceIntegralToBigint), hiveColumnIndex, REGULAR));
+                columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(), hiveColumnIndex, REGULAR));
             }
             hiveColumnIndex++;
         }
@@ -687,7 +732,7 @@ public final class HiveUtil
         return columns.build();
     }
 
-    public static List<HiveColumnHandle> getPartitionKeyColumnHandles(String connectorId, Table table, boolean forceIntegralToBigint)
+    public static List<HiveColumnHandle> getPartitionKeyColumnHandles(String connectorId, Table table)
     {
         ImmutableList.Builder<HiveColumnHandle> columns = ImmutableList.builder();
 
@@ -697,7 +742,7 @@ public final class HiveUtil
             if (!hiveType.isSupportedType()) {
                 throw new PrestoException(NOT_SUPPORTED, format("Unsupported Hive type %s found in partition keys of table %s.%s", hiveType, table.getDatabaseName(), table.getTableName()));
             }
-            columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(forceIntegralToBigint), -1, PARTITION_KEY));
+            columns.add(new HiveColumnHandle(connectorId, field.getName(), hiveType, hiveType.getTypeSignature(), -1, PARTITION_KEY));
         }
 
         return columns.build();
@@ -762,5 +807,20 @@ public final class HiveUtil
             return path.toString();
         }
         throw new PrestoException(NOT_SUPPORTED, "unsupported hidden column: " + columnHandle);
+    }
+
+    public static void closeWithSuppression(RecordCursor recordCursor, Throwable throwable)
+    {
+        requireNonNull(recordCursor, "recordCursor is null");
+        requireNonNull(throwable, "throwable is null");
+        try {
+            recordCursor.close();
+        }
+        catch (RuntimeException e) {
+            // Self-suppression not permitted
+            if (throwable != e) {
+                throwable.addSuppressed(e);
+            }
+        }
     }
 }

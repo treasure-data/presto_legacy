@@ -37,7 +37,6 @@ import java.util.stream.IntStream;
 
 import static com.facebook.presto.raptor.RaptorColumnHandle.SHARD_UUID_COLUMN_TYPE;
 import static com.facebook.presto.raptor.RaptorQueryRunner.createRaptorQueryRunner;
-import static com.facebook.presto.raptor.RaptorQueryRunner.createSampledSession;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
@@ -66,7 +65,7 @@ public class TestRaptorIntegrationSmokeTest
 
     protected TestRaptorIntegrationSmokeTest(QueryRunner queryRunner)
     {
-        super(queryRunner, createSampledSession());
+        super(queryRunner);
     }
 
     @Test
@@ -337,6 +336,32 @@ public class TestRaptorIntegrationSmokeTest
     }
 
     @Test
+    public void testCreateBucketedTableLike()
+            throws Exception
+    {
+        assertUpdate("" +
+                "CREATE TABLE orders_bucketed_original (" +
+                "  orderkey bigint" +
+                ", custkey bigint" +
+                ") " +
+                "WITH (bucket_count = 50, bucketed_on = ARRAY['orderkey'])");
+
+        assertUpdate("" +
+                "CREATE TABLE orders_bucketed_like (" +
+                "  orderdate date" +
+                ", LIKE orders_bucketed_original INCLUDING PROPERTIES" +
+                ")");
+
+        assertUpdate("INSERT INTO orders_bucketed_like SELECT orderdate, orderkey, custkey FROM orders", "SELECT count(*) FROM orders");
+        assertUpdate("INSERT INTO orders_bucketed_like SELECT orderdate, orderkey, custkey FROM orders", "SELECT count(*) FROM orders");
+
+        assertQuery("SELECT count(DISTINCT \"$shard_uuid\") FROM orders_bucketed_like", "SELECT 50 * 2");
+
+        assertUpdate("DROP TABLE orders_bucketed_original");
+        assertUpdate("DROP TABLE orders_bucketed_like");
+    }
+
+    @Test
     public void testShowCreateTable()
             throws Exception
     {
@@ -346,7 +371,15 @@ public class TestRaptorIntegrationSmokeTest
                         "   c2 double,\n" +
                         "   \"c 3\" varchar,\n" +
                         "   \"c'4\" array(bigint),\n" +
-                        "   c5 map(bigint, varchar)\n" +
+                        "   c5 map(bigint, varchar),\n" +
+                        "   c6 bigint,\n" +
+                        "   c7 timestamp\n" +
+                        ")\n" +
+                        "WITH (\n" +
+                        "   bucket_count = 32,\n" +
+                        "   bucketed_on = ARRAY['c1','c6'],\n" +
+                        "   ordering = ARRAY['c6','c1'],\n" +
+                        "   temporal_column = 'c7'\n" +
                         ")",
                 getSession().getCatalog().get(), getSession().getSchema().get(), "test_show_create_table");
         assertUpdate(createTableSql);

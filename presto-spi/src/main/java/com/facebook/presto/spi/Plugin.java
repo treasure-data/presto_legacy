@@ -16,13 +16,12 @@ package com.facebook.presto.spi;
 import com.facebook.presto.spi.block.BlockEncodingFactory;
 import com.facebook.presto.spi.block.BlockEncodingSerde;
 import com.facebook.presto.spi.connector.ConnectorFactory;
-import com.facebook.presto.spi.connector.ConnectorFactoryContext;
 import com.facebook.presto.spi.eventlistener.EventListenerFactory;
+import com.facebook.presto.spi.resourceGroups.ResourceGroupConfigurationManagerFactory;
 import com.facebook.presto.spi.security.SystemAccessControlFactory;
 import com.facebook.presto.spi.type.ParametricType;
 import com.facebook.presto.spi.type.Type;
 
-import java.util.Map;
 import java.util.Set;
 
 import static java.util.Collections.emptyList;
@@ -30,14 +29,7 @@ import static java.util.Collections.emptySet;
 
 public interface Plugin
 {
-    default void setOptionalConfig(Map<String, String> optionalConfig) {}
-
-    default Iterable<com.facebook.presto.spi.ConnectorFactory> getLegacyConnectorFactories(ConnectorFactoryContext context)
-    {
-        return emptyList();
-    }
-
-    default Iterable<ConnectorFactory> getConnectorFactories(ConnectorFactoryContext context)
+    default Iterable<ConnectorFactory> getConnectorFactories()
     {
         return emptyList();
     }
@@ -68,6 +60,11 @@ public interface Plugin
     }
 
     default Iterable<EventListenerFactory> getEventListenerFactories()
+    {
+        return emptyList();
+    }
+
+    default Iterable<ResourceGroupConfigurationManagerFactory> getResourceGroupConfigurationManagerFactories()
     {
         return emptyList();
     }

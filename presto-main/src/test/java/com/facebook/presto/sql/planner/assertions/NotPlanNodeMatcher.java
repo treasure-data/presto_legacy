@@ -16,8 +16,8 @@ package com.facebook.presto.sql.planner.assertions;
 import com.facebook.presto.Session;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.sql.planner.plan.PlanNode;
-import com.google.common.base.MoreObjects;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
 final class NotPlanNodeMatcher implements Matcher
@@ -30,7 +30,7 @@ final class NotPlanNodeMatcher implements Matcher
     }
 
     @Override
-    public boolean matches(PlanNode node, Session session, Metadata metadata, SymbolAliases symbolAliases)
+    public boolean matches(PlanNode node, Session session, Metadata metadata, ExpressionAliases expressionAliases)
     {
         return (!node.getClass().equals(excludedNodeClass));
     }
@@ -38,7 +38,7 @@ final class NotPlanNodeMatcher implements Matcher
     @Override
     public String toString()
     {
-        return MoreObjects.toStringHelper(this)
+        return toStringHelper(this)
                 .add("excludedNodeClass", excludedNodeClass)
                 .toString();
     }

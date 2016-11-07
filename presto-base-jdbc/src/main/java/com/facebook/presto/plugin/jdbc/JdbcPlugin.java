@@ -15,12 +15,8 @@ package com.facebook.presto.plugin.jdbc;
 
 import com.facebook.presto.spi.Plugin;
 import com.facebook.presto.spi.connector.ConnectorFactory;
-import com.facebook.presto.spi.connector.ConnectorFactoryContext;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.inject.Module;
-
-import java.util.Map;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -32,7 +28,6 @@ public class JdbcPlugin
 {
     private final String name;
     private final Module module;
-    private Map<String, String> optionalConfig = ImmutableMap.of();
 
     public JdbcPlugin(String name, Module module)
     {
@@ -42,15 +37,9 @@ public class JdbcPlugin
     }
 
     @Override
-    public void setOptionalConfig(Map<String, String> optionalConfig)
+    public Iterable<ConnectorFactory> getConnectorFactories()
     {
-        this.optionalConfig = ImmutableMap.copyOf(requireNonNull(optionalConfig, "optionalConfig is null"));
-    }
-
-    @Override
-    public Iterable<ConnectorFactory> getConnectorFactories(ConnectorFactoryContext context)
-    {
-        return ImmutableList.of(new JdbcConnectorFactory(name, module, optionalConfig, getClassLoader()));
+        return ImmutableList.of(new JdbcConnectorFactory(name, module, getClassLoader()));
     }
 
     private static ClassLoader getClassLoader()

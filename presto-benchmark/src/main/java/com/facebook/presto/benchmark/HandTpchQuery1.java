@@ -111,16 +111,18 @@ public class HandTpchQuery1
                 new PlanNodeId("test"),
                 ImmutableList.of(tpchQuery1Operator.getTypes().get(0), tpchQuery1Operator.getTypes().get(1)),
                 Ints.asList(0, 1),
+                ImmutableList.of(),
                 Step.SINGLE,
                 ImmutableList.of(
-                        doubleSum.bind(ImmutableList.of(2), Optional.empty(), Optional.empty(), 1.0),
-                        doubleSum.bind(ImmutableList.of(3), Optional.empty(), Optional.empty(), 1.0),
-                        doubleSum.bind(ImmutableList.of(4), Optional.empty(), Optional.empty(), 1.0),
-                        longAverage.bind(ImmutableList.of(2), Optional.empty(), Optional.empty(), 1.0),
-                        doubleAverage.bind(ImmutableList.of(5), Optional.empty(), Optional.empty(), 1.0),
-                        doubleAverage.bind(ImmutableList.of(6), Optional.empty(), Optional.empty(), 1.0),
-                        countFunction.bind(ImmutableList.of(2), Optional.empty(), Optional.empty(), 1.0)
+                        doubleSum.bind(ImmutableList.of(2), Optional.empty()),
+                        doubleSum.bind(ImmutableList.of(3), Optional.empty()),
+                        doubleSum.bind(ImmutableList.of(4), Optional.empty()),
+                        longAverage.bind(ImmutableList.of(2), Optional.empty()),
+                        doubleAverage.bind(ImmutableList.of(5), Optional.empty()),
+                        doubleAverage.bind(ImmutableList.of(6), Optional.empty()),
+                        countFunction.bind(ImmutableList.of(2), Optional.empty())
                         ),
+                Optional.empty(),
                 Optional.empty(),
                 10_000,
                 new DataSize(16, MEGABYTE));

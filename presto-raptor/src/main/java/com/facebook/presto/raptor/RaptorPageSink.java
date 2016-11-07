@@ -35,7 +35,6 @@ import io.airlift.units.DataSize;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -47,6 +46,7 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.airlift.concurrent.MoreFutures.allAsList;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.toList;
@@ -57,7 +57,6 @@ public class RaptorPageSink
     private final long transactionId;
     private final StorageManager storageManager;
     private final JsonCodec<ShardInfo> shardInfoCodec;
-    private final int sampleWeightField;
     private final PageSorter pageSorter;
     private final List<Long> columnIds;
     private final List<Type> columnTypes;
@@ -78,7 +77,6 @@ public class RaptorPageSink
             long transactionId,
             List<Long> columnIds,
             List<Type> columnTypes,
-            Optional<Long> sampleWeightColumnId,
             List<Long> sortColumnIds,
             List<SortOrder> sortOrders,
             OptionalInt bucketCount,
@@ -93,9 +91,6 @@ public class RaptorPageSink
         this.storageManager = requireNonNull(storageManager, "storageManager is null");
         this.shardInfoCodec = requireNonNull(shardInfoCodec, "shardInfoCodec is null");
         this.maxBufferBytes = requireNonNull(maxBufferSize, "maxBufferSize is null").toBytes();
-
-        requireNonNull(sampleWeightColumnId, "sampleWeightColumnId is null");
-        this.sampleWeightField = columnIds.indexOf(sampleWeightColumnId.orElse(-1L));
 
         this.sortFields = ImmutableList.copyOf(sortColumnIds.stream().map(columnIds::indexOf).collect(toList()));
         this.sortOrders = ImmutableList.copyOf(requireNonNull(sortOrders, "sortOrders is null"));
@@ -124,14 +119,10 @@ public class RaptorPageSink
     }
 
     @Override
-    public CompletableFuture<?> appendPage(Page page, Block sampleWeightBlock)
+    public CompletableFuture<?> appendPage(Page page)
     {
         if (page.getPositionCount() == 0) {
             return NOT_BLOCKED;
-        }
-
-        if (sampleWeightField >= 0) {
-            page = createPageWithSampleWeightBlock(page, sampleWeightBlock);
         }
 
         pageWriter.appendPage(page);
@@ -139,19 +130,19 @@ public class RaptorPageSink
     }
 
     @Override
-    public Collection<Slice> finish()
+    public CompletableFuture<Collection<Slice>> finish()
     {
-        List<ShardInfo> shards = new ArrayList<>();
-        for (PageBuffer pageBuffer : pageWriter.getPageBuffers()) {
+        List<CompletableFuture<? extends List<Slice>>> futureSlices = pageWriter.getPageBuffers().stream().map(pageBuffer -> {
             pageBuffer.flush();
-            shards.addAll(pageBuffer.getStoragePageSink().commit());
-        }
+            CompletableFuture<List<ShardInfo>> futureShards = pageBuffer.getStoragePageSink().commit();
+            return futureShards.thenApply(shards -> shards.stream()
+                    .map(shard -> Slices.wrappedBuffer(shardInfoCodec.toJsonBytes(shard)))
+                    .collect(toList()));
+        }).collect(toList());
 
-        ImmutableList.Builder<Slice> fragments = ImmutableList.builder();
-        for (ShardInfo shard : shards) {
-            fragments.add(Slices.wrappedBuffer(shardInfoCodec.toJsonBytes(shard)));
-        }
-        return fragments.build();
+        return allAsList(futureSlices).thenApply(lists -> lists.stream()
+                .flatMap(Collection::stream)
+                .collect(toList()));
     }
 
     @Override
@@ -183,27 +174,6 @@ public class RaptorPageSink
                 sortFields,
                 sortOrders,
                 pageSorter);
-    }
-
-    /**
-     * @return page with the sampleWeightBlock at the sampleWeightField index
-     */
-    private Page createPageWithSampleWeightBlock(Page page, Block sampleWeightBlock)
-    {
-        checkArgument(page.getPositionCount() == sampleWeightBlock.getPositionCount(), "position count of page and sampleWeightBlock must match");
-        int outputChannelCount = page.getChannelCount() + 1;
-        Block[] blocks = new Block[outputChannelCount];
-        blocks[sampleWeightField] = sampleWeightBlock;
-
-        int pageChannel = 0;
-        for (int channel = 0; channel < outputChannelCount; channel++) {
-            if (channel == sampleWeightField) {
-                continue;
-            }
-            blocks[channel] = page.getBlock(pageChannel);
-            pageChannel++;
-        }
-        return new Page(blocks);
     }
 
     private interface PageWriter

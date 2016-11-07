@@ -14,6 +14,7 @@
 package com.facebook.presto.spi.connector;
 
 import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.ColumnIdentity;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorNewTableLayout;
@@ -30,6 +31,7 @@ import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
+import com.facebook.presto.spi.TableIdentity;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.security.Privilege;
 import io.airlift.slice.Slice;
@@ -50,6 +52,15 @@ import static java.util.stream.Collectors.toList;
 
 public interface ConnectorMetadata
 {
+    /**
+     * Checks if a schema exists. The connector may have schemas that exist
+     * but are not enumerable via {@link #listSchemaNames}.
+     */
+    default boolean schemaExists(ConnectorSession session, String schemaName)
+    {
+        return listSchemaNames(session).contains(schemaName);
+    }
+
     /**
      * Returns the schemas provided by this connector.
      */
@@ -96,24 +107,6 @@ public interface ConnectorMetadata
     List<SchemaTableName> listTables(ConnectorSession session, String schemaNameOrNull);
 
     /**
-     * Returns the handle for the sample weight column, or null if the table does not contain sampled data.
-     *
-     * @throws RuntimeException if the table handle is no longer valid
-     */
-    default ColumnHandle getSampleWeightColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
-    {
-        return null;
-    }
-
-    /**
-     * Returns true if this catalog supports creation of sampled tables
-     */
-    default boolean canCreateSampledTables(ConnectorSession session)
-    {
-        return false;
-    }
-
-    /**
      * Gets all of the columns on the specified table, or an empty map if the columns can not be enumerated.
      *
      * @throws RuntimeException if table handle is no longer valid
@@ -131,6 +124,32 @@ public interface ConnectorMetadata
      * Gets the metadata for all columns that match the specified table prefix.
      */
     Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix);
+
+    /**
+     * Creates a schema.
+     */
+    default void createSchema(ConnectorSession session, String schemaName, Map<String, Object> properties)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support creating schemas");
+    }
+
+    /**
+     * Drops the specified schema.
+     *
+     * @throws PrestoException with {@code SCHEMA_NOT_EMPTY} if the schema is not empty
+     */
+    default void dropSchema(ConnectorSession session, String schemaName)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support dropping schemas");
+    }
+
+    /**
+     * Renames the specified schema.
+     */
+    default void renameSchema(ConnectorSession session, String source, String target)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support renaming schemas");
+    }
 
     /**
      * Creates a table using the specified table metadata.
@@ -344,5 +363,37 @@ public interface ConnectorMetadata
     default void revokeTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support revokes");
+    }
+
+    /**
+     * Gets the table identity on the specified table
+     */
+    default TableIdentity getTableIdentity(ConnectorTableHandle connectorTableHandle)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support table identity");
+    }
+
+    /**
+     * Deserialize the specified bytes to TableIdentity
+     */
+    default TableIdentity deserializeTableIdentity(byte[] bytes)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support table identity");
+    }
+
+    /**
+     * Gets the column identity on the specified column
+     */
+    default ColumnIdentity getColumnIdentity(ColumnHandle columnHandle)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support column identity");
+    }
+
+    /**
+     * Deserialize the specified bytes to ColumnIdentity
+     */
+    default ColumnIdentity deserializeColumnIdentity(byte[] bytes)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support column identity");
     }
 }

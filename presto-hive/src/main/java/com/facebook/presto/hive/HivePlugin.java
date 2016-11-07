@@ -16,21 +16,15 @@ package com.facebook.presto.hive;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.spi.Plugin;
 import com.facebook.presto.spi.connector.ConnectorFactory;
-import com.facebook.presto.spi.connector.ConnectorFactoryContext;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
-import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
-import static java.util.Objects.requireNonNull;
 
 public class HivePlugin
         implements Plugin
 {
     private final String name;
-    private Map<String, String> optionalConfig = ImmutableMap.of();
     private ExtendedHiveMetastore metastore;
 
     public HivePlugin(String name)
@@ -46,23 +40,9 @@ public class HivePlugin
     }
 
     @Override
-    public void setOptionalConfig(Map<String, String> optionalConfig)
+    public Iterable<ConnectorFactory> getConnectorFactories()
     {
-        this.optionalConfig = ImmutableMap.copyOf(requireNonNull(optionalConfig, "optionalConfig is null"));
-    }
-
-    @Override
-    public Iterable<ConnectorFactory> getConnectorFactories(ConnectorFactoryContext context)
-    {
-        return ImmutableList.of(new HiveConnectorFactory(
-                name,
-                optionalConfig,
-                getClassLoader(),
-                metastore,
-                context.getTypeManager(),
-                context.getPageIndexerFactory(),
-                context.getNodeManager(),
-                context.getServerInfo()));
+        return ImmutableList.of(new HiveConnectorFactory(name, getClassLoader(), metastore));
     }
 
     private static ClassLoader getClassLoader()

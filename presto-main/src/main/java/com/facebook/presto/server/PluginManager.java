@@ -16,20 +16,20 @@ package com.facebook.presto.server;
 import com.facebook.presto.block.BlockEncodingManager;
 import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.eventlistener.EventListenerManager;
+import com.facebook.presto.execution.resourceGroups.ResourceGroupManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.security.AccessControlManager;
 import com.facebook.presto.spi.Plugin;
 import com.facebook.presto.spi.block.BlockEncodingFactory;
 import com.facebook.presto.spi.classloader.ThreadContextClassLoader;
 import com.facebook.presto.spi.connector.ConnectorFactory;
-import com.facebook.presto.spi.connector.ConnectorFactoryContext;
 import com.facebook.presto.spi.eventlistener.EventListenerFactory;
+import com.facebook.presto.spi.resourceGroups.ResourceGroupConfigurationManagerFactory;
 import com.facebook.presto.spi.security.SystemAccessControlFactory;
 import com.facebook.presto.spi.type.ParametricType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.type.TypeRegistry;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Ordering;
 import io.airlift.configuration.ConfigurationFactory;
 import io.airlift.http.server.HttpServerInfo;
@@ -50,10 +50,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
@@ -64,32 +62,26 @@ import static java.util.Objects.requireNonNull;
 @ThreadSafe
 public class PluginManager
 {
-    private static final List<String> HIDDEN_CLASSES = ImmutableList.<String>builder()
-            .add("com.fasterxml.jackson")
-            .add("org.slf4j")
-            .build();
-
-    private static final ImmutableList<String> PARENT_FIRST_CLASSES = ImmutableList.<String>builder()
-            .add("com.facebook.presto")
-            .add("com.fasterxml.jackson.annotation")
-            .add("io.airlift.slice")
-            .add("javax.annotation")
-            .add("java.")
+    private static final ImmutableList<String> SPI_PACKAGES = ImmutableList.<String>builder()
+            .add("com.facebook.presto.spi.")
+            .add("com.fasterxml.jackson.annotation.")
+            .add("io.airlift.slice.")
+            .add("io.airlift.units.")
+            .add("org.openjdk.jol.")
             .build();
 
     private static final Logger log = Logger.get(PluginManager.class);
 
     private final ConnectorManager connectorManager;
     private final Metadata metadata;
+    private final ResourceGroupManager resourceGroupManager;
     private final AccessControlManager accessControlManager;
     private final EventListenerManager eventListenerManager;
     private final BlockEncodingManager blockEncodingManager;
     private final TypeRegistry typeRegistry;
-    private final ConnectorFactoryContext connectorFactoryContext;
     private final ArtifactResolver resolver;
     private final File installedPluginsDir;
     private final List<String> plugins;
-    private final Map<String, String> optionalConfig;
     private final AtomicBoolean pluginsLoading = new AtomicBoolean();
     private final AtomicBoolean pluginsLoaded = new AtomicBoolean();
 
@@ -101,11 +93,11 @@ public class PluginManager
             ConnectorManager connectorManager,
             ConfigurationFactory configurationFactory,
             Metadata metadata,
+            ResourceGroupManager resourceGroupManager,
             AccessControlManager accessControlManager,
             EventListenerManager eventListenerManager,
             BlockEncodingManager blockEncodingManager,
-            TypeRegistry typeRegistry,
-            ConnectorFactoryContext connectorFactoryContext)
+            TypeRegistry typeRegistry)
     {
         requireNonNull(nodeInfo, "nodeInfo is null");
         requireNonNull(httpServerInfo, "httpServerInfo is null");
@@ -121,19 +113,13 @@ public class PluginManager
         }
         this.resolver = new ArtifactResolver(config.getMavenLocalRepository(), config.getMavenRemoteRepository());
 
-        Map<String, String> optionalConfig = new TreeMap<>(configurationFactory.getProperties());
-        optionalConfig.put("node.id", nodeInfo.getNodeId());
-        // TODO: make this work with and without HTTP and HTTPS
-        optionalConfig.put("http-server.http.port", Integer.toString(httpServerInfo.getHttpUri().getPort()));
-        this.optionalConfig = ImmutableMap.copyOf(optionalConfig);
-
         this.connectorManager = requireNonNull(connectorManager, "connectorManager is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
+        this.resourceGroupManager = requireNonNull(resourceGroupManager, "resourceGroupManager is null");
         this.accessControlManager = requireNonNull(accessControlManager, "accessControlManager is null");
         this.eventListenerManager = requireNonNull(eventListenerManager, "eventListenerManager is null");
         this.blockEncodingManager = requireNonNull(blockEncodingManager, "blockEncodingManager is null");
         this.typeRegistry = requireNonNull(typeRegistry, "typeRegistry is null");
-        this.connectorFactoryContext = requireNonNull(connectorFactoryContext, "connectorFactoryContext is null");
     }
 
     public boolean arePluginsLoaded()
@@ -192,8 +178,6 @@ public class PluginManager
 
     public void installPlugin(Plugin plugin)
     {
-        plugin.setOptionalConfig(optionalConfig);
-
         for (BlockEncodingFactory<?> blockEncodingFactory : plugin.getBlockEncodingFactories(blockEncodingManager)) {
             log.info("Registering block encoding %s", blockEncodingFactory.getName());
             blockEncodingManager.addBlockEncodingFactory(blockEncodingFactory);
@@ -209,12 +193,7 @@ public class PluginManager
             typeRegistry.addParametricType(parametricType);
         }
 
-        for (com.facebook.presto.spi.ConnectorFactory connectorFactory : plugin.getLegacyConnectorFactories(connectorFactoryContext)) {
-            log.info("Registering legacy connector %s", connectorFactory.getName());
-            connectorManager.addConnectorFactory(connectorFactory);
-        }
-
-        for (ConnectorFactory connectorFactory : plugin.getConnectorFactories(connectorFactoryContext)) {
+        for (ConnectorFactory connectorFactory : plugin.getConnectorFactories()) {
             log.info("Registering connector %s", connectorFactory.getName());
             connectorManager.addConnectorFactory(connectorFactory);
         }
@@ -222,6 +201,11 @@ public class PluginManager
         for (Class<?> functionClass : plugin.getFunctions()) {
             log.info("Registering functions from %s", functionClass.getName());
             metadata.addFunctions(extractFunctions(functionClass));
+        }
+
+        for (ResourceGroupConfigurationManagerFactory configurationManagerFactory : plugin.getResourceGroupConfigurationManagerFactories()) {
+            log.info("Registering resource group configuration manager %s", configurationManagerFactory.getName());
+            resourceGroupManager.addConfigurationManagerFactory(configurationManagerFactory);
         }
 
         for (SystemAccessControlFactory accessControlFactory : plugin.getSystemAccessControlFactories()) {
@@ -302,7 +286,7 @@ public class PluginManager
     private URLClassLoader createClassLoader(List<URL> urls)
     {
         ClassLoader parent = getClass().getClassLoader();
-        return new PluginClassLoader(urls, parent, HIDDEN_CLASSES, PARENT_FIRST_CLASSES);
+        return new PluginClassLoader(urls, parent, SPI_PACKAGES);
     }
 
     private static List<File> listFiles(File installedPluginsDir)

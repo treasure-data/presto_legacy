@@ -40,6 +40,9 @@ public class TestDoubleOperators
         assertFunction("DOUBLE '12.34'", DOUBLE, 12.34);
         assertFunction("DOUBLE '-17.6'", DOUBLE, -17.6);
         assertFunction("DOUBLE '+754'", DOUBLE, 754.0);
+        assertFunction("DOUBLE PRECISION '12.34'", DOUBLE, 12.34);
+        assertFunction("DOUBLE PRECISION '-17.6'", DOUBLE, -17.6);
+        assertFunction("DOUBLE PRECISION '+754'", DOUBLE, 754.0);
     }
 
     @Test
@@ -218,5 +221,18 @@ public class TestDoubleOperators
     {
         assertFunction("cast('37.7' as double)", DOUBLE, 37.7);
         assertFunction("cast('17.1' as double)", DOUBLE, 17.1);
+        assertFunction("cast('37.7' as double precision)", DOUBLE, 37.7);
+        assertFunction("cast('17.1' as double precision)", DOUBLE, 17.1);
+    }
+
+    @Test
+    public void testIsDistinctFrom()
+            throws Exception
+    {
+        assertFunction("CAST(NULL AS DOUBLE) IS DISTINCT FROM CAST(NULL AS DOUBLE)", BOOLEAN, false);
+        assertFunction("37.7 IS DISTINCT FROM 37.7", BOOLEAN, false);
+        assertFunction("37 IS DISTINCT FROM 37.8", BOOLEAN, true);
+        assertFunction("NULL IS DISTINCT FROM 37.7", BOOLEAN, true);
+        assertFunction("37.7 IS DISTINCT FROM NULL", BOOLEAN, true);
     }
 }
