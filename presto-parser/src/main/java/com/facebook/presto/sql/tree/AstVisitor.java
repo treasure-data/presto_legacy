@@ -97,6 +97,11 @@ public abstract class AstVisitor<R, C>
         return visitStatement(node, context);
     }
 
+    protected R visitDescribeInput(DescribeInput node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
     protected R visitQuery(Query node, C context)
     {
         return visitStatement(node, context);
@@ -178,11 +183,6 @@ public abstract class AstVisitor<R, C>
     }
 
     protected R visitWith(With node, C context)
-    {
-        return visitNode(node, context);
-    }
-
-    protected R visitApproximate(Approximate node, C context)
     {
         return visitNode(node, context);
     }
@@ -377,6 +377,11 @@ public abstract class AstVisitor<R, C>
         return visitLiteral(node, context);
     }
 
+    protected R visitParameter(Parameter node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
     protected R visitLogicalBinaryExpression(LogicalBinaryExpression node, C context)
     {
         return visitExpression(node, context);
@@ -475,6 +480,31 @@ public abstract class AstVisitor<R, C>
     protected R visitTableElement(TableElement node, C context)
     {
         return visitNode(node, context);
+    }
+
+    protected R visitColumnDefinition(ColumnDefinition node, C context)
+    {
+        return visitTableElement(node, context);
+    }
+
+    protected R visitLikeClause(LikeClause node, C context)
+    {
+        return visitTableElement(node, context);
+    }
+
+    protected R visitCreateSchema(CreateSchema node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
+    protected R visitDropSchema(DropSchema node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
+    protected R visitRenameSchema(RenameSchema node, C context)
+    {
+        return visitStatement(node, context);
     }
 
     protected R visitCreateTable(CreateTable node, C context)
@@ -608,6 +638,11 @@ public abstract class AstVisitor<R, C>
     }
 
     protected R visitSymbolReference(SymbolReference node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
+    protected R visitQuantifiedComparisonExpression(QuantifiedComparisonExpression node, C context)
     {
         return visitExpression(node, context);
     }

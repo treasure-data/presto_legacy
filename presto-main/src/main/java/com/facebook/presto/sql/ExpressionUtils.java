@@ -40,7 +40,7 @@ import java.util.function.Predicate;
 
 import static com.facebook.presto.sql.tree.BooleanLiteral.FALSE_LITERAL;
 import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
-import static com.facebook.presto.sql.tree.ComparisonExpression.Type.IS_DISTINCT_FROM;
+import static com.facebook.presto.sql.tree.ComparisonExpressionType.IS_DISTINCT_FROM;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
 import static java.util.Objects.requireNonNull;
@@ -152,11 +152,6 @@ public final class ExpressionUtils
         }
 
         return conjuncts.isEmpty() ? emptyDefault : and(conjuncts);
-    }
-
-    public static Expression combineDisjuncts(Expression... expressions)
-    {
-        return combineDisjuncts(Arrays.asList(expressions));
     }
 
     public static Expression combineDisjuncts(Collection<Expression> expressions)

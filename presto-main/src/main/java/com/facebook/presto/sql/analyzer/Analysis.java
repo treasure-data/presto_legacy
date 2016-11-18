@@ -25,6 +25,7 @@ import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.Join;
 import com.facebook.presto.sql.tree.Node;
+import com.facebook.presto.sql.tree.QuantifiedComparisonExpression;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.QuerySpecification;
 import com.facebook.presto.sql.tree.Relation;
@@ -55,6 +56,7 @@ import static java.util.Objects.requireNonNull;
 public class Analysis
 {
     private final Statement root;
+    private final List<Expression> parameters;
     private String updateType;
 
     private final IdentityHashMap<Table, Query> namedQueries = new IdentityHashMap<>();
@@ -74,6 +76,7 @@ public class Analysis
     private final ListMultimap<Node, InPredicate> inPredicatesSubqueries = ArrayListMultimap.create();
     private final ListMultimap<Node, SubqueryExpression> scalarSubqueries = ArrayListMultimap.create();
     private final ListMultimap<Node, ExistsPredicate> existsSubqueries = ArrayListMultimap.create();
+    private final ListMultimap<Node, QuantifiedComparisonExpression> quantifiedComparisonSubqueries = ArrayListMultimap.create();
 
     private final IdentityHashMap<Table, TableHandle> tables = new IdentityHashMap<>();
 
@@ -95,9 +98,16 @@ public class Analysis
 
     private Optional<Insert> insert = Optional.empty();
 
-    public Analysis(Statement root)
+    // for describe input and describe output
+    private final boolean isDescribe;
+
+    public Analysis(Statement root, List<Expression> parameters, boolean isDescribe)
     {
+        requireNonNull(parameters);
+
         this.root = root;
+        this.parameters = parameters;
+        this.isDescribe = isDescribe;
     }
 
     public Statement getStatement()
@@ -250,6 +260,7 @@ public class Analysis
         this.inPredicatesSubqueries.putAll(node, expressionAnalysis.getSubqueryInPredicates());
         this.scalarSubqueries.putAll(node, expressionAnalysis.getScalarSubqueries());
         this.existsSubqueries.putAll(node, expressionAnalysis.getExistsSubqueries());
+        this.quantifiedComparisonSubqueries.putAll(node, expressionAnalysis.getQuantifiedComparisons());
     }
 
     public List<InPredicate> getInPredicateSubqueries(Node node)
@@ -272,6 +283,14 @@ public class Analysis
     {
         if (existsSubqueries.containsKey(node)) {
             return existsSubqueries.get(node);
+        }
+        return ImmutableList.of();
+    }
+
+    public List<QuantifiedComparisonExpression> getQuantifiedComparisonSubqueries(Node node)
+    {
+        if (quantifiedComparisonSubqueries.containsKey(node)) {
+            return quantifiedComparisonSubqueries.get(node);
         }
         return ImmutableList.of();
     }
@@ -486,6 +505,16 @@ public class Analysis
     {
         Preconditions.checkState(sampleRatios.containsKey(relation), "Sample ratio missing for %s. Broken analysis?", relation);
         return sampleRatios.get(relation);
+    }
+
+    public List<Expression> getParameters()
+    {
+        return parameters;
+    }
+
+    public boolean isDescribe()
+    {
+        return isDescribe;
     }
 
     @Immutable

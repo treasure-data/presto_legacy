@@ -54,8 +54,10 @@ import com.facebook.presto.sql.tree.Node;
 import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.Parameter;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.sql.tree.QuantifiedComparisonExpression;
 import com.facebook.presto.sql.tree.Rollup;
 import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SearchedCaseExpression;
@@ -78,10 +80,12 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
 import static com.facebook.presto.sql.SqlFormatter.formatSql;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
@@ -90,19 +94,26 @@ public final class ExpressionFormatter
 {
     private ExpressionFormatter() {}
 
-    public static String formatExpression(Expression expression)
+    public static String formatExpression(Expression expression, Optional<List<Expression>> parameters)
     {
-        return formatExpression(expression, true);
+        return formatExpression(expression, true, parameters);
     }
 
-    public static String formatExpression(Expression expression, boolean unmangleNames)
+    public static String formatExpression(Expression expression, boolean unmangleNames, Optional<List<Expression>> parameters)
     {
-        return new Formatter().process(expression, unmangleNames);
+        return new Formatter(parameters).process(expression, unmangleNames);
     }
 
     public static class Formatter
             extends AstVisitor<String, Boolean>
     {
+        private final Optional<List<Expression>> parameters;
+
+        public Formatter(Optional<List<Expression>> parameters)
+        {
+            this.parameters = parameters;
+        }
+
         @Override
         protected String visitNode(Node node, Boolean unmangleNames)
         {
@@ -169,7 +180,7 @@ public final class ExpressionFormatter
         @Override
         protected String visitCharLiteral(CharLiteral node, Boolean unmangleNames)
         {
-            return formatStringLiteral(node.getValue());
+            return "CHAR " + formatStringLiteral(node.getValue());
         }
 
         @Override
@@ -179,11 +190,21 @@ public final class ExpressionFormatter
         }
 
         @Override
+        protected String visitParameter(Parameter node, Boolean unmangleNames)
+        {
+            if (parameters.isPresent()) {
+                checkArgument(node.getPosition() < parameters.get().size(), "Invalid parameter number %s.  Max value is %s", node.getPosition(), parameters.get().size() - 1);
+                return process(parameters.get().get(node.getPosition()), unmangleNames);
+            }
+            return "?";
+        }
+
+        @Override
         protected String visitArrayConstructor(ArrayConstructor node, Boolean unmangleNames)
         {
             ImmutableList.Builder<String> valueStrings = ImmutableList.builder();
             for (Expression value : node.getValues()) {
-                valueStrings.add(formatSql(value, unmangleNames));
+                valueStrings.add(formatSql(value, unmangleNames, parameters));
             }
             return "ARRAY[" + Joiner.on(",").join(valueStrings.build()) + "]";
         }
@@ -191,7 +212,7 @@ public final class ExpressionFormatter
         @Override
         protected String visitSubscriptExpression(SubscriptExpression node, Boolean unmangleNames)
         {
-            return formatSql(node.getBase(), unmangleNames) + "[" + formatSql(node.getIndex(), unmangleNames) + "]";
+            return formatSql(node.getBase(), unmangleNames, parameters) + "[" + formatSql(node.getIndex(), unmangleNames, parameters) + "]";
         }
 
         @Override
@@ -255,13 +276,13 @@ public final class ExpressionFormatter
         @Override
         protected String visitSubqueryExpression(SubqueryExpression node, Boolean unmangleNames)
         {
-            return "(" + formatSql(node.getQuery(), unmangleNames) + ")";
+            return "(" + formatSql(node.getQuery(), unmangleNames, parameters) + ")";
         }
 
         @Override
         protected String visitExists(ExistsPredicate node, Boolean unmangleNames)
         {
-            return "(EXISTS (" + formatSql(node.getSubquery(), unmangleNames) + "))";
+            return "(EXISTS (" + formatSql(node.getSubquery(), unmangleNames, parameters) + "))";
         }
 
         @Override
@@ -314,6 +335,10 @@ public final class ExpressionFormatter
 
             builder.append(formatQualifiedName(node.getName()))
                     .append('(').append(arguments).append(')');
+
+            if (node.getFilter().isPresent()) {
+                builder.append(" FILTER ").append(visitFilter(node.getFilter().get(), unmangleNames));
+            }
 
             if (node.getWindow().isPresent()) {
                 builder.append(" OVER ").append(visitWindow(node.getWindow().get(), unmangleNames));
@@ -520,6 +545,11 @@ public final class ExpressionFormatter
             return "(" + joinExpressions(node.getValues(), unmangleNames) + ")";
         }
 
+        private String visitFilter(Expression node, Boolean unmangleNames)
+        {
+            return "(WHERE " + process(node, unmangleNames) + ')';
+        }
+
         @Override
         public String visitWindow(Window node, Boolean unmangleNames)
         {
@@ -529,7 +559,7 @@ public final class ExpressionFormatter
                 parts.add("PARTITION BY " + joinExpressions(node.getPartitionBy(), unmangleNames));
             }
             if (!node.getOrderBy().isEmpty()) {
-                parts.add("ORDER BY " + formatSortItems(node.getOrderBy(), unmangleNames));
+                parts.add("ORDER BY " + formatSortItems(node.getOrderBy(), unmangleNames, parameters));
             }
             if (node.getFrame().isPresent()) {
                 parts.add(process(node.getFrame().get(), unmangleNames));
@@ -576,6 +606,20 @@ public final class ExpressionFormatter
             throw new IllegalArgumentException("unhandled type: " + node.getType());
         }
 
+        @Override
+        protected String visitQuantifiedComparisonExpression(QuantifiedComparisonExpression node, Boolean unmangleNames)
+        {
+            return new StringBuilder()
+                    .append(process(node.getValue(), unmangleNames))
+                    .append(' ')
+                    .append(node.getComparisonType().getValue())
+                    .append(' ')
+                    .append(node.getQuantifier().toString())
+                    .append(' ')
+                    .append(process(node.getSubquery(), unmangleNames))
+                    .toString();
+        }
+
         private String formatBinaryExpression(String operator, Expression left, Expression right, boolean unmangleNames)
         {
             return '(' + process(left, unmangleNames) + ' ' + operator + ' ' + process(right, unmangleNames) + ')';
@@ -600,19 +644,19 @@ public final class ExpressionFormatter
         return "'" + s.replace("'", "''") + "'";
     }
 
-    static String formatSortItems(List<SortItem> sortItems)
+    static String formatSortItems(List<SortItem> sortItems, Optional<List<Expression>> parameters)
     {
-        return formatSortItems(sortItems, true);
+        return formatSortItems(sortItems, true, parameters);
     }
 
-    static String formatSortItems(List<SortItem> sortItems, boolean unmangleNames)
+    static String formatSortItems(List<SortItem> sortItems, boolean unmangleNames, Optional<List<Expression>> parameters)
     {
         return Joiner.on(", ").join(sortItems.stream()
-                .map(sortItemFormatterFunction(unmangleNames))
+                .map(sortItemFormatterFunction(unmangleNames, parameters))
                 .iterator());
     }
 
-    static String formatGroupBy(List<GroupingElement> groupingElements)
+    static String formatGroupBy(List<GroupingElement> groupingElements, Optional<List<Expression>> parameters)
     {
         ImmutableList.Builder<String> resultStrings = ImmutableList.builder();
 
@@ -621,10 +665,10 @@ public final class ExpressionFormatter
             if (groupingElement instanceof SimpleGroupBy) {
                 Set<Expression> columns = ImmutableSet.copyOf(((SimpleGroupBy) groupingElement).getColumnExpressions());
                 if (columns.size() == 1) {
-                    result = formatExpression(getOnlyElement(columns));
+                    result = formatExpression(getOnlyElement(columns), parameters);
                 }
                 else {
-                    result = formatGroupingSet(columns);
+                    result = formatGroupingSet(columns, parameters);
                 }
             }
             else if (groupingElement instanceof GroupingSets) {
@@ -644,10 +688,10 @@ public final class ExpressionFormatter
         return Joiner.on(", ").join(resultStrings.build());
     }
 
-    private static String formatGroupingSet(Set<Expression> groupingSet)
+    private static String formatGroupingSet(Set<Expression> groupingSet, Optional<List<Expression>> parameters)
     {
         return format("(%s)", Joiner.on(", ").join(groupingSet.stream()
-                .map(ExpressionFormatter::formatExpression)
+                .map(e -> formatExpression(e, parameters))
                 .iterator()));
     }
 
@@ -656,12 +700,12 @@ public final class ExpressionFormatter
         return format("(%s)", Joiner.on(", ").join(groupingSet));
     }
 
-    private static Function<SortItem, String> sortItemFormatterFunction(boolean unmangleNames)
+    private static Function<SortItem, String> sortItemFormatterFunction(boolean unmangleNames, Optional<List<Expression>> parameters)
     {
         return input -> {
             StringBuilder builder = new StringBuilder();
 
-            builder.append(formatExpression(input.getSortKey(), unmangleNames));
+            builder.append(formatExpression(input.getSortKey(), unmangleNames, parameters));
 
             switch (input.getOrdering()) {
                 case ASCENDING:

@@ -15,8 +15,9 @@ package com.facebook.presto.execution;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
-import com.facebook.presto.memory.MemoryPoolId;
 import com.facebook.presto.memory.VersionedMemoryPoolId;
+import com.facebook.presto.spi.QueryId;
+import com.facebook.presto.spi.memory.MemoryPoolId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -60,7 +61,7 @@ public class MockQueryExecution
         this.memoryUsage = memoryUsage;
         this.cpuUsage = cpuUsage;
         this.session = testSessionBuilder()
-                .setSystemProperties(ImmutableMap.of(QUERY_PRIORITY, String.valueOf(priority)))
+                .setSystemProperty(QUERY_PRIORITY, String.valueOf(priority))
                 .build();
     }
 
@@ -100,7 +101,8 @@ public class MockQueryExecution
                 null,
                 null,
                 ImmutableSet.of(),
-                Optional.empty());
+                Optional.empty(),
+                state.isDone());
     }
 
     @Override
@@ -193,6 +195,12 @@ public class MockQueryExecution
     public void addStateChangeListener(StateChangeListener<QueryState> stateChangeListener)
     {
         listeners.add(stateChangeListener);
+    }
+
+    @Override
+    public void addFinalQueryInfoListener(StateChangeListener<QueryInfo> stateChangeListener)
+    {
+        throw new UnsupportedOperationException();
     }
 
     private void fireStateChange()

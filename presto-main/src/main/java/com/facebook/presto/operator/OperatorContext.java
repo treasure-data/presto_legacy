@@ -23,10 +23,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import io.airlift.stats.CounterStat;
-import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
-
-import javax.annotation.concurrent.ThreadSafe;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
@@ -37,17 +34,17 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
-import static com.facebook.presto.ExceededMemoryLimitException.exceededLocalLimit;
 import static com.facebook.presto.operator.BlockedReason.WAITING_FOR_MEMORY;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctBytes;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-@ThreadSafe
+/**
+ * Only calling getOperatorStats is ThreadSafe
+ */
 public class OperatorContext
 {
     private static final ThreadMXBean THREAD_MX_BEAN = ManagementFactory.getThreadMXBean();
@@ -87,18 +84,16 @@ public class OperatorContext
 
     private final AtomicLong memoryReservation = new AtomicLong();
     private final OperatorSystemMemoryContext systemMemoryContext;
-    private final long maxMemoryReservation;
 
     private final AtomicReference<Supplier<?>> infoSupplier = new AtomicReference<>();
     private final boolean collectTimings;
     private final AtomicBoolean memoryTransferred = new AtomicBoolean(false);
 
-    public OperatorContext(int operatorId, PlanNodeId planNodeId, String operatorType, DriverContext driverContext, Executor executor, long maxMemoryReservation)
+    public OperatorContext(int operatorId, PlanNodeId planNodeId, String operatorType, DriverContext driverContext, Executor executor)
     {
         checkArgument(operatorId >= 0, "operatorId is negative");
         this.operatorId = operatorId;
         this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
-        this.maxMemoryReservation = maxMemoryReservation;
         this.operatorType = requireNonNull(operatorType, "operatorType is null");
         this.driverContext = requireNonNull(driverContext, "driverContext is null");
         this.systemMemoryContext = new OperatorSystemMemoryContext(this.driverContext);
@@ -219,11 +214,6 @@ public class OperatorContext
         return memoryFuture.get();
     }
 
-    public DataSize getOperatorPreAllocatedMemory()
-    {
-        return driverContext.getOperatorPreAllocatedMemory();
-    }
-
     public void reserveMemory(long bytes)
     {
         ListenableFuture<?> future = driverContext.reserveMemory(bytes);
@@ -257,26 +247,7 @@ public class OperatorContext
                 }
             });
         }
-        long newReservation = memoryReservation.addAndGet(bytes);
-        if (newReservation > maxMemoryReservation) {
-            memoryReservation.getAndAdd(-bytes);
-            throw exceededLocalLimit(new DataSize(maxMemoryReservation, BYTE));
-        }
-    }
-
-    public boolean tryReserveMemory(long bytes)
-    {
-        if (!driverContext.tryReserveMemory(bytes)) {
-            return false;
-        }
-
-        long newReservation = memoryReservation.addAndGet(bytes);
-        if (newReservation > maxMemoryReservation) {
-            memoryReservation.getAndAdd(-bytes);
-            driverContext.freeMemory(bytes);
-            return false;
-        }
-        return true;
+        memoryReservation.addAndGet(bytes);
     }
 
     public void freeMemory(long bytes)
@@ -348,12 +319,16 @@ public class OperatorContext
         long delta = newMemoryReservation - memoryReservation.get();
 
         if (delta > 0) {
-            return tryReserveMemory(delta);
+            if (!driverContext.tryReserveMemory(delta)) {
+                return false;
+            }
+
+            memoryReservation.addAndGet(delta);
         }
         else {
             freeMemory(-delta);
-            return true;
         }
+        return true;
     }
 
     public void setInfoSupplier(Supplier<?> infoSupplier)

@@ -24,6 +24,7 @@ import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.QueryExplainer;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.CreateView;
+import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
 import io.airlift.json.JsonCodec;
@@ -46,7 +47,6 @@ public class CreateViewTask
 {
     private final JsonCodec<ViewDefinition> codec;
     private final SqlParser sqlParser;
-    private final boolean experimentalSyntaxEnabled;
 
     @Inject
     public CreateViewTask(
@@ -58,7 +58,6 @@ public class CreateViewTask
         this.codec = requireNonNull(codec, "codec is null");
         this.sqlParser = requireNonNull(sqlParser, "sqlParser is null");
         requireNonNull(featuresConfig, "featuresConfig is null");
-        this.experimentalSyntaxEnabled = featuresConfig.isExperimentalSyntaxEnabled();
     }
 
     @Override
@@ -68,22 +67,22 @@ public class CreateViewTask
     }
 
     @Override
-    public String explain(CreateView statement)
+    public String explain(CreateView statement, List<Expression> parameters)
     {
         return "CREATE VIEW " + statement.getName();
     }
 
     @Override
-    public CompletableFuture<?> execute(CreateView statement, TransactionManager transactionManager, Metadata metadata, AccessControl accessControl, QueryStateMachine stateMachine)
+    public CompletableFuture<?> execute(CreateView statement, TransactionManager transactionManager, Metadata metadata, AccessControl accessControl, QueryStateMachine stateMachine, List<Expression> parameters)
     {
         Session session = stateMachine.getSession();
         QualifiedObjectName name = createQualifiedObjectName(session, statement, statement.getName());
 
         accessControl.checkCanCreateView(session.getRequiredTransactionId(), session.getIdentity(), name);
 
-        String sql = getFormattedSql(statement.getQuery(), sqlParser);
+        String sql = getFormattedSql(statement.getQuery(), sqlParser, Optional.of(parameters));
 
-        Analysis analysis = analyzeStatement(statement, session, metadata, accessControl);
+        Analysis analysis = analyzeStatement(statement, session, metadata, accessControl, parameters);
 
         List<ViewColumn> columns = analysis.getOutputDescriptor()
                 .getVisibleFields().stream()
@@ -97,9 +96,9 @@ public class CreateViewTask
         return completedFuture(null);
     }
 
-    private Analysis analyzeStatement(Statement statement, Session session, Metadata metadata, AccessControl accessControl)
+    private Analysis analyzeStatement(Statement statement, Session session, Metadata metadata, AccessControl accessControl, List<Expression> parameters)
     {
-        Analyzer analyzer = new Analyzer(session, metadata, sqlParser, accessControl, Optional.<QueryExplainer>empty(), experimentalSyntaxEnabled);
+        Analyzer analyzer = new Analyzer(session, metadata, sqlParser, accessControl, Optional.<QueryExplainer>empty(), parameters);
         return analyzer.analyze(statement);
     }
 }

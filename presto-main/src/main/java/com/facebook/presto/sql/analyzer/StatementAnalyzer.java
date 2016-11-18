@@ -23,6 +23,7 @@ import com.facebook.presto.metadata.ViewDefinition;
 import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.security.AllowAllAccessControl;
 import com.facebook.presto.security.ViewAccessControl;
+import com.facebook.presto.spi.CatalogSchemaName;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.PrestoException;
@@ -35,7 +36,6 @@ import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.DependencyExtractor;
 import com.facebook.presto.sql.planner.ExpressionInterpreter;
 import com.facebook.presto.sql.planner.NoOpSymbolResolver;
-import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.optimizations.CanonicalizeExpressions;
 import com.facebook.presto.sql.tree.AliasedRelation;
 import com.facebook.presto.sql.tree.AllColumns;
@@ -107,7 +107,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.metadata.FunctionKind.AGGREGATE;
-import static com.facebook.presto.metadata.FunctionKind.APPROXIMATE_AGGREGATE;
 import static com.facebook.presto.metadata.FunctionKind.WINDOW;
 import static com.facebook.presto.metadata.MetadataUtil.createQualifiedObjectName;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
@@ -141,7 +140,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_IS_STALE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_PARSE_ERROR;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.WILDCARD_WITHOUT_FROM;
 import static com.facebook.presto.sql.planner.ExpressionInterpreter.expressionOptimizer;
-import static com.facebook.presto.sql.tree.ComparisonExpression.Type.EQUAL;
+import static com.facebook.presto.sql.tree.ComparisonExpressionType.EQUAL;
 import static com.facebook.presto.sql.tree.ExplainType.Type.DISTRIBUTED;
 import static com.facebook.presto.sql.tree.FrameBound.Type.CURRENT_ROW;
 import static com.facebook.presto.sql.tree.FrameBound.Type.FOLLOWING;
@@ -164,7 +163,6 @@ class StatementAnalyzer
     private final Analysis analysis;
     private final Metadata metadata;
     private final Session session;
-    private final boolean experimentalSyntaxEnabled;
     private final SqlParser sqlParser;
     private final AccessControl accessControl;
 
@@ -172,15 +170,13 @@ class StatementAnalyzer
             Analysis analysis,
             Metadata metadata,
             SqlParser sqlParser,
-            AccessControl accessControl, Session session,
-            boolean experimentalSyntaxEnabled)
+            AccessControl accessControl, Session session)
     {
         this.analysis = requireNonNull(analysis, "analysis is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.sqlParser = requireNonNull(sqlParser, "sqlParser is null");
         this.accessControl = requireNonNull(accessControl, "accessControl is null");
         this.session = requireNonNull(session, "session is null");
-        this.experimentalSyntaxEnabled = experimentalSyntaxEnabled;
     }
 
     @Override
@@ -210,7 +206,10 @@ class StatementAnalyzer
         accessControl.checkCanInsertIntoTable(session.getRequiredTransactionId(), session.getIdentity(), targetTable);
 
         TableMetadata tableMetadata = metadata.getTableMetadata(session, targetTableHandle.get());
-        List<String> tableColumns = tableMetadata.getVisibleColumnNames();
+        List<String> tableColumns = tableMetadata.getColumns().stream()
+                .filter(column -> !column.isHidden())
+                .map(ColumnMetadata::getName)
+                .collect(toImmutableList());
 
         List<String> insertColumns;
         if (insert.getColumns().isPresent()) {
@@ -288,9 +287,7 @@ class StatementAnalyzer
                 metadata,
                 sqlParser,
                 new AllowAllAccessControl(),
-                session,
-                experimentalSyntaxEnabled
-        );
+                session);
 
         Scope tableScope = analyzer.process(table, scope);
         node.getWhere().ifPresent(where -> analyzer.analyzeWhere(node, tableScope, where));
@@ -322,7 +319,7 @@ class StatementAnalyzer
 
         for (Expression expression : node.getProperties().values()) {
             // analyze table property value expressions which must be constant
-            createConstantAnalyzer(metadata, session)
+            createConstantAnalyzer(metadata, session, analysis.getParameters(), analysis.isDescribe())
                     .analyze(expression, scope);
         }
         analysis.setCreateTableProperties(node.getProperties());
@@ -352,9 +349,7 @@ class StatementAnalyzer
                 metadata,
                 sqlParser,
                 new ViewAccessControl(accessControl),
-                session,
-                experimentalSyntaxEnabled
-        );
+                session);
 
         Scope queryScope = analyzer.process(node.getQuery(), scope);
 
@@ -401,10 +396,8 @@ class StatementAnalyzer
     protected Scope visitQuery(Query node, Scope scope)
     {
         Scope withScope = analyzeWith(node, scope);
-        boolean approximate = isApproximate(node);
         Scope queryScope = Scope.builder()
                 .withParent(withScope)
-                .withApproximate(approximate)
                 .build();
         Scope queryBodyScope = process(node.getQueryBody(), queryScope);
         analyzeOrderBy(node, queryBodyScope);
@@ -415,22 +408,9 @@ class StatementAnalyzer
         queryScope = Scope.builder()
                 .withParent(withScope)
                 .withRelationType(queryBodyScope.getRelationType())
-                .withApproximate(approximate)
                 .build();
         analysis.setScope(node, queryScope);
         return queryScope;
-    }
-
-    private boolean isApproximate(Query node)
-    {
-        boolean approximate = false;
-        if (node.getApproximate().isPresent()) {
-            if (!experimentalSyntaxEnabled) {
-                throw new SemanticException(NOT_SUPPORTED, node, "approximate queries are not enabled");
-            }
-            approximate = true;
-        }
-        return approximate;
     }
 
     @Override
@@ -541,10 +521,10 @@ class StatementAnalyzer
 
         Optional<TableHandle> tableHandle = metadata.getTableHandle(session, name);
         if (!tableHandle.isPresent()) {
-            if (!metadata.getCatalogNames().containsKey(name.getCatalogName())) {
+            if (!metadata.getCatalogHandle(session, name.getCatalogName()).isPresent()) {
                 throw new SemanticException(MISSING_CATALOG, table, "Catalog %s does not exist", name.getCatalogName());
             }
-            if (!metadata.listSchemaNames(session, name.getCatalogName()).contains(name.getSchemaName())) {
+            if (!metadata.schemaExists(session, new CatalogSchemaName(name.getCatalogName(), name.getSchemaName()))) {
                 throw new SemanticException(MISSING_SCHEMA, table, "Schema %s does not exist", name.getSchemaName());
             }
             throw new SemanticException(MISSING_TABLE, table, "Table %s does not exist", name);
@@ -553,7 +533,7 @@ class StatementAnalyzer
         TableMetadata tableMetadata = metadata.getTableMetadata(session, tableHandle.get());
         Map<String, ColumnHandle> columnHandles = metadata.getColumnHandles(session, tableHandle.get());
 
-        // TODO: discover columns lazily based on where they are needed (to support datasources that can't enumerate all tables)
+        // TODO: discover columns lazily based on where they are needed (to support connectors that can't enumerate all tables)
         ImmutableList.Builder<Field> fields = ImmutableList.builder();
         for (ColumnMetadata column : tableMetadata.getColumns()) {
             Field field = Field.newQualified(table.getName(), Optional.of(column.getName()), column.getType(), column.isHidden());
@@ -589,15 +569,18 @@ class StatementAnalyzer
     @Override
     protected Scope visitSampledRelation(SampledRelation relation, Scope scope)
     {
-        if (relation.getColumnsToStratifyOn().isPresent()) {
-            throw new SemanticException(NOT_SUPPORTED, relation, "STRATIFY ON is not yet implemented");
-        }
-
         if (!DependencyExtractor.extractNames(relation.getSamplePercentage(), analysis.getColumnReferences()).isEmpty()) {
             throw new SemanticException(NON_NUMERIC_SAMPLE_PERCENTAGE, relation.getSamplePercentage(), "Sample percentage cannot contain column references");
         }
 
-        IdentityHashMap<Expression, Type> expressionTypes = getExpressionTypes(session, metadata, sqlParser, ImmutableMap.<Symbol, Type>of(), relation.getSamplePercentage());
+        IdentityHashMap<Expression, Type> expressionTypes = getExpressionTypes(
+                session,
+                metadata,
+                sqlParser,
+                ImmutableMap.of(),
+                relation.getSamplePercentage(),
+                analysis.getParameters(),
+                analysis.isDescribe());
         ExpressionInterpreter samplePercentageEval = expressionOptimizer(relation.getSamplePercentage(), metadata, session, expressionTypes);
 
         Object samplePercentageObject = samplePercentageEval.optimize(symbol -> {
@@ -613,12 +596,8 @@ class StatementAnalyzer
         if (samplePercentageValue < 0.0) {
             throw new SemanticException(SemanticErrorCode.SAMPLE_PERCENTAGE_OUT_OF_RANGE, relation.getSamplePercentage(), "Sample percentage must be greater than or equal to 0");
         }
-        if ((samplePercentageValue > 100.0) && ((relation.getType() != SampledRelation.Type.POISSONIZED) || relation.isRescaled())) {
+        if ((samplePercentageValue > 100.0)) {
             throw new SemanticException(SemanticErrorCode.SAMPLE_PERCENTAGE_OUT_OF_RANGE, relation.getSamplePercentage(), "Sample percentage must be less than or equal to 100");
-        }
-
-        if (relation.isRescaled() && !experimentalSyntaxEnabled) {
-            throw new SemanticException(NOT_SUPPORTED, relation, "Rescaling is not enabled");
         }
 
         analysis.setSampleRatio(relation, samplePercentageValue / 100);
@@ -629,7 +608,7 @@ class StatementAnalyzer
     @Override
     protected Scope visitTableSubquery(TableSubquery node, Scope scope)
     {
-        StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session, experimentalSyntaxEnabled);
+        StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session);
         Scope queryScope = analyzer.process(node.getQuery(), scope);
         return createScope(node, scope, queryScope.getRelationType());
     }
@@ -784,8 +763,16 @@ class StatementAnalyzer
 
             // ensure all names can be resolved, types match, etc (we don't need to record resolved names, subexpression types, etc. because
             // we do it further down when after we determine which subexpressions apply to left vs right tuple)
-            ExpressionAnalyzer analyzer = ExpressionAnalyzer.create(analysis, session, metadata, sqlParser, accessControl, experimentalSyntaxEnabled);
-            analyzer.analyze(expression, output);
+            ExpressionAnalyzer analyzer = ExpressionAnalyzer.create(analysis, session, metadata, sqlParser, accessControl);
+
+            Type clauseType = analyzer.analyze(expression, output);
+            if (!clauseType.equals(BOOLEAN)) {
+                if (!clauseType.equals(UNKNOWN)) {
+                    throw new SemanticException(TYPE_MISMATCH, expression, "JOIN ON clause must evaluate to a boolean: actual type %s", clauseType);
+                }
+                // coerce null to boolean
+                analysis.addCoercion(expression, BOOLEAN, false);
+            }
 
             Analyzer.verifyNoAggregatesOrWindowFunctions(metadata, expression, "JOIN");
 
@@ -796,9 +783,10 @@ class StatementAnalyzer
 
             Object optimizedExpression = expressionOptimizer(canonicalized, metadata, session, analyzer.getExpressionTypes()).optimize(NoOpSymbolResolver.INSTANCE);
 
-            if (!(optimizedExpression instanceof Expression) && optimizedExpression instanceof Boolean) {
+            if (!(optimizedExpression instanceof Expression) && (optimizedExpression instanceof Boolean || optimizedExpression == null)) {
                 // If the JoinOn clause evaluates to a boolean expression, simulate a cross join by adding the relevant redundant expression
-                if (optimizedExpression.equals(Boolean.TRUE)) {
+                // optimizedExpression can be TRUE, FALSE or NULL here
+                if (optimizedExpression != null && optimizedExpression.equals(Boolean.TRUE)) {
                     optimizedExpression = new ComparisonExpression(EQUAL, new LongLiteral("0"), new LongLiteral("0"));
                 }
                 else {
@@ -811,13 +799,11 @@ class StatementAnalyzer
             }
             // The optimization above may have rewritten the expression tree which breaks all the identity maps, so redo the analysis
             // to re-analyze coercions that might be necessary
-            analyzer = ExpressionAnalyzer.create(analysis, session, metadata, sqlParser, accessControl, experimentalSyntaxEnabled);
+            analyzer = ExpressionAnalyzer.create(analysis, session, metadata, sqlParser, accessControl);
             analyzer.analyze((Expression) optimizedExpression, output);
             analysis.addCoercions(analyzer.getExpressionCoercions(), analyzer.getTypeOnlyCoercions());
 
             Set<Expression> postJoinConjuncts = new HashSet<>();
-            final Set<Expression> leftExpressions = new HashSet<>();
-            final Set<Expression> rightExpressions = new HashSet<>();
 
             for (Expression conjunct : ExpressionUtils.extractConjuncts((Expression) optimizedExpression)) {
                 conjunct = ExpressionUtils.normalize(conjunct);
@@ -845,8 +831,6 @@ class StatementAnalyzer
                     if (rightExpression != null) {
                         ExpressionAnalysis leftExpressionAnalysis = analyzeExpression(leftExpression, left);
                         ExpressionAnalysis rightExpressionAnalysis = analyzeExpression(rightExpression, right);
-                        leftExpressions.add(leftExpression);
-                        rightExpressions.add(rightExpression);
                         analysis.recordSubqueries(node, leftExpressionAnalysis);
                         analysis.recordSubqueries(node, rightExpressionAnalysis);
                         addCoercionForJoinCriteria(node, leftExpression, rightExpression);
@@ -982,6 +966,11 @@ class StatementAnalyzer
         List<FunctionCall> windowFunctions = extractor.getWindowFunctions();
 
         for (FunctionCall windowFunction : windowFunctions) {
+            // filter with window function is not supported yet
+            if (windowFunction.getFilter().isPresent()) {
+                throw new SemanticException(NOT_SUPPORTED, node, "FILTER is not yet supported for window functions");
+            }
+
             Window window = windowFunction.getWindow().get();
 
             WindowFunctionExtractor nestedExtractor = new WindowFunctionExtractor();
@@ -1017,8 +1006,8 @@ class StatementAnalyzer
 
             List<TypeSignature> argumentTypes = Lists.transform(windowFunction.getArguments(), expression -> analysis.getType(expression).getTypeSignature());
 
-            FunctionKind kind = metadata.getFunctionRegistry().resolveFunction(windowFunction.getName(), argumentTypes, false).getKind();
-            if (kind != AGGREGATE && kind != APPROXIMATE_AGGREGATE && kind != WINDOW) {
+            FunctionKind kind = metadata.getFunctionRegistry().resolveFunction(windowFunction.getName(), argumentTypes).getKind();
+            if (kind != AGGREGATE && kind != WINDOW) {
                 throw new SemanticException(MUST_BE_WINDOW_FUNCTION, node, "Not a window function: %s", windowFunction.getName());
             }
         }
@@ -1370,13 +1359,7 @@ class StatementAnalyzer
             List<Expression> orderByExpressions,
             Set<Expression> columnReferences)
     {
-        List<FunctionCall> aggregates = extractAggregates(node);
-
-        if (scope.isApproximate()) {
-            if (aggregates.stream().anyMatch(FunctionCall::isDistinct)) {
-                throw new SemanticException(NOT_SUPPORTED, node, "DISTINCT aggregations not supported for approximate queries");
-            }
-        }
+        extractAggregates(node);
 
         // is this an aggregation query?
         if (!groupingSets.isEmpty()) {
@@ -1429,7 +1412,7 @@ class StatementAnalyzer
             Expression expression,
             Set<Expression> columnReferences)
     {
-        AggregationAnalyzer analyzer = new AggregationAnalyzer(groupByExpressions, metadata, scope, columnReferences);
+        AggregationAnalyzer analyzer = new AggregationAnalyzer(groupByExpressions, metadata, scope, columnReferences, analysis.getParameters());
         analyzer.analyze(expression);
     }
 
@@ -1462,7 +1445,7 @@ class StatementAnalyzer
                     .setStartTime(session.getStartTime())
                     .build();
 
-            StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, viewAccessControl, viewSession, experimentalSyntaxEnabled);
+            StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, viewAccessControl, viewSession);
             Scope queryScope = analyzer.process(query, Scope.create());
             return queryScope.getRelationType().withAlias(name.getObjectName(), null);
         }
@@ -1492,7 +1475,7 @@ class StatementAnalyzer
         for (int i = 0; i < columns.size(); i++) {
             ViewDefinition.ViewColumn column = columns.get(i);
             Field field = fieldList.get(i);
-            if (!column.getName().equals(field.getName().orElse(null)) ||
+            if (!column.getName().equalsIgnoreCase(field.getName().orElse(null)) ||
                     !metadata.getTypeManager().canCoerce(field.getType(), column.getType())) {
                 return true;
             }
@@ -1510,7 +1493,6 @@ class StatementAnalyzer
                 sqlParser,
                 scope,
                 analysis,
-                experimentalSyntaxEnabled,
                 expression);
     }
 
@@ -1590,7 +1572,6 @@ class StatementAnalyzer
                     accessControl, sqlParser,
                     scope,
                     analysis,
-                    experimentalSyntaxEnabled,
                     expression);
             analysis.recordSubqueries(node, expressionAnalysis);
 

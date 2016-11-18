@@ -14,6 +14,8 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.GroupByHashPageIndexerFactory;
+import com.facebook.presto.hive.AbstractTestHiveClient.HiveTransaction;
+import com.facebook.presto.hive.AbstractTestHiveClient.Transaction;
 import com.facebook.presto.hive.authentication.NoHdfsAuthentication;
 import com.facebook.presto.hive.metastore.BridgingHiveMetastore;
 import com.facebook.presto.hive.metastore.CachingHiveMetastore;
@@ -22,8 +24,10 @@ import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.hive.metastore.ThriftHiveMetastore;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
+import com.facebook.presto.spi.ConnectorOutputTableHandle;
 import com.facebook.presto.spi.ConnectorPageSink;
 import com.facebook.presto.spi.ConnectorPageSource;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.ConnectorTableHandle;
@@ -31,7 +35,6 @@ import com.facebook.presto.spi.ConnectorTableLayoutResult;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.SchemaTableName;
-import com.facebook.presto.spi.ServerInfo;
 import com.facebook.presto.spi.TableNotFoundException;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorPageSinkProvider;
@@ -40,6 +43,7 @@ import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
+import com.facebook.presto.testing.TestingConnectorSession;
 import com.facebook.presto.type.TypeRegistry;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -65,8 +69,9 @@ import java.util.concurrent.ExecutorService;
 
 import static com.facebook.presto.hadoop.HadoopFileStatus.isDirectory;
 import static com.facebook.presto.hive.AbstractTestHiveClient.createTableProperties;
-import static com.facebook.presto.hive.AbstractTestHiveClient.listAllDataPaths;
-import static com.facebook.presto.hive.HiveTestUtils.SESSION;
+import static com.facebook.presto.hive.AbstractTestHiveClient.filterNonHiddenColumnHandles;
+import static com.facebook.presto.hive.AbstractTestHiveClient.filterNonHiddenColumnMetadata;
+import static com.facebook.presto.hive.AbstractTestHiveClient.getAllSplits;
 import static com.facebook.presto.hive.HiveTestUtils.TYPE_MANAGER;
 import static com.facebook.presto.hive.HiveTestUtils.getDefaultHiveDataStreamFactories;
 import static com.facebook.presto.hive.HiveTestUtils.getDefaultHiveRecordCursorProvider;
@@ -100,6 +105,7 @@ public abstract class AbstractTestHiveClientS3
     protected LocationService locationService;
     protected TestingHiveMetastore metastoreClient;
     protected HiveMetadataFactory metadataFactory;
+    protected HiveTransactionManager transactionManager;
     protected ConnectorSplitManager splitManager;
     protected ConnectorPageSinkProvider pageSinkProvider;
     protected ConnectorPageSourceProvider pageSourceProvider;
@@ -160,7 +166,7 @@ public abstract class AbstractTestHiveClientS3
                 hiveClientConfig,
                 writableBucket,
                 hdfsEnvironment);
-        locationService = new HiveLocationService(metastoreClient, hdfsEnvironment);
+        locationService = new HiveLocationService(hdfsEnvironment);
         TypeRegistry typeManager = new TypeRegistry();
         JsonCodec<PartitionUpdate> partitionUpdateCodec = JsonCodec.jsonCodec(PartitionUpdate.class);
         metadataFactory = new HiveMetadataFactory(
@@ -175,10 +181,11 @@ public abstract class AbstractTestHiveClientS3
                 new TableParameterCodec(),
                 partitionUpdateCodec,
                 new HiveTypeTranslator(),
-                new ServerInfo("test_id", "test_environment", "test_version"));
+                new NodeVersion("test_version"));
+        transactionManager = new HiveTransactionManager();
         splitManager = new HiveSplitManager(
                 connectorId,
-                metastoreClient,
+                transactionHandle -> ((HiveMetadata) transactionManager.get(transactionHandle)).getMetastore(),
                 new NamenodeStats(),
                 hdfsEnvironment,
                 new HadoopDirectoryLister(),
@@ -192,34 +199,46 @@ public abstract class AbstractTestHiveClientS3
         pageSourceProvider = new HivePageSourceProvider(hiveClientConfig, hdfsEnvironment, getDefaultHiveRecordCursorProvider(hiveClientConfig), getDefaultHiveDataStreamFactories(hiveClientConfig), TYPE_MANAGER);
     }
 
+    protected ConnectorSession newSession()
+    {
+        return new TestingConnectorSession(new HiveSessionProperties(new HiveClientConfig()).getSessionProperties());
+    }
+
+    protected Transaction newTransaction()
+    {
+        return new HiveTransaction(transactionManager, metadataFactory.create());
+    }
+
     @Test
     public void testGetRecordsS3()
             throws Exception
     {
-        HiveTransactionHandle transaction = new HiveTransactionHandle();
-        HiveMetadata metadata = metadataFactory.create();
+        try (Transaction transaction = newTransaction()) {
+            ConnectorMetadata metadata = transaction.getMetadata();
+            ConnectorSession session = newSession();
 
-        ConnectorTableHandle table = getTableHandle(metadata, tableS3);
-        List<ColumnHandle> columnHandles = ImmutableList.copyOf(metadata.getColumnHandles(SESSION, table).values());
-        Map<String, Integer> columnIndex = indexColumns(columnHandles);
+            ConnectorTableHandle table = getTableHandle(metadata, tableS3);
+            List<ColumnHandle> columnHandles = ImmutableList.copyOf(metadata.getColumnHandles(session, table).values());
+            Map<String, Integer> columnIndex = indexColumns(columnHandles);
 
-        List<ConnectorTableLayoutResult> tableLayoutResults = metadata.getTableLayouts(SESSION, table, new Constraint<>(TupleDomain.all(), bindings -> true), Optional.empty());
-        HiveTableLayoutHandle layoutHandle = (HiveTableLayoutHandle) getOnlyElement(tableLayoutResults).getTableLayout().getHandle();
-        assertEquals(layoutHandle.getPartitions().get().size(), 1);
-        ConnectorSplitSource splitSource = splitManager.getSplits(transaction, SESSION, layoutHandle);
+            List<ConnectorTableLayoutResult> tableLayoutResults = metadata.getTableLayouts(session, table, new Constraint<>(TupleDomain.all(), bindings -> true), Optional.empty());
+            HiveTableLayoutHandle layoutHandle = (HiveTableLayoutHandle) getOnlyElement(tableLayoutResults).getTableLayout().getHandle();
+            assertEquals(layoutHandle.getPartitions().get().size(), 1);
+            ConnectorSplitSource splitSource = splitManager.getSplits(transaction.getTransactionHandle(), session, layoutHandle);
 
-        long sum = 0;
+            long sum = 0;
 
-        for (ConnectorSplit split : getAllSplits(splitSource)) {
-            try (ConnectorPageSource pageSource = pageSourceProvider.createPageSource(transaction, SESSION, split, columnHandles)) {
-                MaterializedResult result = materializeSourceDataStream(SESSION, pageSource, getTypes(columnHandles));
+            for (ConnectorSplit split : getAllSplits(splitSource)) {
+                try (ConnectorPageSource pageSource = pageSourceProvider.createPageSource(transaction.getTransactionHandle(), session, split, columnHandles)) {
+                    MaterializedResult result = materializeSourceDataStream(session, pageSource, getTypes(columnHandles));
 
-                for (MaterializedRow row : result) {
-                    sum += (Long) row.getField(columnIndex.get("t_bigint"));
+                    for (MaterializedRow row : result) {
+                        sum += (Long) row.getField(columnIndex.get("t_bigint"));
+                    }
                 }
             }
+            assertEquals(sum, 78300);
         }
-        assertEquals(sum, 78300);
     }
 
     @Test
@@ -307,7 +326,7 @@ public abstract class AbstractTestHiveClientS3
     {
         for (HiveStorageFormat storageFormat : HiveStorageFormat.values()) {
             try {
-                doCreateTable(temporaryCreateTable, storageFormat, "presto_test");
+                doCreateTable(temporaryCreateTable, storageFormat);
             }
             finally {
                 dropTable(temporaryCreateTable);
@@ -315,66 +334,79 @@ public abstract class AbstractTestHiveClientS3
         }
     }
 
-    private void doCreateTable(SchemaTableName tableName, HiveStorageFormat storageFormat, String tableOwner)
+    private void doCreateTable(SchemaTableName tableName, HiveStorageFormat storageFormat)
             throws Exception
     {
-        HiveTransactionHandle transaction = new HiveTransactionHandle();
-        HiveMetadata metadata = metadataFactory.create();
-
-        // begin creating the table
         List<ColumnMetadata> columns = ImmutableList.<ColumnMetadata>builder()
                 .add(new ColumnMetadata("id", BIGINT))
                 .build();
 
-        ConnectorTableMetadata tableMetadata = new ConnectorTableMetadata(tableName, columns, createTableProperties(storageFormat));
-        HiveOutputTableHandle outputHandle = metadata.beginCreateTable(SESSION, tableMetadata, Optional.empty());
-
-        MaterializedResult data = MaterializedResult.resultBuilder(SESSION, BIGINT)
+        MaterializedResult data = MaterializedResult.resultBuilder(newSession(), BIGINT)
                 .row(1L)
                 .row(3L)
                 .row(2L)
                 .build();
 
-        // write the records
-        ConnectorPageSink sink = pageSinkProvider.createPageSink(transaction, SESSION, outputHandle);
-        sink.appendPage(data.toPage(), null);
-        Collection<Slice> fragments = sink.finish();
+        try (Transaction transaction = newTransaction()) {
+            ConnectorMetadata metadata = transaction.getMetadata();
+            ConnectorSession session = newSession();
 
-        // commit the table
-        metadata.finishCreateTable(SESSION, outputHandle, fragments);
+            // begin creating the table
+            ConnectorTableMetadata tableMetadata = new ConnectorTableMetadata(tableName, columns, createTableProperties(storageFormat));
+            ConnectorOutputTableHandle outputHandle = metadata.beginCreateTable(session, tableMetadata, Optional.empty());
 
-        // Hack to work around the metastore not being configured for S3.
-        // The metastore tries to validate the location when creating the
-        // table, which fails without explicit configuration for S3.
-        // We work around that by using a dummy location when creating the
-        // table and update it here to the correct S3 location.
-        metastoreClient.updateTableLocation(database, tableName.getTableName(), locationService.writePath(outputHandle.getLocationHandle(), Optional.empty()).get().toString());
+            // write the records
+            ConnectorPageSink sink = pageSinkProvider.createPageSink(transaction.getTransactionHandle(), session, outputHandle);
+            sink.appendPage(data.toPage());
+            Collection<Slice> fragments = getFutureValue(sink.finish());
 
-        // load the new table
-        ConnectorTableHandle tableHandle = getTableHandle(metadata, tableName);
-        List<ColumnHandle> columnHandles = ImmutableList.copyOf(metadata.getColumnHandles(SESSION, tableHandle).values());
+            // commit the table
+            metadata.finishCreateTable(session, outputHandle, fragments);
 
-        // verify the metadata
-        tableMetadata = metadata.getTableMetadata(SESSION, getTableHandle(metadata, tableName));
-        assertEquals(tableMetadata.getColumns(), columns);
+            transaction.commit();
 
-        // verify the data
-        List<ConnectorTableLayoutResult> tableLayoutResults = metadata.getTableLayouts(SESSION, tableHandle, new Constraint<>(TupleDomain.all(), bindings -> true), Optional.empty());
-        HiveTableLayoutHandle layoutHandle = (HiveTableLayoutHandle) getOnlyElement(tableLayoutResults).getTableLayout().getHandle();
-        assertEquals(layoutHandle.getPartitions().get().size(), 1);
-        ConnectorSplitSource splitSource = splitManager.getSplits(transaction, SESSION, layoutHandle);
-        ConnectorSplit split = getOnlyElement(getAllSplits(splitSource));
+            // Hack to work around the metastore not being configured for S3.
+            // The metastore tries to validate the location when creating the
+            // table, which fails without explicit configuration for S3.
+            // We work around that by using a dummy location when creating the
+            // table and update it here to the correct S3 location.
+            metastoreClient.updateTableLocation(
+                    database,
+                    tableName.getTableName(),
+                    locationService.writePathRoot(((HiveOutputTableHandle) outputHandle).getLocationHandle()).get().toString());
+        }
 
-        try (ConnectorPageSource pageSource = pageSourceProvider.createPageSource(transaction, SESSION, split, columnHandles)) {
-            MaterializedResult result = materializeSourceDataStream(SESSION, pageSource, getTypes(columnHandles));
-            assertEqualsIgnoreOrder(result.getMaterializedRows(), data.getMaterializedRows());
+        try (Transaction transaction = newTransaction()) {
+            ConnectorMetadata metadata = transaction.getMetadata();
+            ConnectorSession session = newSession();
+
+            // load the new table
+            ConnectorTableHandle tableHandle = getTableHandle(metadata, tableName);
+            List<ColumnHandle> columnHandles = filterNonHiddenColumnHandles(metadata.getColumnHandles(session, tableHandle).values());
+
+            // verify the metadata
+            ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(session, getTableHandle(metadata, tableName));
+            assertEquals(filterNonHiddenColumnMetadata(tableMetadata.getColumns()), columns);
+
+            // verify the data
+            List<ConnectorTableLayoutResult> tableLayoutResults = metadata.getTableLayouts(session, tableHandle, new Constraint<>(TupleDomain.all(), bindings -> true), Optional.empty());
+            HiveTableLayoutHandle layoutHandle = (HiveTableLayoutHandle) getOnlyElement(tableLayoutResults).getTableLayout().getHandle();
+            assertEquals(layoutHandle.getPartitions().get().size(), 1);
+            ConnectorSplitSource splitSource = splitManager.getSplits(transaction.getTransactionHandle(), session, layoutHandle);
+            ConnectorSplit split = getOnlyElement(getAllSplits(splitSource));
+
+            try (ConnectorPageSource pageSource = pageSourceProvider.createPageSource(transaction.getTransactionHandle(), session, split, columnHandles)) {
+                MaterializedResult result = materializeSourceDataStream(session, pageSource, getTypes(columnHandles));
+                assertEqualsIgnoreOrder(result.getMaterializedRows(), data.getMaterializedRows());
+            }
         }
     }
 
     private void dropTable(SchemaTableName table)
     {
-        try {
-            metastoreClient.dropTable(table.getSchemaName(), table.getTableName());
+        try (Transaction transaction = newTransaction()) {
+            transaction.getMetastore(table.getSchemaName()).dropTable(newSession(), table.getSchemaName(), table.getTableName());
+            transaction.commit();
         }
         catch (RuntimeException e) {
             // this usually occurs because the table was not created
@@ -383,19 +415,9 @@ public abstract class AbstractTestHiveClientS3
 
     private ConnectorTableHandle getTableHandle(ConnectorMetadata metadata, SchemaTableName tableName)
     {
-        ConnectorTableHandle handle = metadata.getTableHandle(SESSION, tableName);
+        ConnectorTableHandle handle = metadata.getTableHandle(newSession(), tableName);
         checkArgument(handle != null, "table not found: %s", tableName);
         return handle;
-    }
-
-    private static List<ConnectorSplit> getAllSplits(ConnectorSplitSource source)
-            throws InterruptedException
-    {
-        ImmutableList.Builder<ConnectorSplit> splits = ImmutableList.builder();
-        while (!source.isFinished()) {
-            splits.addAll(getFutureValue(source.getNextBatch(1000)));
-        }
-        return splits.build();
     }
 
     private static ImmutableMap<String, Integer> indexColumns(List<ColumnHandle> columnHandles)
@@ -443,7 +465,7 @@ public abstract class AbstractTestHiveClientS3
         }
 
         @Override
-        public void dropTable(String databaseName, String tableName)
+        public void dropTable(String databaseName, String tableName, boolean deleteData)
         {
             try {
                 Optional<Table> table = getTable(databaseName, tableName);
@@ -452,19 +474,21 @@ public abstract class AbstractTestHiveClientS3
                 }
 
                 // hack to work around the metastore not being configured for S3
-                List<String> locations = listAllDataPaths(this, databaseName, tableName);
+                List<String> locations = listAllDataPaths(databaseName, tableName);
 
                 Table.Builder tableBuilder = Table.builder(table.get());
                 tableBuilder.getStorageBuilder().setLocation("/");
 
                 // drop table
-                delegate.replaceTable(databaseName, tableName, tableBuilder.build(), new PrincipalPrivilegeSet());
-                delegate.dropTable(databaseName, tableName);
+                replaceTable(databaseName, tableName, tableBuilder.build(), new PrincipalPrivilegeSet());
+                delegate.dropTable(databaseName, tableName, false);
 
                 // drop data
-                for (String location : locations) {
-                    Path path = new Path(location);
-                    hdfsEnvironment.getFileSystem("user", path).delete(path, true);
+                if (deleteData) {
+                    for (String location : locations) {
+                        Path path = new Path(location);
+                        hdfsEnvironment.getFileSystem("user", path).delete(path, true);
+                    }
                 }
             }
             catch (Exception e) {
@@ -485,7 +509,30 @@ public abstract class AbstractTestHiveClientS3
             Table.Builder tableBuilder = Table.builder(table.get());
             tableBuilder.getStorageBuilder().setLocation(location);
 
-            delegate.replaceTable(databaseName, tableName, tableBuilder.build(), new PrincipalPrivilegeSet());
+            replaceTable(databaseName, tableName, tableBuilder.build(), new PrincipalPrivilegeSet());
+        }
+
+        private List<String> listAllDataPaths(String schemaName, String tableName)
+        {
+            ImmutableList.Builder<String> locations = ImmutableList.builder();
+            Table table = getTable(schemaName, tableName).get();
+            if (table.getStorage().getLocation() != null) {
+                // For partitioned table, there should be nothing directly under this directory.
+                // But including this location in the set makes the directory content assert more
+                // extensive, which is desirable.
+                locations.add(table.getStorage().getLocation());
+            }
+
+            Optional<List<String>> partitionNames = getPartitionNames(schemaName, tableName);
+            if (partitionNames.isPresent()) {
+                getPartitionsByNames(schemaName, tableName, partitionNames.get()).values().stream()
+                        .map(Optional::get)
+                        .map(partition -> partition.getStorage().getLocation())
+                        .filter(location -> !location.startsWith(table.getStorage().getLocation()))
+                        .forEach(locations::add);
+            }
+
+            return locations.build();
         }
     }
 }

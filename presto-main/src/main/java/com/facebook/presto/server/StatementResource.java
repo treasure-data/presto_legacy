@@ -22,7 +22,6 @@ import com.facebook.presto.client.QueryError;
 import com.facebook.presto.client.QueryResults;
 import com.facebook.presto.client.StageStats;
 import com.facebook.presto.client.StatementStats;
-import com.facebook.presto.execution.QueryId;
 import com.facebook.presto.execution.QueryIdGenerator;
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryManager;
@@ -40,11 +39,13 @@ import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ErrorCode;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.QueryId;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.transaction.TransactionId;
+import com.facebook.presto.transaction.TransactionManager;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
@@ -123,6 +124,7 @@ public class StatementResource
     private static final long DESIRED_RESULT_BYTES = new DataSize(1, MEGABYTE).toBytes();
 
     private final QueryManager queryManager;
+    private final TransactionManager transactionManager;
     private final AccessControl accessControl;
     private final SessionPropertyManager sessionPropertyManager;
     private final ExchangeClientSupplier exchangeClientSupplier;
@@ -134,12 +136,14 @@ public class StatementResource
     @Inject
     public StatementResource(
             QueryManager queryManager,
+            TransactionManager transactionManager,
             AccessControl accessControl,
             SessionPropertyManager sessionPropertyManager,
             ExchangeClientSupplier exchangeClientSupplier,
             QueryIdGenerator queryIdGenerator)
     {
         this.queryManager = requireNonNull(queryManager, "queryManager is null");
+        this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
         this.accessControl = requireNonNull(accessControl, "accessControl is null");
         this.sessionPropertyManager = requireNonNull(sessionPropertyManager, "sessionPropertyManager is null");
         this.exchangeClientSupplier = requireNonNull(exchangeClientSupplier, "exchangeClientSupplier is null");
@@ -164,7 +168,7 @@ public class StatementResource
     {
         assertRequest(!isNullOrEmpty(statement), "SQL statement is empty");
 
-        Session session = createSessionForRequest(servletRequest, accessControl, sessionPropertyManager, queryIdGenerator.createNextQueryId());
+        Session session = createSessionForRequest(servletRequest, transactionManager, accessControl, sessionPropertyManager, queryIdGenerator.createNextQueryId());
 
         ExchangeClient exchangeClient = exchangeClientSupplier.get(deltaMemoryInBytes -> { });
         Query query = new Query(session, statement, queryManager, exchangeClient);
@@ -206,11 +210,11 @@ public class StatementResource
         ResponseBuilder response = Response.ok(queryResults);
 
         // add set session properties
-        query.getSetSessionProperties().entrySet().stream()
+        query.getSetSessionProperties().entrySet()
                 .forEach(entry -> response.header(PRESTO_SET_SESSION, entry.getKey() + '=' + entry.getValue()));
 
         // add clear session properties
-        query.getResetSessionProperties().stream()
+        query.getResetSessionProperties()
                 .forEach(name -> response.header(PRESTO_CLEAR_SESSION, name));
 
         // add added prepare statements
@@ -421,7 +425,7 @@ public class StatementResource
 
                     // Return a single value for clients that require a result.
                     columns = ImmutableList.of(new Column("result", "boolean", new ClientTypeSignature(StandardTypes.BOOLEAN, ImmutableList.of())));
-                    data = ImmutableSet.<List<Object>>of(ImmutableList.<Object>of(true));
+                    data = ImmutableSet.of(ImmutableList.of(true));
                 }
             }
 
@@ -573,11 +577,11 @@ public class StatementResource
 
         private static List<Column> createColumnsList(QueryInfo queryInfo)
         {
-            requireNonNull(queryInfo, "queryInfo is null");
-            checkArgument(queryInfo.getOutputStage().isPresent(), "outputStage is not present");
+            StageInfo outputStage = queryInfo.getOutputStage()
+                    .orElseThrow(() -> new IllegalArgumentException("outputStage not present"));
 
             List<String> names = queryInfo.getFieldNames();
-            List<Type> types = queryInfo.getOutputStage().get().getTypes();
+            List<Type> types = outputStage.getTypes();
 
             checkArgument(names.size() == types.size(), "names and types size mismatch");
 
