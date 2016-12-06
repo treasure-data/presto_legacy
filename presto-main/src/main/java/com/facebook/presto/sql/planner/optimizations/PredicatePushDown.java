@@ -379,10 +379,15 @@ public class PredicatePushDown
                         Expression leftExpression = (alignedComparison) ? equality.getLeft() : equality.getRight();
                         Expression rightExpression = (alignedComparison) ? equality.getRight() : equality.getLeft();
 
-                        Symbol leftSymbol = symbolAllocator.newSymbol(leftExpression, extractType(leftExpression));
-                        leftProjections.put(leftSymbol, leftExpression);
-                        Symbol rightSymbol = symbolAllocator.newSymbol(rightExpression, extractType(rightExpression));
-                        rightProjections.put(rightSymbol, rightExpression);
+                        Symbol leftSymbol = symbolForExpression(leftExpression);
+                        if (!node.getLeft().getOutputSymbols().contains(leftSymbol)) {
+                            leftProjections.put(leftSymbol, leftExpression);
+                        }
+
+                        Symbol rightSymbol = symbolForExpression(rightExpression);
+                        if (!node.getRight().getOutputSymbols().contains(rightSymbol)) {
+                            rightProjections.put(rightSymbol, rightExpression);
+                        }
 
                         joinConditionBuilder.add(new JoinNode.EquiJoinClause(leftSymbol, rightSymbol));
                     }
@@ -407,7 +412,16 @@ public class PredicatePushDown
             return output;
         }
 
-        private OuterJoinPushDownResult processLimitedOuterJoin(Expression inheritedPredicate, Expression outerEffectivePredicate, Expression innerEffectivePredicate, Expression joinPredicate, Collection<Symbol> outerSymbols)
+        private Symbol symbolForExpression(Expression expression)
+        {
+            if (expression instanceof SymbolReference) {
+                return Symbol.from(expression);
+            }
+
+            return symbolAllocator.newSymbol(expression, extractType(expression));
+        }
+
+        private static OuterJoinPushDownResult processLimitedOuterJoin(Expression inheritedPredicate, Expression outerEffectivePredicate, Expression innerEffectivePredicate, Expression joinPredicate, Collection<Symbol> outerSymbols)
         {
             checkArgument(Iterables.all(DependencyExtractor.extractUnique(outerEffectivePredicate), in(outerSymbols)), "outerEffectivePredicate must only contain symbols from outerSymbols");
             checkArgument(Iterables.all(DependencyExtractor.extractUnique(innerEffectivePredicate), not(in(outerSymbols))), "innerEffectivePredicate must not contain symbols from outerSymbols");
@@ -528,7 +542,7 @@ public class PredicatePushDown
             }
         }
 
-        private InnerJoinPushDownResult processInnerJoin(Expression inheritedPredicate, Expression leftEffectivePredicate, Expression rightEffectivePredicate, Expression joinPredicate, Collection<Symbol> leftSymbols)
+        private static InnerJoinPushDownResult processInnerJoin(Expression inheritedPredicate, Expression leftEffectivePredicate, Expression rightEffectivePredicate, Expression joinPredicate, Collection<Symbol> leftSymbols)
         {
             checkArgument(Iterables.all(DependencyExtractor.extractUnique(leftEffectivePredicate), in(leftSymbols)), "leftEffectivePredicate must only contain symbols from leftSymbols");
             checkArgument(Iterables.all(DependencyExtractor.extractUnique(rightEffectivePredicate), not(in(leftSymbols))), "rightEffectivePredicate must not contain symbols from leftSymbols");
