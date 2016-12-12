@@ -197,6 +197,7 @@ environment_compose up -d hadoop-master
 # start external database containers
 environment_compose up -d mysql
 environment_compose up -d postgres
+environment_compose up -d cassandra
 
 # start docker logs for hadoop container
 environment_compose logs --no-color hadoop-master &
@@ -218,7 +219,7 @@ retry check_presto
 
 # run product tests
 set +e
-run_product_tests "$*"
+run_product_tests "$@"
 EXIT_CODE=$?
 set -e
 
