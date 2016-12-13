@@ -51,6 +51,7 @@ import java.util.Set;
 import java.util.stream.IntStream;
 
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.INFORMATION_SCHEMA;
+import static com.facebook.presto.operator.scalar.ApplyFunction.APPLY_FUNCTION;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
@@ -96,6 +97,7 @@ public abstract class AbstractTestQueries
             .window(CustomRank.class)
             .scalars(CustomAdd.class)
             .scalars(CreateHll.class)
+            .function(APPLY_FUNCTION)
             .getFunctions();
 
     public static final List<PropertyMetadata<?>> TEST_SYSTEM_PROPERTIES = ImmutableList.of(
@@ -165,6 +167,24 @@ public abstract class AbstractTestQueries
     {
         assertQuery("SELECT orderkey from orders LIMIT " + Integer.MAX_VALUE);
         assertQuery("SELECT orderkey from orders ORDER BY orderkey LIMIT " + Integer.MAX_VALUE);
+    }
+
+    @Test
+    public void testNonDeterministic()
+    {
+        MaterializedResult materializedResult = computeActual("SELECT rand() FROM orders LIMIT 10");
+        long distinctCount = materializedResult.getMaterializedRows().stream()
+                .map(row -> row.getField(0))
+                .distinct()
+                .count();
+        assertTrue(distinctCount >= 8, "rand() must produce different rows");
+
+        materializedResult = computeActual("SELECT apply(1, x -> x + rand()) FROM orders LIMIT 10");
+        distinctCount = materializedResult.getMaterializedRows().stream()
+                .map(row -> row.getField(0))
+                .distinct()
+                .count();
+        assertTrue(distinctCount >= 8, "rand() must produce different rows");
     }
 
     @Test
@@ -1659,6 +1679,7 @@ public abstract class AbstractTestQueries
                 "SELECT * FROM (VALUES 1, 2) " +
                         "INTERSECT SELECT * FROM (VALUES 1.0, 2)",
                 "VALUES 1.0, 2.0");
+        assertQuery("SELECT NULL, NULL INTERSECT SELECT NULL, NULL FROM nation");
 
         MaterializedResult emptyResult = computeActual("SELECT 100 INTERSECT (SELECT regionkey FROM nation WHERE nationkey <10)");
         assertEquals(emptyResult.getMaterializedRows().size(), 0);
@@ -1717,6 +1738,7 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT * FROM (VALUES 1, 2) " +
                         "EXCEPT SELECT * FROM (VALUES 3.0, 2)");
+        assertQuery("SELECT NULL, NULL EXCEPT SELECT NULL, NULL FROM nation");
 
         MaterializedResult emptyResult = computeActual("SELECT 0 EXCEPT (SELECT regionkey FROM nation WHERE nationkey <10)");
         assertEquals(emptyResult.getMaterializedRows().size(), 0);
@@ -5206,6 +5228,7 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT orderkey FROM orders UNION SELECT custkey FROM orders");
         assertQuery("SELECT 123 UNION DISTINCT SELECT 123 UNION ALL SELECT 123");
         assertQuery("SELECT NULL UNION SELECT NULL");
+        assertQuery("SELECT NULL, NULL UNION ALL SELECT NULL, NULL FROM nation");
 
         // mixed single-node vs fixed vs source-distributed
         assertQuery("SELECT orderkey FROM orders UNION ALL SELECT 123 UNION ALL (SELECT custkey FROM orders GROUP BY custkey)");
@@ -5590,6 +5613,9 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT * FROM (VALUES (1,1), (2,2), (3, 3)) t(x, y) WHERE (x+y in (VALUES 4, 5)) AND (x*y in (VALUES 4, 5))",
                 "VALUES (2,2)");
+
+        // test multi level IN subqueries
+        assertQuery("SELECT 1 IN (SELECT 1), 2 IN (SELECT 1) WHERE 1 IN (SELECT 1)");
 
         // Throw in a bunch of IN subquery predicates
         assertQuery("" +
@@ -6772,7 +6798,7 @@ public abstract class AbstractTestQueries
     @Test
     public void testInvalidType()
     {
-        assertQueryFails("SELECT CAST(null AS array(foo))", "\\Qline 1:8: Unknown type: ARRAY(FOO)\\E");
+        assertQueryFails("SELECT CAST(null AS array(foo))", "\\Qline 1:8: Unknown type: array(foo)\\E");
     }
 
     @Test
