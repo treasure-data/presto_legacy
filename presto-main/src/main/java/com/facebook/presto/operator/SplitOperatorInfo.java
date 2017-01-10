@@ -12,21 +12,33 @@
  * limitations under the License.
  */
 
-package com.facebook.presto.sql.tree;
+package com.facebook.presto.operator;
 
-import java.util.Optional;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-public abstract class DataDefinitionStatement
-    extends Statement
+public class SplitOperatorInfo
+        implements OperatorInfo
 {
-    protected DataDefinitionStatement(Optional<NodeLocation> location)
+    // NOTE: this deserializes to a map instead of the expected type
+    private final Object splitInfo;
+
+    @JsonCreator
+    public SplitOperatorInfo(
+            @JsonProperty("splitInfo") Object splitInfo)
     {
-        super(location);
+        this.splitInfo = splitInfo;
     }
 
     @Override
-    public <R, C> R accept(AstVisitor<R, C> visitor, C context)
+    public boolean isFinal()
     {
-        return visitor.visitDataDefinitionStatement(this, context);
+        return true;
+    }
+
+    @JsonProperty
+    public Object getSplitInfo()
+    {
+        return splitInfo;
     }
 }

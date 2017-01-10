@@ -17,8 +17,10 @@ import com.facebook.presto.Session;
 import com.facebook.presto.metadata.FunctionListBuilder;
 import com.facebook.presto.metadata.SqlFunction;
 import com.facebook.presto.spi.session.PropertyMetadata;
+import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.TimeZoneKey;
 import com.facebook.presto.sql.analyzer.SemanticException;
+import com.facebook.presto.testing.Arguments;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
@@ -39,6 +41,7 @@ import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.intellij.lang.annotations.Language;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.sql.Date;
@@ -48,7 +51,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static com.facebook.presto.connector.informationSchema.InformationSchemaMetadata.INFORMATION_SCHEMA;
 import static com.facebook.presto.operator.scalar.ApplyFunction.APPLY_FUNCTION;
@@ -66,6 +71,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MISSING_SCHEMA;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MUST_BE_AGGREGATE_OR_GROUP_BY;
 import static com.facebook.presto.sql.tree.ExplainType.Type.DISTRIBUTED;
 import static com.facebook.presto.sql.tree.ExplainType.Type.LOGICAL;
+import static com.facebook.presto.testing.Arguments.toArgumentsArrays;
 import static com.facebook.presto.testing.MaterializedResult.resultBuilder;
 import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.CREATE_TABLE;
 import static com.facebook.presto.testing.TestingAccessControlManager.TestingPrivilegeType.DELETE_TABLE;
@@ -75,6 +81,8 @@ import static com.facebook.presto.testing.TestingAccessControlManager.privilege;
 import static com.facebook.presto.testing.TestingSession.TESTING_CATALOG;
 import static com.facebook.presto.tests.QueryAssertions.assertContains;
 import static com.facebook.presto.tests.QueryAssertions.assertEqualsIgnoreOrder;
+import static com.facebook.presto.tests.QueryTemplate.parameter;
+import static com.facebook.presto.tests.QueryTemplate.queryTemplate;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.Iterables.transform;
 import static io.airlift.tpch.TpchTable.ORDERS;
@@ -185,6 +193,27 @@ public abstract class AbstractTestQueries
                 .distinct()
                 .count();
         assertTrue(distinctCount >= 8, "rand() must produce different rows");
+    }
+
+    @Test
+    public void testLambdaInAggregationContext()
+    {
+        assertQuery("SELECT apply(sum(x), i -> i * i) FROM (VALUES 1, 2, 3, 4, 5) t(x)", "SELECT 225");
+        assertQuery("SELECT apply(x, i -> i - 1), sum(y) FROM (VALUES (1, 10), (1, 20), (2, 50)) t(x,y) group by x", "VALUES (0, 30), (1, 50)");
+        assertQuery("SELECT x, apply(sum(y), i -> i * 10) FROM (VALUES (1, 10), (1, 20), (2, 50)) t(x,y) group by x", "VALUES (1, 300), (2, 500)");
+    }
+
+    @Test
+    public void testLambdaInSubqueryContext()
+    {
+        assertQuery("SELECT apply(x, i -> i * i) FROM (SELECT 10 x)", "SELECT 100");
+        assertQuery("SELECT apply((SELECT 10), i -> i * i)", "SELECT 100");
+    }
+
+    @Test
+    public void testLambdaWithAggregation()
+    {
+        assertQueryFails("SELECT transform(ARRAY[1], x -> max(x))", ".* Lambda expression cannot contain aggregations or window functions: .*");
     }
 
     @Test
@@ -841,7 +870,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testExtractDistinctAggregationOptimizer()
-            throws Exception
     {
         assertQuery("SELECT max(orderstatus), COUNT(orderkey), sum(DISTINCT orderkey) FROM orders");
 
@@ -870,7 +898,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testAggregationFilter()
-            throws Exception
     {
         assertQuery("SELECT sum(x) FILTER (WHERE y > 4) FROM (VALUES (1, 3), (2, 4), (2, 4), (4, 5)) t (x, y)", "SELECT 4");
         assertQuery("SELECT sum(x) FILTER (WHERE x > 1), sum(y) FILTER (WHERE y > 4) FROM (VALUES (1, 3), (2, 4), (2, 4), (4, 5)) t (x, y)", "SELECT 8, 5");
@@ -975,6 +1002,35 @@ public abstract class AbstractTestQueries
     public void testOrderByExpressionWithLimit()
     {
         assertQueryOrdered("SELECT custkey, orderstatus FROM ORDERS ORDER BY orderkey + 1 DESC LIMIT 10");
+    }
+
+    @Test
+    public void testOrderByWithOutputColumnReference()
+    {
+        assertQueryOrdered("SELECT a*2 AS b FROM (VALUES -1, 0, 2) t(a) ORDER BY b*-1", "VALUES 4, 0, -2");
+        assertQueryOrdered("SELECT a*2 AS b FROM (VALUES -1, 0, 2) t(a) ORDER BY b", "VALUES -2, 0, 4");
+        assertQueryOrdered("SELECT a*-2 AS a FROM (VALUES -1, 0, 2) t(a) ORDER BY a*-1", "VALUES 2, 0, -4");
+        assertQueryOrdered("SELECT a*-2 AS a FROM (VALUES -1, 0, 2) t(a) ORDER BY t.a*-1", "VALUES -4, 0, 2");
+        assertQueryOrdered("SELECT a*-2 FROM (VALUES -1, 0, 2) t(a) ORDER BY a*-1", "VALUES -4, 0, 2");
+        assertQueryOrdered("SELECT a*-2 FROM (VALUES -1, 0, 2) t(a) ORDER BY t.a*-1", "VALUES -4, 0, 2");
+        assertQueryOrdered("SELECT a, a* -1 AS a FROM (VALUES -1, 0, 2) t(a) ORDER BY t.a", "VALUES (-1, 1), (0, 0), (2, -2)");
+        assertQueryOrdered("SELECT a, a* -2 AS b FROM (VALUES -1, 0, 2) t(a) ORDER BY a + b", "VALUES (2, -4), (0, 0), (-1, 2)");
+        assertQueryOrdered("SELECT a as b, a* -2 AS a FROM (VALUES -1, 0, 2) t(a) ORDER BY a + b", "VALUES (2, -4), (0, 0), (-1, 2)");
+        assertQueryOrdered("SELECT a* -2 AS a FROM (VALUES -1, 0, 2) t(a) ORDER BY a + t.a", "VALUES -4, 0, 2");
+
+        assertQueryFails("SELECT a, a* -1 AS a FROM (VALUES -1, 0, 2) t(a) ORDER BY a", ".*'a' is ambiguous");
+    }
+
+    @Test
+    public void testOrderByWithAggregation()
+            throws Exception
+    {
+        assertQuery("" +
+                "SELECT x, sum(cast(x AS double))\n" +
+                "FROM (VALUES '1.0') t(x)\n" +
+                "GROUP BY x\n" +
+                "ORDER BY sum(cast(x AS double))",
+                "VALUES ('1.0', 1.0)");
     }
 
     @Test
@@ -1464,7 +1520,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testGroupingSetsAliasedGroupingColumns()
-            throws Exception
     {
         assertQuery("SELECT lna, lnb, SUM(quantity) " +
                         "FROM (SELECT linenumber lna, linenumber lnb, CAST(quantity AS BIGINT) quantity FROM lineitem) " +
@@ -1739,6 +1794,10 @@ public abstract class AbstractTestQueries
                 "SELECT * FROM (VALUES 1, 2) " +
                         "EXCEPT SELECT * FROM (VALUES 3.0, 2)");
         assertQuery("SELECT NULL, NULL EXCEPT SELECT NULL, NULL FROM nation");
+
+        assertQuery(
+                "(SELECT * FROM (VALUES 1) EXCEPT SELECT * FROM (VALUES 0))" +
+                        "EXCEPT (SELECT * FROM (VALUES 1) EXCEPT SELECT * FROM (VALUES 1))");
 
         MaterializedResult emptyResult = computeActual("SELECT 0 EXCEPT (SELECT regionkey FROM nation WHERE nationkey <10)");
         assertEquals(emptyResult.getMaterializedRows().size(), 0);
@@ -2029,6 +2088,33 @@ public abstract class AbstractTestQueries
                 "SELECT * FROM (VALUES (1, 2)) x (a, b) JOIN (VALUES (SMALLINT '1', SMALLINT '3')) y (a, b) ON x.a = y.a",
                 "VALUES (1, 2, 1, 3)"
         );
+
+        // short decimal, long decimal
+        assertQuery(
+                format("SELECT * FROM " +
+                        "   (VALUES (CAST(1 AS DECIMAL(%1$d,0)), 2)) x (a, b) , " +
+                        "   (VALUES (CAST(0 AS DECIMAL(%1$d,0)), SMALLINT '3')) y (a, b) " +
+                        " WHERE x.a = y.a + 1", Decimals.MAX_SHORT_PRECISION),
+                "VALUES (1, 2, 0, 3)");
+        assertQuery(
+                format("SELECT * FROM " +
+                        "   (VALUES (CAST(1 AS DECIMAL(%1$d,0)), 2)) x (a, b) " +
+                        "   INNER JOIN " +
+                        "   (VALUES (CAST(0 AS DECIMAL(%1$d,0)), SMALLINT '3')) y (a, b) " +
+                        "   ON x.a = y.a + 1", Decimals.MAX_SHORT_PRECISION),
+                "VALUES (1, 2, 0, 3)");
+        assertQuery(
+                format("SELECT * FROM " +
+                        "   (VALUES (CAST(1 AS DECIMAL(%1$d,0)), 2)) x (a, b) " +
+                        "   LEFT JOIN (VALUES (CAST(0 AS DECIMAL(%1$d,0)), SMALLINT '3')) y (a, b) " +
+                        "   ON x.a = y.a + 1", Decimals.MAX_SHORT_PRECISION),
+                "VALUES (1, 2, 0, 3)");
+        assertQuery(
+                format("SELECT * FROM " +
+                        "   (VALUES CAST(1 as decimal(%d,0))) t1 (a), " +
+                        "   (VALUES CAST(1 as decimal(%d,0))) t2 (b) " +
+                        "   WHERE a = b", Decimals.MAX_SHORT_PRECISION, Decimals.MAX_SHORT_PRECISION + 1),
+                "VALUES (1, 1)");
     }
 
     @Test
@@ -2293,7 +2379,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testJoinUsingSymbolsFromJustOneSideOfJoin()
-            throws Exception
     {
         assertQuery(
                 "SELECT b FROM (VALUES 1, 2) t1(a) RIGHT OUTER JOIN (VALUES 10, 11) t2(b) ON b > 10",
@@ -2317,7 +2402,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testJoinsWithTrueJoinCondition()
-            throws Exception
     {
         // inner join
         assertQuery("SELECT * FROM (VALUES 0, 1) t1(a) JOIN (VALUES 10, 11) t2(b) ON TRUE",
@@ -2645,7 +2729,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testJoinWithScalarSubqueryInOnClause()
-            throws Exception
     {
         assertQuery(
                 "SELECT count() FROM nation a" +
@@ -2676,7 +2759,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testInUncorrelatedSubquery()
-            throws Exception
     {
         assertQuery(
                 "SELECT CASE WHEN false THEN 1 IN (VALUES 2) END",
@@ -2684,11 +2766,13 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT x FROM (VALUES 2) t(x) where MAP(ARRAY[8589934592], ARRAY[x]) IN (VALUES MAP(ARRAY[8589934592],ARRAY[2]))",
                 "SELECT 2");
+        assertQuery(
+                "SELECT a IN (VALUES 2), a FROM (VALUES (2)) t(a)",
+                "SELECT TRUE, 2");
     }
 
     @Test
     public void testJoinWithExpressionsThatMayReturnNull()
-            throws Exception
     {
         assertQuery("" +
                         "SELECT *\n" +
@@ -3153,7 +3237,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testJoinWithStatefulFilterFunction()
-            throws Exception
     {
         assertQuery("SELECT *\n" +
                         "FROM (VALUES 1, 2) a(id)\n" +
@@ -3208,13 +3291,6 @@ public abstract class AbstractTestQueries
     public void testOrderByMultipleFields()
     {
         assertQueryOrdered("SELECT custkey, orderstatus FROM orders ORDER BY custkey DESC, orderstatus");
-    }
-
-    @Test
-    public void testOrderByDuplicateFields()
-    {
-        assertQueryOrdered("SELECT custkey, custkey FROM orders ORDER BY custkey, custkey");
-        assertQueryOrdered("SELECT custkey, custkey FROM orders ORDER BY custkey ASC, custkey DESC");
     }
 
     @Test
@@ -3502,6 +3578,115 @@ public abstract class AbstractTestQueries
         MaterializedResult expected = resultBuilder(getSession(), BIGINT, DOUBLE)
                 .row(1L, 1.0)
                 .row(2L, 0.5)
+                .build();
+
+        assertEquals(actual, expected);
+    }
+
+    @Test
+    public void testWindowsSameOrdering()
+            throws Exception
+    {
+        MaterializedResult actual = computeActual("SELECT " +
+                    "sum(quantity) OVER(PARTITION BY suppkey ORDER BY orderkey)," +
+                    "min(tax) OVER(PARTITION BY suppkey ORDER BY shipdate)" +
+                    "FROM lineitem " +
+                    "ORDER BY 1 " +
+                    "LIMIT 10");
+
+        MaterializedResult expected = resultBuilder(getSession(), DOUBLE, DOUBLE)
+                .row(1.0, 0.0)
+                .row(2.0, 0.0)
+                .row(2.0, 0.0)
+                .row(3.0, 0.0)
+                .row(3.0, 0.0)
+                .row(4.0, 0.0)
+                .row(4.0, 0.0)
+                .row(5.0, 0.0)
+                .row(5.0, 0.0)
+                .row(5.0, 0.0)
+                .build();
+
+        assertEquals(actual, expected);
+    }
+
+    @Test
+    public void testWindowsPrefixPartitioning()
+            throws Exception
+    {
+        MaterializedResult actual = computeActual("SELECT " +
+                    "max(tax) OVER(PARTITION BY suppkey, tax ORDER BY receiptdate)," +
+                    "sum(quantity) OVER(PARTITION BY suppkey ORDER BY orderkey)" +
+                    "FROM lineitem " +
+                    "ORDER BY 2, 1 " +
+                    "LIMIT 10");
+
+        MaterializedResult expected = resultBuilder(getSession(), DOUBLE, DOUBLE)
+                .row(0.06, 1.0)
+                .row(0.02, 2.0)
+                .row(0.06, 2.0)
+                .row(0.02, 3.0)
+                .row(0.08, 3.0)
+                .row(0.03, 4.0)
+                .row(0.03, 4.0)
+                .row(0.02, 5.0)
+                .row(0.03, 5.0)
+                .row(0.07, 5.0)
+                .build();
+
+        assertEquals(actual, expected);
+    }
+
+    @Test
+    public void testWindowsDifferentPartitions()
+            throws Exception
+    {
+        MaterializedResult actual = computeActual("SELECT " +
+                "sum(quantity) OVER(PARTITION BY suppkey ORDER BY orderkey)," +
+                "count(discount) OVER(PARTITION BY partkey ORDER BY receiptdate)," +
+                "min(tax) OVER(PARTITION BY suppkey, tax ORDER BY receiptdate)" +
+                "FROM lineitem " +
+                "ORDER BY 1, 2 " +
+                "LIMIT 10");
+
+        MaterializedResult expected = resultBuilder(getSession(), DOUBLE, BIGINT, DOUBLE)
+                .row(1.0, 10L, 0.06)
+                .row(2.0, 4L, 0.06)
+                .row(2.0, 16L, 0.02)
+                .row(3.0, 3L, 0.08)
+                .row(3.0, 38L, 0.02)
+                .row(4.0, 10L, 0.03)
+                .row(4.0, 10L, 0.03)
+                .row(5.0, 9L, 0.03)
+                .row(5.0, 13L, 0.07)
+                .row(5.0, 15L, 0.02)
+                .build();
+
+        assertEquals(actual, expected);
+    }
+
+    @Test
+    public void testWindowsConstantExpression()
+            throws Exception
+    {
+        MaterializedResult actual = computeActual("SELECT " +
+                "sum(discount) OVER(PARTITION BY suppkey ORDER BY receiptdate)," +
+                "lag(quantity, 1) OVER(PARTITION BY suppkey ORDER BY orderkey)" +
+                "FROM lineitem " +
+                "ORDER BY 1, 2 " +
+                "LIMIT 10");
+
+        MaterializedResult expected = resultBuilder(getSession(), DOUBLE, DOUBLE)
+                .row(0.0, 8.0)
+                .row(0.0, 13.0)
+                .row(0.0, 17.0)
+                .row(0.0, 33.0)
+                .row(0.0, 33.0)
+                .row(0.0, 40.0)
+                .row(0.0, 42.0)
+                .row(0.01, 6.0)
+                .row(0.01, 8.0)
+                .row(0.01, 18.0)
                 .build();
 
         assertEquals(actual, expected);
@@ -4563,6 +4748,12 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testCaseWithSupertypeCast()
+    {
+        assertQuery(" SELECT CASE x WHEN 1 THEN cast(1 as decimal(4,1)) WHEN 2 THEN cast(1 as decimal(4,2)) ELSE cast(1 as decimal(4,3)) END FROM (values 1) t(x)", "SELECT 1.000");
+    }
+
+    @Test
     public void testIfExpression()
     {
         assertQuery(
@@ -4580,6 +4771,9 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT sum(IF(NULLIF(orderstatus, 'F') <> 'F', totalprice, 5.1)) FROM orders",
                 "SELECT sum(CASE WHEN NULLIF(orderstatus, 'F') <> 'F' THEN totalprice ELSE 5.1 END) FROM orders");
+
+        // coercions to supertype
+        assertQuery("SELECT if(true, cast(1 as decimal(2,1)), 1)", "SELECT 1.0");
     }
 
     @Test
@@ -4620,6 +4814,14 @@ public abstract class AbstractTestQueries
                 .collect(joining(", "));
         assertQuery("SELECT ARRAY[0, 0, 0] in (ARRAY[0, 0, 0], " + arrayValues + ")", "values true");
         assertQuery("SELECT ARRAY[0, 0, 0] in (" + arrayValues + ")", "values false");
+    }
+
+    @Test
+    public void testNullOnLhsOfInPredicateDisallowed()
+    {
+        String errorMessage = "\\QNULL values are not allowed on the probe side of SemiJoin operator\\E.*";
+        assertQueryFails("SELECT NULL IN (SELECT 1)", errorMessage);
+        assertQueryFails("SELECT x FROM (VALUES NULL) t(x) WHERE x IN (SELECT 1)", errorMessage);
     }
 
     @Test
@@ -4957,28 +5159,28 @@ public abstract class AbstractTestQueries
     {
         MaterializedResult actual = computeActual("SHOW COLUMNS FROM orders");
 
-        MaterializedResult expectedUnparametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR)
-                .row("orderkey", "bigint", "")
-                .row("custkey", "bigint", "")
-                .row("orderstatus", "varchar", "")
-                .row("totalprice", "double", "")
-                .row("orderdate", "date", "")
-                .row("orderpriority", "varchar", "")
-                .row("clerk", "varchar", "")
-                .row("shippriority", "integer", "")
-                .row("comment", "varchar", "")
+        MaterializedResult expectedUnparametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+                .row("orderkey", "bigint", "", "")
+                .row("custkey", "bigint", "", "")
+                .row("orderstatus", "varchar", "", "")
+                .row("totalprice", "double", "", "")
+                .row("orderdate", "date", "", "")
+                .row("orderpriority", "varchar", "", "")
+                .row("clerk", "varchar", "", "")
+                .row("shippriority", "integer", "", "")
+                .row("comment", "varchar", "", "")
                 .build();
 
-        MaterializedResult expectedParametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR)
-                .row("orderkey", "bigint", "")
-                .row("custkey", "bigint", "")
-                .row("orderstatus", "varchar(1)", "")
-                .row("totalprice", "double", "")
-                .row("orderdate", "date", "")
-                .row("orderpriority", "varchar(15)", "")
-                .row("clerk", "varchar(15)", "")
-                .row("shippriority", "integer", "")
-                .row("comment", "varchar(79)", "")
+        MaterializedResult expectedParametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+                .row("orderkey", "bigint", "", "")
+                .row("custkey", "bigint", "", "")
+                .row("orderstatus", "varchar(1)", "", "")
+                .row("totalprice", "double", "", "")
+                .row("orderdate", "date", "", "")
+                .row("orderpriority", "varchar(15)", "", "")
+                .row("clerk", "varchar(15)", "", "")
+                .row("shippriority", "integer", "", "")
+                .row("comment", "varchar(79)", "", "")
                 .build();
 
         // Until we migrate all connectors to parametrized varchar we check two options
@@ -5097,6 +5299,7 @@ public abstract class AbstractTestQueries
                 getSession().getLocale(),
                 getSession().getRemoteUserAddress(),
                 getSession().getUserAgent(),
+                getSession().getClientInfo(),
                 getSession().getStartTime(),
                 ImmutableMap.<String, String>builder()
                         .put("test_string", "foo string")
@@ -5149,6 +5352,10 @@ public abstract class AbstractTestQueries
 
         // missing function argument
         assertQueryFails("SELECT TRY()", "line 1:8: The 'try' function must have exactly one argument");
+
+        // check that TRY is not pushed down
+        assertQueryFails("SELECT TRY(x) IS NULL FROM (SELECT 1/y as x FROM (VALUES 1, 2, 3, 0, 4) t(y))", "/ by zero");
+        assertQuery("SELECT x IS NULL FROM (SELECT TRY(1/y) as x FROM (VALUES 3, 0, 4) t(y))", "VALUES false, true, false");
     }
 
     @Test
@@ -5229,6 +5436,7 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT 123 UNION DISTINCT SELECT 123 UNION ALL SELECT 123");
         assertQuery("SELECT NULL UNION SELECT NULL");
         assertQuery("SELECT NULL, NULL UNION ALL SELECT NULL, NULL FROM nation");
+        assertQuery("SELECT 'x', 'y' UNION ALL SELECT name, name FROM nation");
 
         // mixed single-node vs fixed vs source-distributed
         assertQuery("SELECT orderkey FROM orders UNION ALL SELECT 123 UNION ALL (SELECT custkey FROM orders GROUP BY custkey)");
@@ -5614,6 +5822,15 @@ public abstract class AbstractTestQueries
                 "SELECT * FROM (VALUES (1,1), (2,2), (3, 3)) t(x, y) WHERE (x+y in (VALUES 4, 5)) AND (x*y in (VALUES 4, 5))",
                 "VALUES (2,2)");
 
+        // test multiple IN subqueries with coercions
+        assertQuery("SELECT 1.0 IN (SELECT 1), 1 IN (SELECT 1)");
+        assertQuery("SELECT 1 WHERE 1 IN (SELECT 1) AND 1.0 IN (SELECT 1)");
+        assertQuery("select 1.0 in (values (1), (2), (3))", "SELECT true");
+
+        // test IN subqueries with supertype coercions
+        assertQuery("SELECT cast(1 as decimal(3,2)) IN (SELECT cast(1 as decimal(3,1)))", "SELECT true");
+        assertQuery("SELECT cast(1 as decimal(3,2)) IN (values (cast(1 as decimal(3,1))), (cast (2 as decimal(3,1))))", "SELECT true");
+
         // test multi level IN subqueries
         assertQuery("SELECT 1 IN (SELECT 1), 2 IN (SELECT 1) WHERE 1 IN (SELECT 1)");
 
@@ -5709,7 +5926,8 @@ public abstract class AbstractTestQueries
                 "  LIMIT 10)");
     }
 
-    @Test
+    //Disabled till #6622 is fixed
+    @Test(enabled = false)
     public void testSemiJoinNullHandling()
     {
         assertQuery("" +
@@ -5956,6 +6174,15 @@ public abstract class AbstractTestQueries
         // exposes a bug in optimize hash generation because EnforceSingleNode does not
         // support more than one column from the underlying query
         assertQuery("SELECT custkey, (SELECT DISTINCT custkey FROM orders ORDER BY custkey LIMIT 1) FROM orders");
+
+        // cast scalar sub-query
+        assertQuery("SELECT 1.0/(SELECT 1), CAST(1.0 AS REAL)/(SELECT 1), 1/(SELECT 1)");
+        assertQuery("SELECT 1.0 = (SELECT 1) AND 1 = (SELECT 1), 2.0 = (SELECT 1) WHERE 1.0 = (SELECT 1) AND 1 = (SELECT 1)");
+        assertQuery("SELECT 1.0 = (SELECT 1), 2.0 = (SELECT 1), CAST(2.0 AS REAL) = (SELECT 1) WHERE 1.0 = (SELECT 1)");
+
+        // coerce correlated symbols
+        assertQuery("SELECT * FROM (VALUES 1) t(a) WHERE 1=(SELECT count(*) WHERE 1.0 = a)", "SELECT 1");
+        assertQuery("SELECT * FROM (VALUES 1.0) t(a) WHERE 1=(SELECT count(*) WHERE 1 = a)", "SELECT 1.0");
     }
 
     @Test
@@ -6216,8 +6443,12 @@ public abstract class AbstractTestQueries
 
         // order by
         assertQuery(
-                "SELECT orderkey FROM orders o ORDER BY " +
-                        "(SELECT avg(i.orderkey) FROM orders i WHERE o.orderkey < i.orderkey AND i.orderkey % 10000 = 0)");
+                "SELECT orderkey FROM orders o " +
+                        "ORDER BY " +
+                        "   (SELECT avg(i.orderkey) FROM orders i WHERE o.orderkey < i.orderkey AND i.orderkey % 10000 = 0), " +
+                        "   orderkey " +
+                        "LIMIT 1",
+                "VALUES 1"); // h2 is slow
 
         // group by
         assertQuery(
@@ -6447,21 +6678,21 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT\n" +
                         "  count(*) AS numwait\n" +
                         "FROM\n" +
-                        "  orders l1\n" +
+                        "  nation l1\n" +
                         "WHERE\n" +
                         "  EXISTS(\n" +
                         "    SELECT *\n" +
                         "    FROM\n" +
-                        "      orders l2\n" +
+                        "      nation l2\n" +
                         "    WHERE\n" +
-                        "      l2.orderkey = l1.orderkey\n" +
+                        "      l2.nationkey = l1.nationkey\n" +
                         "  )\n" +
                         "  AND NOT EXISTS(\n" +
                         "    SELECT *\n" +
                         "    FROM\n" +
-                        "      orders l3\n" +
+                        "      nation l3\n" +
                         "    WHERE\n" +
-                        "      l3.orderkey = l1.orderkey\n" +
+                        "      l3.nationkey= l1.nationkey\n" +
                         "  )\n",
                 "VALUES 0"); // EXISTS predicates are contradictory
     }
@@ -7476,6 +7707,18 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testExecuteUsingComplexJoinCriteria()
+    {
+        String query = "SELECT * FROM (VALUES 1) t(a) JOIN (VALUES 2) u(a) ON t.a + u.a < ?";
+        Session session = Session.builder(getSession())
+                .addPreparedStatement("my_query", query)
+                .build();
+        assertQuery(session,
+                "EXECUTE my_query USING 5",
+                "VALUES (1, 2)");
+    }
+
+    @Test
     public void testExecuteUsingWithSubquery()
     {
         String query = "SELECT ? in (SELECT orderkey FROM orders)";
@@ -7564,6 +7807,19 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testDescribeInputWithAggregation()
+    {
+        Session session = Session.builder(getSession())
+                .addPreparedStatement("my_query", "select count(*) + ? from nation")
+                .build();
+        MaterializedResult actual = computeActual(session, "DESCRIBE INPUT my_query");
+        MaterializedResult expected = resultBuilder(session, BIGINT, VARCHAR)
+                .row(0, "bigint")
+                .build();
+        assertEqualsIgnoreOrder(actual, expected);
+    }
+
+    @Test
     public void testDescribeInputNoParameters()
     {
         Session session = Session.builder(getSession())
@@ -7582,7 +7838,6 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testQuantifiedComparison()
-            throws Exception
     {
         assertQuery("SELECT nationkey, name, regionkey FROM nation WHERE regionkey = ANY (SELECT regionkey FROM region WHERE name IN ('ASIA', 'EUROPE'))");
         assertQuery("SELECT nationkey, name, regionkey FROM nation WHERE regionkey = ALL (SELECT regionkey FROM region WHERE name IN ('ASIA', 'EUROPE'))");
@@ -7604,6 +7859,83 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT nationkey, name, regionkey FROM nation WHERE regionkey <= ALL (SELECT regionkey FROM region WHERE name IN ('ASIA', 'EUROPE'))");
         assertQuery("SELECT nationkey, name, regionkey FROM nation WHERE regionkey > ALL (SELECT regionkey FROM region WHERE name IN ('ASIA', 'EUROPE'))");
         assertQuery("SELECT nationkey, name, regionkey FROM nation WHERE regionkey >= ALL (SELECT regionkey FROM region WHERE name IN ('ASIA', 'EUROPE'))");
+
+        // subquery with coercion
+        assertQuery("SELECT 1.0 < ALL(SELECT 1), 1 < ALL(SELECT 1)");
+        assertQuery("SELECT 1.0 < ANY(SELECT 1), 1 < ANY(SELECT 1)");
+        assertQuery("SELECT 1.0 <= ALL(SELECT 1) WHERE 1 <= ALL(SELECT 1)");
+        assertQuery("SELECT 1.0 <= ANY(SELECT 1) WHERE 1 <= ANY(SELECT 1)");
+        assertQuery("SELECT 1.0 <= ALL(SELECT 1), 1 <= ALL(SELECT 1) WHERE 1 <= ALL(SELECT 1)");
+        assertQuery("SELECT 1.0 <= ANY(SELECT 1), 1 <= ANY(SELECT 1) WHERE 1 <= ANY(SELECT 1)");
+        assertQuery("SELECT 1.0 = ALL(SELECT 1) WHERE 1 = ALL(SELECT 1)");
+        assertQuery("SELECT 1.0 = ANY(SELECT 1) WHERE 1 = ANY(SELECT 1)");
+        assertQuery("SELECT 1.0 = ALL(SELECT 1), 2 = ALL(SELECT 1) WHERE 1 = ALL(SELECT 1)");
+        assertQuery("SELECT 1.0 = ANY(SELECT 1), 2 = ANY(SELECT 1) WHERE 1 = ANY(SELECT 1)");
+
+        // subquery with supertype coercion
+        assertQuery("SELECT cast(1 as decimal(3,2)) < ALL(SELECT cast(1 as decimal(3,1)))");
+        assertQuery("SELECT cast(1 as decimal(3,2)) < ANY(SELECT cast(1 as decimal(3,1)))");
+        assertQuery("SELECT cast(1 as decimal(3,2)) <= ALL(SELECT cast(1 as decimal(3,1)))");
+        assertQuery("SELECT cast(1 as decimal(3,2)) <= ANY(SELECT cast(1 as decimal(3,1)))");
+        assertQuery("SELECT cast(1 as decimal(3,2)) = ALL(SELECT cast(1 as decimal(3,1)))");
+        assertQuery("SELECT cast(1 as decimal(3,2)) = ANY(SELECT cast(1 as decimal(3,1)))", "SELECT true");
+        assertQuery("SELECT cast(1 as decimal(3,2)) <> ALL(SELECT cast(1 as decimal(3,1)))");
+        assertQuery("SELECT cast(1 as decimal(3,2)) <> ANY(SELECT cast(1 as decimal(3,1)))");
+    }
+
+    @Test(dataProvider = "quantified_comparisons_corner_cases")
+    public void testQuantifiedComparisonCornerCases(String query)
+    {
+        assertQuery(query);
+    }
+
+    @DataProvider(name = "quantified_comparisons_corner_cases")
+    public Object[][] qualifiedComparisonsCornerCases()
+    {
+        //the %subquery% is wrapped in a SELECT so that H2 does not blow up on the VALUES subquery
+        Stream<String> queries = queryTemplate("SELECT %value% %operator% %quantifier% (SELECT * FROM (%subquery%))")
+                .replaceAll(
+                        parameter("subquery").of(
+                                "SELECT 1 WHERE false",
+                                "SELECT CAST(NULL AS INTEGER)",
+                                "VALUES (1), (NULL)"
+                        ),
+                        parameter("quantifier").of("ALL", "ANY"),
+                        parameter("value").of("1", "NULL"),
+                        parameter("operator").of("=", "!=", "<", ">", "<=", ">="));
+        //the following are disabled till #6622 is fixed
+        List<String> excludedInPredicateQueries = ImmutableList.of(
+                "SELECT NULL != ALL (SELECT * FROM (SELECT 1 WHERE false))",
+                "SELECT NULL = ANY (SELECT * FROM (SELECT 1 WHERE false))",
+                "SELECT NULL != ALL (SELECT * FROM (SELECT CAST(NULL AS INTEGER)))",
+                "SELECT NULL = ANY (SELECT * FROM (SELECT CAST(NULL AS INTEGER)))",
+                "SELECT NULL = ANY (SELECT * FROM (VALUES (1), (NULL)))",
+                "SELECT NULL != ALL (SELECT * FROM (VALUES (1), (NULL)))"
+        );
+        Predicate<String> isExcluded = excludedInPredicateQueries::contains;
+        return toArgumentsArrays(queries.filter(isExcluded.negate()).map(Arguments::of));
+    }
+
+    @Test
+    public void testPreparedStatementWithSubqueries()
+    {
+        List<QueryTemplate.Parameter> leftValues = parameter("left").of(
+                "", "1 = ",
+                "EXISTS",
+                "1 IN",
+                "1 = ANY", "1 = ALL",
+                "2 <> ANY", "2 <> ALL",
+                "0 < ALL", "0 < ANY",
+                "1 <= ALL", "1 <= ANY");
+
+        queryTemplate("SELECT %left% (SELECT 1 WHERE 2 = ?)")
+                .replaceAll(leftValues)
+                .forEach(query -> {
+                    Session session = Session.builder(getSession())
+                            .addPreparedStatement("my_query", query)
+                            .build();
+                    assertQuery(session, "EXECUTE my_query USING 2", "SELECT true");
+                });
     }
 
     @Test
@@ -7640,10 +7972,37 @@ public abstract class AbstractTestQueries
     }
 
     @Test
-    public void testDescribeOutputRowCountQuery()
+    public void testDescribeOutputNonSelect()
+    {
+        assertDescribeOutputRowCount("CREATE TABLE foo AS SELECT * FROM nation");
+        assertDescribeOutputRowCount("DELETE FROM orders");
+
+        assertDescribeOutputEmpty("CALL foo()");
+        assertDescribeOutputEmpty("SET SESSION optimize_hash_generation=false");
+        assertDescribeOutputEmpty("RESET SESSION optimize_hash_generation");
+        assertDescribeOutputEmpty("START TRANSACTION");
+        assertDescribeOutputEmpty("COMMIT");
+        assertDescribeOutputEmpty("ROLLBACK");
+        assertDescribeOutputEmpty("GRANT INSERT ON foo TO bar");
+        assertDescribeOutputEmpty("REVOKE INSERT ON foo FROM bar");
+        assertDescribeOutputEmpty("CREATE SCHEMA foo");
+        assertDescribeOutputEmpty("ALTER SCHEMA foo RENAME TO bar");
+        assertDescribeOutputEmpty("DROP SCHEMA foo");
+        assertDescribeOutputEmpty("CREATE TABLE foo (x bigint)");
+        assertDescribeOutputEmpty("ALTER TABLE foo ADD COLUMN y bigint");
+        assertDescribeOutputEmpty("ALTER TABLE foo RENAME TO bar");
+        assertDescribeOutputEmpty("DROP TABLE foo");
+        assertDescribeOutputEmpty("CREATE VIEW foo AS SELECT * FROM nation");
+        assertDescribeOutputEmpty("DROP VIEW foo");
+        assertDescribeOutputEmpty("PREPARE test FROM SELECT * FROM orders");
+        assertDescribeOutputEmpty("EXECUTE test");
+        assertDescribeOutputEmpty("DEALLOCATE PREPARE test");
+    }
+
+    private void assertDescribeOutputRowCount(@Language("SQL") String sql)
     {
         Session session = Session.builder(getSession())
-                .addPreparedStatement("my_query", "CREATE TABLE foo AS SELECT * FROM nation")
+                .addPreparedStatement("my_query", sql)
                 .build();
 
         MaterializedResult actual = computeActual(session, "DESCRIBE OUTPUT my_query");
@@ -7653,11 +8012,10 @@ public abstract class AbstractTestQueries
         assertEqualsIgnoreOrder(actual, expected);
     }
 
-    @Test
-    public void testDescribeOutputDataDefinitionQuery()
+    private void assertDescribeOutputEmpty(@Language("SQL") String sql)
     {
         Session session = Session.builder(getSession())
-                .addPreparedStatement("my_query", "SET SESSION optimize_hash_generation=false")
+                .addPreparedStatement("my_query", sql)
                 .build();
 
         MaterializedResult actual = computeActual(session, "DESCRIBE OUTPUT my_query");
@@ -7703,26 +8061,19 @@ public abstract class AbstractTestQueries
 
     @Test
     public void testSubqueriesWithDisjunction()
-            throws Exception
     {
         List<QueryTemplate.Parameter> projections = new QueryTemplate.Parameter("projection").of("count(*)", "*", "%condition%");
         List<QueryTemplate.Parameter> conditions = new QueryTemplate.Parameter("condition").of(
                 "nationkey IN (SELECT 1) OR TRUE",
                 "EXISTS(SELECT 1) OR TRUE");
 
-        QueryTemplate queryTemplate = new QueryTemplate("SELECT %projection% FROM nation WHERE %condition%");
-        for (QueryTemplate.Parameter projection : projections) {
-            for (QueryTemplate.Parameter condition : conditions) {
-                assertQuery(queryTemplate.replace(projection, condition));
-            }
-        }
+        queryTemplate("SELECT %projection% FROM nation WHERE %condition%")
+                .replaceAll(projections, conditions)
+                .forEach(this::assertQuery);
 
-        queryTemplate = new QueryTemplate("SELECT %projection% FROM nation WHERE (%condition%) AND nationkey <3");
-        for (QueryTemplate.Parameter projection : projections) {
-            for (QueryTemplate.Parameter condition : conditions) {
-                assertQuery(queryTemplate.replace(projection, condition));
-            }
-        }
+        queryTemplate("SELECT %projection% FROM nation WHERE (%condition%) AND nationkey <3")
+                .replaceAll(projections, conditions)
+                .forEach(this::assertQuery);
 
         assertQuery(
                 "SELECT count(*) FROM nation WHERE (SELECT true FROM (SELECT 1) t(a) WHERE a = nationkey) OR TRUE",

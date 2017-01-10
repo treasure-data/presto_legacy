@@ -43,6 +43,7 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.transaction.IsolationLevel;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.tree.NodeLocation;
 import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
 import com.facebook.presto.type.ArrayType;
@@ -92,6 +93,8 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.SAMPLE_PERCENTA
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.SCHEMA_NOT_SPECIFIED;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.STANDALONE_LAMBDA;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.TYPE_MISMATCH;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_ANALYSIS_ERROR;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_IS_RECURSIVE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_IS_STALE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.WILDCARD_WITHOUT_FROM;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.WINDOW_REQUIRES_OVER;
@@ -337,7 +340,8 @@ public class TestAnalyzer
     public void testOrderByExpressionOnOutputColumn()
             throws Exception
     {
-        assertFails(MISSING_ATTRIBUTE, "SELECT a x FROM t1 ORDER BY x + 1");
+        // TODO: analyze output
+        analyze("SELECT a x FROM t1 ORDER BY x + 1");
     }
 
     @Test
@@ -346,6 +350,11 @@ public class TestAnalyzer
     {
         // TODO: validate output
         analyze("SELECT a x FROM t1 ORDER BY a + 1");
+
+        assertFails(TYPE_MISMATCH, 3, 10,
+                "SELECT x.c as x\n" +
+                        "FROM (VALUES 1) x(c)\n" +
+                        "ORDER BY x.c");
     }
 
     @Test
@@ -353,7 +362,7 @@ public class TestAnalyzer
             throws Exception
     {
         // TODO: validate output
-        analyze("SELECT a, t1.* FROM t1 ORDER BY a");
+        analyze("SELECT t1.* FROM t1 ORDER BY a");
     }
 
     @Test
@@ -405,6 +414,8 @@ public class TestAnalyzer
             throws Exception
     {
         assertFails(AMBIGUOUS_ATTRIBUTE, "SELECT a x, b x FROM t1 ORDER BY x");
+        assertFails(AMBIGUOUS_ATTRIBUTE, "SELECT a x, a x FROM t1 ORDER BY x");
+        assertFails(AMBIGUOUS_ATTRIBUTE, "SELECT a, a FROM t1 ORDER BY a");
     }
 
     @Test
@@ -871,6 +882,22 @@ public class TestAnalyzer
     }
 
     @Test
+    public void testCreateRecursiveView()
+            throws Exception
+    {
+        assertFails(VIEW_IS_RECURSIVE, "CREATE OR REPLACE VIEW v1 AS SELECT * FROM v1");
+    }
+
+    @Test
+    public void testExistingRecursiveView()
+            throws Exception
+    {
+        analyze("SELECT * FROM v1 a JOIN v1 b ON a.a = b.a");
+        analyze("SELECT * FROM v1 a JOIN (SELECT * from v1) b ON a.a = b.a");
+        assertFails(VIEW_ANALYSIS_ERROR, "SELECT * FROM v5");
+    }
+
+    @Test
     public void testShowCreateView()
     {
         analyze("SHOW CREATE VIEW v1");
@@ -1153,6 +1180,16 @@ public class TestAnalyzer
                         Optional.of("user")));
         inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName("tpch", "s1", "v4"), viewData4, false));
 
+        // recursive view referencing to itself
+        String viewData5 = JsonCodec.jsonCodec(ViewDefinition.class).toJson(
+                new ViewDefinition(
+                        "select * from v5",
+                        Optional.of(TPCH_CATALOG),
+                        Optional.of("s1"),
+                        ImmutableList.of(new ViewColumn("a", BIGINT)),
+                        Optional.of("user")));
+        inSetupTransaction(session -> metadata.createView(session, new QualifiedObjectName(TPCH_CATALOG, "s1", "v5"), viewData5, false));
+
         this.metadata = metadata;
     }
 
@@ -1198,12 +1235,22 @@ public class TestAnalyzer
         assertFails(CLIENT_SESSION, error, query);
     }
 
+    private void assertFails(SemanticErrorCode error, int line, int column, @Language("SQL") String query)
+    {
+        assertFails(CLIENT_SESSION, error, Optional.of(new NodeLocation(line, column - 1)), query);
+    }
+
     private void assertFails(SemanticErrorCode error, String message, @Language("SQL") String query)
     {
         assertFails(CLIENT_SESSION, error, message, query);
     }
 
     private void assertFails(Session session, SemanticErrorCode error, @Language("SQL") String query)
+    {
+        assertFails(session, error, Optional.empty(), query);
+    }
+
+    private void assertFails(Session session, SemanticErrorCode error, Optional<NodeLocation> location, @Language("SQL") String query)
     {
         try {
             analyze(session, query);
@@ -1212,6 +1259,21 @@ public class TestAnalyzer
         catch (SemanticException e) {
             if (e.getCode() != error) {
                 fail(format("Expected error %s, but found %s: %s", error, e.getCode(), e.getMessage()), e);
+            }
+
+            if (location.isPresent()) {
+                NodeLocation expected = location.get();
+                NodeLocation actual = e.getNode().getLocation().get();
+
+                if (expected.getLineNumber() != actual.getLineNumber() || expected.getColumnNumber() != actual.getColumnNumber()) {
+                    fail(format(
+                            "Expected error '%s' to occur at line %s, offset %s, but was: line %s, offset %s",
+                            e.getCode(),
+                            expected.getLineNumber(),
+                            expected.getColumnNumber(),
+                            actual.getLineNumber(),
+                            actual.getColumnNumber()));
+                }
             }
         }
     }

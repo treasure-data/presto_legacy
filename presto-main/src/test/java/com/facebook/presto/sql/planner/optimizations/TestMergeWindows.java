@@ -14,7 +14,6 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.spi.block.SortOrder;
-import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
 import com.facebook.presto.sql.planner.assertions.ExpectedValueProvider;
@@ -140,16 +139,16 @@ public class TestMergeWindows
 
         PlanMatchPattern pattern =
                 anyTree(
-                        window(specificationB,
+                        window(specificationA,
                                 ImmutableList.of(
-                                functionCall("sum", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS))),
+                                        functionCall("sum", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS)),
+                                        functionCall("sum", COMMON_FRAME, ImmutableList.of(DISCOUNT_ALIAS))),
                                 anyTree(
-                                        window(specificationA,
+                                        window(specificationB,
                                                 ImmutableList.of(
-                                                functionCall("sum", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS)),
-                                                functionCall("sum", COMMON_FRAME, ImmutableList.of(DISCOUNT_ALIAS))),
+                                                        functionCall("sum", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS))),
                                                 anyNot(WindowNode.class,
-                                                        anyTree(LINEITEM_TABLESCAN_DOQSS))))));
+                                                        LINEITEM_TABLESCAN_DOQSS)))));  // should be anyTree(LINEITEM_TABLESCAN_DOQSS) but anyTree does not handle zero nodes case correctly
 
         assertPlan(sql, pattern);
     }
@@ -190,7 +189,7 @@ public class TestMergeWindows
                                 ImmutableList.of(functionCall("sum", COMMON_FRAME, ImmutableList.of(DISCOUNT_ALIAS))),
                                 window(specificationB,
                                         ImmutableList.of(functionCall("lag", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS, "ONE", "ZERO"))),
-                                        project(ImmutableMap.of("ONE", expression("1"), "ZERO", expression("0.0")),
+                                        project(ImmutableMap.of("ONE", expression("CAST(1 AS bigint)"), "ZERO", expression("0.0")),
                                                 window(specificationA,
                                                         ImmutableList.of(
                                                         functionCall("sum", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS))),
@@ -212,7 +211,7 @@ public class TestMergeWindows
                                 ImmutableList.of(
                                 functionCall("sum", COMMON_FRAME, ImmutableList.of(DISCOUNT_ALIAS)),
                                 functionCall("lag", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS, "ONE", "ZERO"))),
-                                project(ImmutableMap.of("ONE", expression("1"), "ZERO", expression("0.0")),
+                                project(ImmutableMap.of("ONE", expression("CAST(1 AS bigint)"), "ZERO", expression("0.0")),
                                         window(specificationA,
                                                 ImmutableList.of(
                                                 functionCall("sum", COMMON_FRAME, ImmutableList.of(QUANTITY_ALIAS))),
@@ -473,32 +472,15 @@ public class TestMergeWindows
     private void assertUnitPlan(@Language("SQL") String sql, PlanMatchPattern pattern)
     {
         LocalQueryRunner queryRunner = getQueryRunner();
-        FeaturesConfig featuresConfig = new FeaturesConfig()
-                .setDistributedIndexJoinsEnabled(false)
-                .setOptimizeHashGeneration(true);
         List<PlanOptimizer> optimizers = ImmutableList.of(
                 new UnaliasSymbolReferences(),
                 new PruneIdentityProjections(),
                 new MergeWindows(),
                 new PruneUnreferencedOutputs());
         queryRunner.inTransaction(transactionSession -> {
-            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, featuresConfig, optimizers);
+            Plan actualPlan = queryRunner.createPlan(transactionSession, sql, optimizers);
             PlanAssert.assertPlan(transactionSession, queryRunner.getMetadata(), actualPlan, pattern);
             return null;
         });
-    }
-
-    private Plan unitPlan(@Language("SQL") String sql)
-    {
-        LocalQueryRunner queryRunner = getQueryRunner();
-        FeaturesConfig featuresConfig = new FeaturesConfig()
-                .setDistributedIndexJoinsEnabled(false)
-                .setOptimizeHashGeneration(true);
-        List<PlanOptimizer> optimizers = ImmutableList.of(
-                        new UnaliasSymbolReferences(),
-                        new PruneIdentityProjections(),
-                        new MergeWindows(),
-                        new PruneUnreferencedOutputs());
-        return queryRunner.inTransaction(transactionSession -> queryRunner.createPlan(transactionSession, sql, featuresConfig, optimizers));
     }
 }

@@ -11,20 +11,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.server;
+package com.facebook.presto.testing;
 
-import javax.inject.Qualifier;
+import java.util.List;
+import java.util.stream.Stream;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.Target;
+import static java.util.Arrays.asList;
 
-import static java.lang.annotation.ElementType.FIELD;
-import static java.lang.annotation.ElementType.METHOD;
-import static java.lang.annotation.ElementType.PARAMETER;
-import static java.lang.annotation.RetentionPolicy.RUNTIME;
+public class Arguments
+{
+    private Arguments()
+    {
+    }
 
-@Retention(RUNTIME)
-@Target({FIELD, PARAMETER, METHOD})
-@Qualifier
-public @interface ForExecute
-{}
+    public static List<?> of(Object... arguments)
+    {
+        return asList(arguments);
+    }
+
+    public static Object[][] toArgumentsArrays(Stream<List<?>> argumentsLists)
+    {
+       return argumentsLists.map(List::toArray).toArray(Object[][]::new);
+    }
+}

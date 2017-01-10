@@ -201,7 +201,7 @@ public class TaskContext
 
     public void moreMemoryAvailable()
     {
-        pipelineContexts.stream().forEach(PipelineContext::moreMemoryAvailable);
+        pipelineContexts.forEach(PipelineContext::moreMemoryAvailable);
     }
 
     public boolean isVerboseStats()
