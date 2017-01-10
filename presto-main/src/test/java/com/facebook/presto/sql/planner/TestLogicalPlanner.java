@@ -15,6 +15,7 @@ package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.spi.predicate.Domain;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
+import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
@@ -60,6 +61,18 @@ public class TestLogicalPlanner
     public void testJoin()
     {
         assertPlan("SELECT o.orderkey FROM orders o, lineitem l WHERE l.orderkey = o.orderkey",
+                anyTree(
+                        join(INNER, ImmutableList.of(equiJoinClause("ORDERS_OK", "LINEITEM_OK")),
+                                any(
+                                        tableScan("orders", ImmutableMap.of("ORDERS_OK", "orderkey"))),
+                                anyTree(
+                                        tableScan("lineitem", ImmutableMap.of("LINEITEM_OK", "orderkey"))))));
+    }
+
+    @Test
+    public void testJoinWithOrderBySameKey()
+    {
+        assertPlan("SELECT o.orderkey FROM orders o, lineitem l WHERE l.orderkey = o.orderkey ORDER BY l.orderkey ASC, o.orderkey ASC",
                 anyTree(
                         join(INNER, ImmutableList.of(equiJoinClause("ORDERS_OK", "LINEITEM_OK")),
                                 any(
@@ -127,10 +140,10 @@ public class TestLogicalPlanner
     @Test
     public void testSameScalarSubqueryIsAppliedOnlyOnce()
     {
-        // three subqueries with two duplicates, only two scalar joins should be in plan
+        // three subqueries with two duplicates (coerced to two different types), only two scalar joins should be in plan
         assertEquals(
                 countOfMatchingNodes(
-                        plan("SELECT * FROM orders WHERE orderkey = (SELECT 1) AND custkey = (SELECT 2) AND custkey != (SELECT 1)"),
+                        plan("SELECT * FROM orders WHERE CAST(orderkey AS INTEGER) = (SELECT 1) AND custkey = (SELECT 2) AND CAST(custkey as REAL) != (SELECT 1)"),
                         EnforceSingleRowNode.class::isInstance),
                 2);
         // same query used for left, right and complex join condition
@@ -138,13 +151,42 @@ public class TestLogicalPlanner
                 countOfMatchingNodes(
                         plan("SELECT * FROM orders o1 JOIN orders o2 ON o1.orderkey = (SELECT 1) AND o2.orderkey = (SELECT 1) AND o1.orderkey + o2.orderkey = (SELECT 1)"),
                         EnforceSingleRowNode.class::isInstance),
-                2);
+                1);
+    }
+
+    @Test
+    public void testSameInSubqueryIsAppliedOnlyOnce()
+    {
+        // same IN query used for left, right and complex condition
+        assertEquals(
+                countOfMatchingNodes(
+                        plan("SELECT * FROM orders o1 JOIN orders o2 ON o1.orderkey IN (SELECT 1) AND (o1.orderkey IN (SELECT 1) OR o1.orderkey IN (SELECT 1))"),
+                        SemiJoinNode.class::isInstance),
+                1);
 
         // one subquery used for "1 IN (SELECT 1)", one subquery used for "2 IN (SELECT 1)"
         assertEquals(
                 countOfMatchingNodes(
                         plan("SELECT 1 IN (SELECT 1), 2 IN (SELECT 1) WHERE 1 IN (SELECT 1)"),
                         SemiJoinNode.class::isInstance),
+                2);
+    }
+
+    @Test
+    public void testSameQualifiedSubqueryIsAppliedOnlyOnce()
+    {
+        // same ALL query used for left, right and complex condition
+        assertEquals(
+                countOfMatchingNodes(
+                        plan("SELECT * FROM orders o1 JOIN orders o2 ON o1.orderkey <= ALL(SELECT 1) AND (o1.orderkey <= ALL(SELECT 1) OR o1.orderkey <= ALL(SELECT 1))"),
+                        AggregationNode.class::isInstance),
+                1);
+
+        // one subquery used for "1 <= ALL(SELECT 1)", one subquery used for "2 <= ALL(SELECT 1)"
+        assertEquals(
+                countOfMatchingNodes(
+                        plan("SELECT 1 <= ALL(SELECT 1), 2 <= ALL(SELECT 1) WHERE 1 <= ALL(SELECT 1)"),
+                        AggregationNode.class::isInstance),
                 2);
     }
 
@@ -197,11 +239,37 @@ public class TestLogicalPlanner
                 anyTree(
                         filter("3 = X",
                                 apply(ImmutableList.of("X"),
+                                        ImmutableMap.of(),
                                         tableScan("orders", ImmutableMap.of("X", "orderkey")),
                                         node(EnforceSingleRowNode.class,
                                                 project(
                                                         node(ValuesNode.class)
                                                 ))))));
+    }
+
+    @Test
+    public void testDoubleNestedCorrelatedSubqueries()
+    {
+        assertPlan(
+                "SELECT orderkey FROM orders o " +
+                        "WHERE 3 IN (SELECT o.custkey FROM lineitem l WHERE (SELECT l.orderkey = o.orderkey))",
+                LogicalPlanner.Stage.OPTIMIZED,
+                anyTree(
+                        filter("OUTER_FILTER",
+                                apply(ImmutableList.of("C", "O"),
+                                        ImmutableMap.of("OUTER_FILTER", expression("THREE IN (C)")),
+                                        project(ImmutableMap.of("THREE", expression("3")),
+                                                tableScan("orders", ImmutableMap.of(
+                                                        "O", "orderkey",
+                                                        "C", "custkey"))),
+                                        anyTree(
+                                                apply(ImmutableList.of("L"),
+                                                        ImmutableMap.of(),
+                                                        tableScan("lineitem", ImmutableMap.of("L", "orderkey")),
+                                                        node(EnforceSingleRowNode.class,
+                                                                project(
+                                                                        node(ValuesNode.class)
+                                                                ))))))));
     }
 
     @Test

@@ -447,7 +447,7 @@ class AstBuilder
 
             return new Query(
                     getLocation(context),
-                    Optional.<With>empty(),
+                    Optional.empty(),
                     new QuerySpecification(
                             getLocation(context),
                             query.getSelect(),
@@ -458,12 +458,12 @@ class AstBuilder
                             visit(context.sortItem(), SortItem.class),
                             getTextIfPresent(context.limit)),
                     ImmutableList.of(),
-                    Optional.<String>empty());
+                    Optional.empty());
         }
 
         return new Query(
                 getLocation(context),
-                Optional.<With>empty(),
+                Optional.empty(),
                 term,
                 visit(context.sortItem(), SortItem.class),
                 getTextIfPresent(context.limit));
@@ -482,7 +482,7 @@ class AstBuilder
             Relation relation = iterator.next();
 
             while (iterator.hasNext()) {
-                relation = new Join(getLocation(context), Join.Type.IMPLICIT, relation, iterator.next(), Optional.<JoinCriteria>empty());
+                relation = new Join(getLocation(context), Join.Type.IMPLICIT, relation, iterator.next(), Optional.empty());
             }
 
             from = Optional.of(relation);
@@ -773,7 +773,7 @@ class AstBuilder
 
         if (context.CROSS() != null) {
             right = (Relation) visit(context.right);
-            return new Join(getLocation(context), Join.Type.CROSS, left, right, Optional.<JoinCriteria>empty());
+            return new Join(getLocation(context), Join.Type.CROSS, left, right, Optional.empty());
         }
 
         JoinCriteria criteria;
@@ -984,7 +984,7 @@ class AstBuilder
     @Override
     public Node visitExists(SqlBaseParser.ExistsContext context)
     {
-        return new ExistsPredicate(getLocation(context), (Query) visit(context.query()));
+        return new ExistsPredicate(getLocation(context), new SubqueryExpression(getLocation(context), (Query) visit(context.query())));
     }
 
     @Override
@@ -1275,7 +1275,11 @@ class AstBuilder
     @Override
     public Node visitColumnDefinition(SqlBaseParser.ColumnDefinitionContext context)
     {
-        return new ColumnDefinition(getLocation(context), context.identifier().getText(), getType(context.type()));
+        Optional<String> comment = Optional.empty();
+        if (context.COMMENT() != null) {
+            comment = Optional.of(unquote(context.STRING().getText()));
+        }
+        return new ColumnDefinition(getLocation(context), context.identifier().getText(), getType(context.type()), comment);
     }
 
     @Override
