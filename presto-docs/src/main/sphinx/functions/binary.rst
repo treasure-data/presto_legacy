@@ -38,6 +38,10 @@ Binary Functions
 
     Encodes ``bigint`` in a 64-bit 2's complement big endian format.
 
+.. function:: from_big_endian_64(binary) -> bigint
+
+    Decodes ``bigint`` value from a 64-bit 2's complement big endian ``binary``.
+
 .. function:: md5(binary) -> varbinary
 
     Computes the md5 hash of ``binary``.
@@ -54,6 +58,6 @@ Binary Functions
 
     Computes the sha512 hash of ``binary``.
 
-.. function:: xxhash64(binary) -> bigint
+.. function:: xxhash64(binary) -> varbinary
 
     Computes the xxhash64 hash of ``binary``.

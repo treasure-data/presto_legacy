@@ -55,6 +55,7 @@ public class FeaturesConfig
     private boolean pushTableWriteThroughUnion = true;
     private boolean legacyArrayAgg;
     private boolean legacyOrderBy;
+    private boolean legacyMapSubscript;
     private boolean optimizeMixedDistinctAggregations;
 
     private String processingOptimization = ProcessingOptimization.DISABLED;
@@ -68,6 +69,7 @@ public class FeaturesConfig
     private DataSize operatorMemoryLimitBeforeSpill = new DataSize(4, DataSize.Unit.MEGABYTE);
     private Path spillerSpillPath = Paths.get(System.getProperty("java.io.tmpdir"), "presto", "spills");
     private int spillerThreads = 4;
+    private boolean iterativeOptimizerEnabled;
 
     public boolean isResourceGroupsEnabled()
     {
@@ -120,6 +122,18 @@ public class FeaturesConfig
     public boolean isLegacyOrderBy()
     {
         return legacyOrderBy;
+    }
+
+    @Config("deprecated.legacy-map-subscript")
+    public FeaturesConfig setLegacyMapSubscript(boolean value)
+    {
+        this.legacyMapSubscript = value;
+        return this;
+    }
+
+    public boolean isLegacyMapSubscript()
+    {
+        return legacyMapSubscript;
     }
 
     @Config("distributed-joins-enabled")
@@ -301,6 +315,18 @@ public class FeaturesConfig
     public FeaturesConfig setSpillEnabled(boolean spillEnabled)
     {
         this.spillEnabled = spillEnabled;
+        return this;
+    }
+
+    public boolean isIterativeOptimizerEnabled()
+    {
+        return iterativeOptimizerEnabled;
+    }
+
+    @Config("experimental.iterative-optimizer-enabled")
+    public FeaturesConfig setIterativeOptimizerEnabled(boolean value)
+    {
+        this.iterativeOptimizerEnabled = value;
         return this;
     }
 

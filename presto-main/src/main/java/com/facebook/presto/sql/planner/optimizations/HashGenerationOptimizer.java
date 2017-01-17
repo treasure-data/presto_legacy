@@ -49,6 +49,7 @@ import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.type.TypeUtils;
+import com.facebook.presto.util.ImmutableCollectors;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -80,6 +81,7 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Stream.concat;
 
 public class HashGenerationOptimizer
         implements PlanOptimizer
@@ -278,25 +280,14 @@ public class HashGenerationOptimizer
         {
             List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
             if (clauses.isEmpty()) {
+                // join does not pass through preferred hash symbols since they take more memory and since
+                // the join node filters, may take more compute
                 PlanWithProperties left = planAndEnforce(node.getLeft(), new HashComputationSet(), true, new HashComputationSet());
-                // join does not need any hash symbols, so drop all hash symbols from build to save memory
                 PlanWithProperties right = planAndEnforce(node.getRight(), new HashComputationSet(), true, new HashComputationSet());
-
-                Map<HashComputation, Symbol> allHashSymbols = new HashMap<>();
-                allHashSymbols.putAll(right.getHashSymbols());
-                allHashSymbols.putAll(left.getHashSymbols());
-
+                checkState(left.getHashSymbols().isEmpty() && right.getHashSymbols().isEmpty());
                 return new PlanWithProperties(
-                        new JoinNode(
-                                idAllocator.getNextId(),
-                                node.getType(),
-                                left.getNode(),
-                                right.getNode(),
-                                node.getCriteria(),
-                                node.getFilter(),
-                                Optional.empty(),
-                                Optional.empty()),
-                        allHashSymbols);
+                        replaceChildren(node, ImmutableList.of(left.getNode(), right.getNode())),
+                        ImmutableMap.of());
             }
 
             // join does not pass through preferred hash symbols since they take more memory and since
@@ -320,6 +311,29 @@ public class HashGenerationOptimizer
                 allHashSymbols.putAll(right.getHashSymbols());
             }
 
+            return buildJoinNodeWithPreferredHashes(node, left, right, allHashSymbols, parentPreference, Optional.of(leftHashSymbol), Optional.of(rightHashSymbol));
+        }
+
+        private PlanWithProperties buildJoinNodeWithPreferredHashes(
+                JoinNode node,
+                PlanWithProperties left,
+                PlanWithProperties right,
+                Map<HashComputation, Symbol> allHashSymbols,
+                HashComputationSet parentPreference,
+                Optional<Symbol> leftHashSymbol,
+                Optional<Symbol> rightHashSymbol)
+        {
+            // retain only hash symbols preferred by parent nodes
+            Map<HashComputation, Symbol> hashSymbolsWithParentPreferences =
+                    allHashSymbols.entrySet()
+                            .stream()
+                            .filter(entry -> parentPreference.getHashes().contains(entry.getKey()))
+                            .collect(ImmutableCollectors.toImmutableMap(Entry::getKey, Entry::getValue));
+
+            List<Symbol> outputSymbols = concat(left.getNode().getOutputSymbols().stream(), right.getNode().getOutputSymbols().stream())
+                    .filter(symbol -> node.getOutputSymbols().contains(symbol) || hashSymbolsWithParentPreferences.values().contains(symbol))
+                    .collect(toImmutableList());
+
             return new PlanWithProperties(
                     new JoinNode(
                             idAllocator.getNextId(),
@@ -327,10 +341,11 @@ public class HashGenerationOptimizer
                             left.getNode(),
                             right.getNode(),
                             node.getCriteria(),
+                            outputSymbols,
                             node.getFilter(),
-                            Optional.of(leftHashSymbol),
-                            Optional.of(rightHashSymbol)),
-                    allHashSymbols);
+                            leftHashSymbol,
+                            rightHashSymbol),
+                    hashSymbolsWithParentPreferences);
         }
 
         @Override
