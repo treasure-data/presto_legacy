@@ -148,6 +148,19 @@ public class TestVarbinaryFunctions
     }
 
     @Test
+    public void testFromBigEndian64()
+            throws Exception
+    {
+        assertFunction("from_big_endian_64(from_hex('0000000000000000'))", BIGINT, 0L);
+        assertFunction("from_big_endian_64(from_hex('0000000000000001'))", BIGINT, 1L);
+        assertFunction("from_big_endian_64(from_hex('7FFFFFFFFFFFFFFF'))", BIGINT, 9223372036854775807L);
+        assertFunction("from_big_endian_64(from_hex('8000000000000001'))", BIGINT, -9223372036854775807L);
+        assertInvalidFunction("from_big_endian_64(from_hex(''))", INVALID_FUNCTION_ARGUMENT);
+        assertInvalidFunction("from_big_endian_64(from_hex('1111'))", INVALID_FUNCTION_ARGUMENT);
+        assertInvalidFunction("from_big_endian_64(from_hex('000000000000000011'))", INVALID_FUNCTION_ARGUMENT);
+    }
+
+    @Test
     public void testMd5()
             throws Exception
     {
@@ -183,8 +196,8 @@ public class TestVarbinaryFunctions
     public void testXxhash64()
             throws Exception
     {
-        assertFunction("xxhash64(CAST('' AS VARBINARY))", BIGINT, -1205034819632174695L);
-        assertFunction("xxhash64(CAST('hashme' AS VARBINARY))", BIGINT, -443202081618794350L);
+        assertFunction("xxhash64(CAST('' AS VARBINARY))", VARBINARY, sqlVarbinaryHex("EF46DB3751D8E999"));
+        assertFunction("xxhash64(CAST('hashme' AS VARBINARY))", VARBINARY, sqlVarbinaryHex("F9D96E0E1165E892"));
     }
 
     @Test

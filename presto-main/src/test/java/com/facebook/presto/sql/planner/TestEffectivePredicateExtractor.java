@@ -89,12 +89,14 @@ public class TestEffectivePredicateExtractor
     private static final Symbol D = new Symbol("d");
     private static final Symbol E = new Symbol("e");
     private static final Symbol F = new Symbol("f");
+    private static final Symbol G = new Symbol("g");
     private static final Expression AE = A.toSymbolReference();
     private static final Expression BE = B.toSymbolReference();
     private static final Expression CE = C.toSymbolReference();
     private static final Expression DE = D.toSymbolReference();
     private static final Expression EE = E.toSymbolReference();
     private static final Expression FE = F.toSymbolReference();
+    private static final Expression GE = G.toSymbolReference();
 
     private static final Map<Symbol, Type> TYPES = ImmutableMap.<Symbol, Type>builder()
             .put(A, BIGINT)
@@ -443,7 +445,8 @@ public class TestEffectivePredicateExtractor
                 filter(leftScan,
                         and(
                                 lessThan(BE, AE),
-                                lessThan(CE, bigintLiteral(10)))),
+                                lessThan(CE, bigintLiteral(10)),
+                                equals(GE, bigintLiteral(10)))),
                 filter(rightScan,
                         and(
                                 equals(DE, EE),
@@ -455,7 +458,7 @@ public class TestEffectivePredicateExtractor
 
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node, TYPES);
 
-        // All predicates should be carried through
+        // All predicates having output symbol should be carried through
         assertEquals(normalizeConjuncts(effectivePredicate),
                 normalizeConjuncts(lessThan(BE, AE),
                         lessThan(CE, bigintLiteral(10)),
@@ -501,7 +504,8 @@ public class TestEffectivePredicateExtractor
                 filter(leftScan,
                         and(
                                 lessThan(BE, AE),
-                                lessThan(CE, bigintLiteral(10)))),
+                                lessThan(CE, bigintLiteral(10)),
+                                equals(GE, bigintLiteral(10)))),
                 filter(rightScan,
                         and(
                                 equals(DE, EE),
@@ -513,7 +517,7 @@ public class TestEffectivePredicateExtractor
 
         Expression effectivePredicate = EffectivePredicateExtractor.extract(node, TYPES);
 
-        // All right side symbols should be checked against NULL
+        // All right side symbols having output symbols should be checked against NULL
         assertEquals(normalizeConjuncts(effectivePredicate),
                 normalizeConjuncts(lessThan(BE, AE),
                         lessThan(CE, bigintLiteral(10)),
@@ -556,7 +560,8 @@ public class TestEffectivePredicateExtractor
                 filter(leftScan,
                         and(
                                 lessThan(BE, AE),
-                                lessThan(CE, bigintLiteral(10)))),
+                                lessThan(CE, bigintLiteral(10)),
+                                equals(GE, bigintLiteral(10)))),
                 filter(rightScan, FALSE_LITERAL),
                 criteria,
                 Optional.empty(),
@@ -608,7 +613,8 @@ public class TestEffectivePredicateExtractor
                 filter(leftScan,
                         and(
                                 lessThan(BE, AE),
-                                lessThan(CE, bigintLiteral(10)))),
+                                lessThan(CE, bigintLiteral(10)),
+                                equals(GE, bigintLiteral(10)))),
                 filter(rightScan,
                         and(
                                 equals(DE, EE),

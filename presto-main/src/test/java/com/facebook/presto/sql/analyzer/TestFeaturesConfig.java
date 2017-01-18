@@ -49,6 +49,7 @@ public class TestFeaturesConfig
                 .setProcessingOptimization(DISABLED)
                 .setDictionaryAggregation(false)
                 .setLegacyArrayAgg(false)
+                .setLegacyMapSubscript(false)
                 .setRegexLibrary(JONI)
                 .setRe2JDfaStatesLimit(Integer.MAX_VALUE)
                 .setRe2JDfaRetries(5)
@@ -57,7 +58,8 @@ public class TestFeaturesConfig
                 .setSpillerSpillPath(Paths.get(System.getProperty("java.io.tmpdir"), "presto", "spills").toString())
                 .setSpillerThreads(4)
                 .setOptimizeMixedDistinctAggregations(false)
-                .setLegacyOrderBy(false));
+                .setLegacyOrderBy(false)
+                .setIterativeOptimizerEnabled(false));
     }
 
     @Test
@@ -65,8 +67,10 @@ public class TestFeaturesConfig
     {
         Map<String, String> propertiesLegacy = new ImmutableMap.Builder<String, String>()
                 .put("experimental.resource-groups-enabled", "true")
+                .put("experimental.iterative-optimizer-enabled", "true")
                 .put("deprecated.legacy-array-agg", "true")
                 .put("deprecated.legacy-order-by", "true")
+                .put("deprecated.legacy-map-subscript", "true")
                 .put("distributed-index-joins-enabled", "true")
                 .put("distributed-joins-enabled", "false")
                 .put("colocated-joins-enabled", "true")
@@ -90,8 +94,10 @@ public class TestFeaturesConfig
                 .build();
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
                 .put("experimental.resource-groups-enabled", "true")
+                .put("experimental.iterative-optimizer-enabled", "true")
                 .put("deprecated.legacy-array-agg", "true")
                 .put("deprecated.legacy-order-by", "true")
+                .put("deprecated.legacy-map-subscript", "true")
                 .put("distributed-index-joins-enabled", "true")
                 .put("distributed-joins-enabled", "false")
                 .put("colocated-joins-enabled", "true")
@@ -116,6 +122,7 @@ public class TestFeaturesConfig
 
         FeaturesConfig expected = new FeaturesConfig()
                 .setResourceGroupsEnabled(true)
+                .setIterativeOptimizerEnabled(true)
                 .setDistributedIndexJoinsEnabled(true)
                 .setDistributedJoinsEnabled(false)
                 .setColocatedJoinsEnabled(true)
@@ -130,6 +137,7 @@ public class TestFeaturesConfig
                 .setProcessingOptimization(COLUMNAR_DICTIONARY)
                 .setDictionaryAggregation(true)
                 .setLegacyArrayAgg(true)
+                .setLegacyMapSubscript(true)
                 .setRegexLibrary(RE2J)
                 .setRe2JDfaStatesLimit(42)
                 .setRe2JDfaRetries(42)
