@@ -217,6 +217,16 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testTryLambdaRepeated()
+    {
+        assertQuery("SELECT x + x FROM (SELECT apply(a, i -> i * i) x FROM (VALUES 3) t(a))", "SELECT 18");
+        assertQuery("SELECT apply(a, i -> i * i) + apply(a, i -> i * i) FROM (VALUES 3) t(a)", "SELECT 18");
+        assertQuery("SELECT apply(a, i -> i * i), apply(a, i -> i * i) FROM (VALUES 3) t(a)", "SELECT 9, 9");
+        assertQuery("SELECT try(10 / a) + try(10 / a) FROM (VALUES 5) t(a)", "SELECT 4");
+        assertQuery("SELECT try(10 / a), try(10 / a) FROM (VALUES 5) t(a)", "SELECT 2, 2");
+    }
+
+    @Test
     public void testNonDeterministicFilter()
     {
         MaterializedResult materializedResult = computeActual("SELECT u FROM ( SELECT if(rand() > 0.5, 0, 1) AS u ) WHERE u <> u");
@@ -905,6 +915,11 @@ public abstract class AbstractTestQueries
         assertQuery("SELECT count(*) FILTER (WHERE x > 1), sum(x) FROM (VALUES (1, 3), (2, 4), (2, 4), (4, 5)) t (x, y)", "SELECT 3, 9");
         assertQuery("SELECT count(*) FILTER (WHERE x > 1), count(DISTINCT y) FROM (VALUES (1, 10), (2, 10), (3, 10), (4, 20)) t (x, y)", "SELECT 3, 2");
 
+        assertQuery("" +
+                "SELECT sum(b) FILTER (WHERE true) " +
+                "FROM (SELECT count(*) FILTER (WHERE true) AS b)",
+                "SELECT 1");
+
         // TODO: enable when DISTINCT is allowed with filtered aggregations
         // assertQuery("SELECT count(distinct x) FILTER (where y = 1) FROM (VALUES (2, 1), (1, 2), (1,1)) t(x, y)", "SELECT 2");
         // assertQuery("SELECT sum(DISTINCT x) FILTER (WHERE x > 1) AS x FROM (VALUES (1), (2), (2), (4)) t (x)", "SELECT 6");
@@ -970,6 +985,12 @@ public abstract class AbstractTestQueries
                 "LIMIT 10");
         assertQuery("SELECT COUNT(*) FROM (SELECT DISTINCT orderstatus, custkey FROM orders LIMIT 10)");
         assertQuery("SELECT DISTINCT custkey, orderstatus FROM orders WHERE custkey = 1268 LIMIT 2");
+
+        assertQuery("" +
+                "SELECT DISTINCT x " +
+                "FROM (VALUES 1) t(x) JOIN (VALUES 10, 20) u(a) ON t.x < u.a " +
+                "LIMIT 100",
+                "SELECT 1");
     }
 
     @Test
@@ -5003,6 +5024,19 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testExplainValidate()
+    {
+        MaterializedResult result = computeActual("EXPLAIN (TYPE VALIDATE) SELECT 1");
+        assertEquals(result.getOnlyValue(), true);
+    }
+
+    @Test(expectedExceptions = Exception.class, expectedExceptionsMessageRegExp = "line 1:32: Column 'x' cannot be resolved")
+    public void testExplainValidateThrows()
+    {
+        computeActual("EXPLAIN (TYPE VALIDATE) SELECT x");
+    }
+
+    @Test
     public void testExplainOfExplain()
     {
         String query = "EXPLAIN SELECT * FROM orders";
@@ -5252,7 +5286,7 @@ public abstract class AbstractTestQueries
 
         assertTrue(functions.containsKey("rank"), "Expected function names " + functions + " to contain 'split_part'");
         assertEquals(functions.get("split_part").asList().get(0).getField(1), "varchar(x)");
-        assertEquals(functions.get("split_part").asList().get(0).getField(2), "varchar(x), varchar, bigint");
+        assertEquals(functions.get("split_part").asList().get(0).getField(2), "varchar(x), varchar(y), bigint");
         assertEquals(functions.get("split_part").asList().get(0).getField(3), "scalar");
 
         assertFalse(functions.containsKey("like"), "Expected function names " + functions + " not to contain 'like'");
@@ -6486,6 +6520,24 @@ public abstract class AbstractTestQueries
                         "WHERE 100 < (SELECT * " +
                         "FROM (SELECT (SELECT avg(i.orderkey) FROM orders i WHERE o.orderkey < i.orderkey AND i.orderkey % 10000 = 0)))",
                 "VALUES 14999"); // h2 is slow
+
+        // consecutive correlated subqueries with scalar aggregation
+        assertQuery("SELECT " +
+                "(SELECT avg(regionkey) " +
+                " FROM nation n2" +
+                " WHERE n2.nationkey = n1.nationkey)," +
+                "(SELECT avg(regionkey)" +
+                " FROM nation n3" +
+                " WHERE n3.nationkey = n1.nationkey)" +
+                "FROM nation n1");
+        assertQuery("SELECT" +
+                "(SELECT avg(regionkey)" +
+                " FROM nation n2 " +
+                " WHERE n2.nationkey = n1.nationkey)," +
+                "(SELECT avg(regionkey)+1 " +
+                " FROM nation n3 " +
+                " WHERE n3.nationkey = n1.nationkey)" +
+                "FROM nation n1");
     }
 
     @Test
