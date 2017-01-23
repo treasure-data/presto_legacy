@@ -186,6 +186,10 @@ public class TransformCorrelatedScalarAggregationToJoin
                     inputWithUniqueColumns,
                     scalarAggregationSource,
                     ImmutableList.of(),
+                    ImmutableList.<Symbol>builder()
+                            .addAll(inputWithUniqueColumns.getOutputSymbols())
+                            .addAll(scalarAggregationSource.getOutputSymbols())
+                            .build(),
                     joinExpression,
                     Optional.empty(),
                     Optional.empty());
@@ -201,6 +205,7 @@ public class TransformCorrelatedScalarAggregationToJoin
 
             Optional<ProjectNode> subqueryProjection = searchFrom(applyNode.getSubquery())
                     .where(ProjectNode.class::isInstance)
+                    .skipOnlyWhen(EnforceSingleRowNode.class::isInstance)
                     .findFirst();
 
             if (subqueryProjection.isPresent()) {

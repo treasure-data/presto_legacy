@@ -153,11 +153,9 @@ class RelationPlanner
             columns.put(symbol, analysis.getColumn(field));
         }
 
-        List<Symbol> planOutputSymbols = outputSymbolsBuilder.build();
-
-        List<Symbol> nodeOutputSymbols = outputSymbolsBuilder.build();
-        PlanNode root = new TableScanNode(idAllocator.getNextId(), handle, nodeOutputSymbols, columns.build(), Optional.empty(), TupleDomain.all(), null);
-        return new RelationPlan(root, scope, planOutputSymbols);
+        List<Symbol> outputSymbols = outputSymbolsBuilder.build();
+        PlanNode root = new TableScanNode(idAllocator.getNextId(), handle, outputSymbols, columns.build(), Optional.empty(), TupleDomain.all(), null);
+        return new RelationPlan(root, scope, outputSymbols);
     }
 
     @Override
@@ -299,6 +297,10 @@ class RelationPlanner
                 leftPlanBuilder.getRoot(),
                 rightPlanBuilder.getRoot(),
                 equiClauses.build(),
+                ImmutableList.<Symbol>builder()
+                        .addAll(leftPlanBuilder.getRoot().getOutputSymbols())
+                        .addAll(rightPlanBuilder.getRoot().getOutputSymbols())
+                        .build(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
@@ -331,6 +333,10 @@ class RelationPlanner
                     leftPlanBuilder.getRoot(),
                     rightPlanBuilder.getRoot(),
                     equiClauses.build(),
+                    ImmutableList.<Symbol>builder()
+                            .addAll(leftPlanBuilder.getRoot().getOutputSymbols())
+                            .addAll(rightPlanBuilder.getRoot().getOutputSymbols())
+                            .build(),
                     Optional.of(rewritenFilterCondition),
                     Optional.empty(),
                     Optional.empty());
