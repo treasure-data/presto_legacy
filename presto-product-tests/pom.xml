@@ -5,7 +5,7 @@
     <parent>
         <artifactId>presto-root</artifactId>
         <groupId>com.facebook.presto</groupId>
-        <version>0.164</version>
+        <version>0.166</version>
     </parent>
 
     <artifactId>presto-product-tests</artifactId>
@@ -14,15 +14,6 @@
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <main-class>com.facebook.presto.tests.TemptoProductTestRunner</main-class>
-
-        <!--
-        Versions newer than 6.9 appear to have an issue where the @BeforeClass method in
-        children of AbstractTestHiveClient doesn't always get called. Therefore, an older
-        version is used for other artifacts in Presto. This artifact overrides it with a
-        newer version because it is required for Tempto
-        TODO: remove once we can upgrade to a version that fixes it
-        -->
-        <dep.testng.version>6.9.6</dep.testng.version>
     </properties>
 
     <dependencies>
@@ -105,6 +96,12 @@
             <artifactId>mysql-connector-java</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>com.datastax.cassandra</groupId>
+            <artifactId>cassandra-driver-core</artifactId>
+            <scope>compile</scope>
+            <version>3.0.0</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -124,18 +121,6 @@
                 </excludes>
             </resource>
         </resources>
-
-        <pluginManagement>
-            <plugins>
-                <plugin>
-                    <groupId>org.gaul</groupId>
-                    <artifactId>modernizer-maven-plugin</artifactId>
-                    <configuration>
-                        <exclusionsFile>${project.basedir}/src/modernizer/exclusions.txt</exclusionsFile>
-                    </configuration>
-                </plugin>
-            </plugins>
-        </pluginManagement>
 
         <plugins>
             <plugin>
