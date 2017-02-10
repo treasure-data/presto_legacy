@@ -504,7 +504,7 @@ public class LocalQueryRunner
             TaskContext taskContext = createTaskContext(executor, session);
 
             List<Driver> drivers = createDrivers(session, sql, outputFactory, taskContext);
-            drivers.stream().map(closer::register);
+            drivers.forEach(closer::register);
 
             boolean done = false;
             while (!done) {
@@ -567,7 +567,8 @@ public class LocalQueryRunner
                 new IndexJoinLookupStats(),
                 new CompilerConfig().setInterpreterEnabled(false), // make sure tests fail if compiler breaks
                 new TaskManagerConfig().setTaskConcurrency(4),
-                spillerFactory);
+                spillerFactory,
+                blockEncodingSerde);
 
         // plan query
         LocalExecutionPlan localExecutionPlan = executionPlanner.plan(

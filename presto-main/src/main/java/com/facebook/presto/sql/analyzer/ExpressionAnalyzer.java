@@ -53,6 +53,7 @@ import com.facebook.presto.sql.tree.Extract;
 import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.GenericLiteral;
+import com.facebook.presto.sql.tree.Identifier;
 import com.facebook.presto.sql.tree.IfExpression;
 import com.facebook.presto.sql.tree.InListExpression;
 import com.facebook.presto.sql.tree.InPredicate;
@@ -70,7 +71,6 @@ import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
 import com.facebook.presto.sql.tree.Parameter;
 import com.facebook.presto.sql.tree.QualifiedName;
-import com.facebook.presto.sql.tree.QualifiedNameReference;
 import com.facebook.presto.sql.tree.QuantifiedComparisonExpression;
 import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.SearchedCaseExpression;
@@ -167,7 +167,7 @@ public class ExpressionAnalyzer
     private final IdentityHashMap<Expression, Type> expressionTypes = new IdentityHashMap<>();
     private final Set<QuantifiedComparisonExpression> quantifiedComparisons = newIdentityHashSet();
     // For lambda argument references, maps each QualifiedNameReference to the referenced LambdaArgumentDeclaration
-    private final IdentityHashMap<QualifiedNameReference, LambdaArgumentDeclaration> lambdaArgumentReferences = new IdentityHashMap<>();
+    private final IdentityHashMap<Identifier, LambdaArgumentDeclaration> lambdaArgumentReferences = new IdentityHashMap<>();
 
     private final Session session;
     private final List<Expression> parameters;
@@ -220,7 +220,7 @@ public class ExpressionAnalyzer
         return ImmutableSet.copyOf(columnReferences);
     }
 
-    public IdentityHashMap<QualifiedNameReference, LambdaArgumentDeclaration> getLambdaArgumentReferences()
+    public IdentityHashMap<Identifier, LambdaArgumentDeclaration> getLambdaArgumentReferences()
     {
         return lambdaArgumentReferences;
     }
@@ -337,10 +337,10 @@ public class ExpressionAnalyzer
         }
 
         @Override
-        protected Type visitQualifiedNameReference(QualifiedNameReference node, StackableAstVisitorContext<Context> context)
+        protected Type visitIdentifier(Identifier node, StackableAstVisitorContext<Context> context)
         {
             if (context.getContext().isInLambda()) {
-                LambdaArgumentDeclaration lambdaArgumentDeclaration = context.getContext().getNameToLambdaArgumentDeclarationMap().get(getOnlyElement(node.getName().getParts()));
+                LambdaArgumentDeclaration lambdaArgumentDeclaration = context.getContext().getNameToLambdaArgumentDeclarationMap().get(node.getName());
                 if (lambdaArgumentDeclaration != null) {
                     lambdaArgumentReferences.put(node, lambdaArgumentDeclaration);
                     Type result = expressionTypes.get(lambdaArgumentDeclaration);
@@ -348,7 +348,7 @@ public class ExpressionAnalyzer
                     return result;
                 }
             }
-            return handleResolvedField(node, scope.resolveField(node, node.getName()));
+            return handleResolvedField(node, scope.resolveField(node, QualifiedName.of(node.getName())));
         }
 
         private Type handleResolvedField(Expression node, ResolvedField resolvedField)
@@ -1157,10 +1157,7 @@ public class ExpressionAnalyzer
                 if (!typeManager.canCoerce(actualType, expectedType)) {
                     throw new SemanticException(TYPE_MISMATCH, expression, message + " must evaluate to a %s (actual: %s)", expectedType, actualType);
                 }
-                expressionCoercions.put(expression, expectedType);
-                if (typeManager.isTypeOnlyCoercion(actualType, expectedType)) {
-                    typeOnlyCoercions.add(expression);
-                }
+                addOrReplaceExpressionCoercion(expression, actualType, expectedType);
             }
         }
 
@@ -1188,16 +1185,10 @@ public class ExpressionAnalyzer
                     && typeManager.canCoerce(secondType, superTypeOptional.get())) {
                 Type superType = superTypeOptional.get();
                 if (!firstType.equals(superType)) {
-                    expressionCoercions.put(first, superType);
-                    if (typeManager.isTypeOnlyCoercion(firstType, superType)) {
-                        typeOnlyCoercions.add(first);
-                    }
+                    addOrReplaceExpressionCoercion(first, firstType, superType);
                 }
                 if (!secondType.equals(superType)) {
-                    expressionCoercions.put(second, superType);
-                    if (typeManager.isTypeOnlyCoercion(secondType, superType)) {
-                        typeOnlyCoercions.add(second);
-                    }
+                    addOrReplaceExpressionCoercion(second, secondType, superType);
                 }
                 return superType;
             }
@@ -1224,14 +1215,22 @@ public class ExpressionAnalyzer
                     if (!typeManager.canCoerce(type, superType)) {
                         throw new SemanticException(TYPE_MISMATCH, expression, message, superType);
                     }
-                    expressionCoercions.put(expression, superType);
-                    if (typeManager.isTypeOnlyCoercion(type, superType)) {
-                        typeOnlyCoercions.add(expression);
-                    }
+                    addOrReplaceExpressionCoercion(expression, type, superType);
                 }
             }
 
             return superType;
+        }
+
+        private void addOrReplaceExpressionCoercion(Expression expression, Type type, Type superType)
+        {
+            expressionCoercions.put(expression, superType);
+            if (typeManager.isTypeOnlyCoercion(type, superType)) {
+                typeOnlyCoercions.add(expression);
+            }
+            else if (typeOnlyCoercions.contains(expression)) {
+                typeOnlyCoercions.remove(expression);
+            }
         }
     }
 
