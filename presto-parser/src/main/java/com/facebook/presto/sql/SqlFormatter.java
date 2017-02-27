@@ -50,6 +50,7 @@ import com.facebook.presto.sql.tree.JoinUsing;
 import com.facebook.presto.sql.tree.LikeClause;
 import com.facebook.presto.sql.tree.NaturalJoin;
 import com.facebook.presto.sql.tree.Node;
+import com.facebook.presto.sql.tree.OrderBy;
 import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
@@ -114,14 +115,7 @@ public final class SqlFormatter
     public static String formatSql(Node root, Optional<List<Expression>> parameters)
     {
         StringBuilder builder = new StringBuilder();
-        new Formatter(builder, true, parameters).process(root, 0);
-        return builder.toString();
-    }
-
-    public static String formatSql(Node root, boolean unmangleNames, Optional<List<Expression>> parameters)
-    {
-        StringBuilder builder = new StringBuilder();
-        new Formatter(builder, unmangleNames, parameters).process(root, 0);
+        new Formatter(builder, parameters).process(root, 0);
         return builder.toString();
     }
 
@@ -129,13 +123,11 @@ public final class SqlFormatter
             extends AstVisitor<Void, Integer>
     {
         private final StringBuilder builder;
-        private final boolean unmangledNames;
         private final Optional<List<Expression>> parameters;
 
-        public Formatter(StringBuilder builder, boolean unmangleNames, Optional<List<Expression>> parameters)
+        public Formatter(StringBuilder builder, Optional<List<Expression>> parameters)
         {
             this.builder = builder;
-            this.unmangledNames = unmangleNames;
             this.parameters = parameters;
         }
 
@@ -149,7 +141,7 @@ public final class SqlFormatter
         protected Void visitExpression(Expression node, Integer indent)
         {
             checkArgument(indent == 0, "visitExpression should only be called at root");
-            builder.append(formatExpression(node, unmangledNames, parameters));
+            builder.append(formatExpression(node, parameters));
             return null;
         }
 
@@ -234,9 +226,8 @@ public final class SqlFormatter
 
             processRelation(node.getQueryBody(), indent);
 
-            if (!node.getOrderBy().isEmpty()) {
-                append(indent, "ORDER BY " + formatSortItems(node.getOrderBy(), parameters))
-                        .append('\n');
+            if (node.getOrderBy().isPresent()) {
+                process(node.getOrderBy().get(), indent);
             }
 
             if (node.getLimit().isPresent()) {
@@ -267,7 +258,7 @@ public final class SqlFormatter
             }
 
             if (node.getGroupBy().isPresent()) {
-                append(indent, "GROUP BY " + (node.getGroupBy().get().isDistinct() ? " DISTINCT " : "") + formatGroupBy(node.getGroupBy().get().getGroupingElements(), parameters)).append('\n');
+                append(indent, "GROUP BY " + (node.getGroupBy().get().isDistinct() ? " DISTINCT " : "") + formatGroupBy(node.getGroupBy().get().getGroupingElements())).append('\n');
             }
 
             if (node.getHaving().isPresent()) {
@@ -275,15 +266,22 @@ public final class SqlFormatter
                         .append('\n');
             }
 
-            if (!node.getOrderBy().isEmpty()) {
-                append(indent, "ORDER BY " + formatSortItems(node.getOrderBy(), parameters))
-                        .append('\n');
+            if (node.getOrderBy().isPresent()) {
+                process(node.getOrderBy().get(), indent);
             }
 
             if (node.getLimit().isPresent()) {
                 append(indent, "LIMIT " + node.getLimit().get())
                         .append('\n');
             }
+            return null;
+        }
+
+        @Override
+        protected Void visitOrderBy(OrderBy node, Integer indent)
+        {
+            append(indent, "ORDER BY " + formatSortItems(node.getSortItems(), parameters))
+                    .append('\n');
             return null;
         }
 

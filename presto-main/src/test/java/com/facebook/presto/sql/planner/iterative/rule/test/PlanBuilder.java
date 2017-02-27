@@ -24,6 +24,7 @@ import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.LimitNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.ProjectNode;
+import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.util.ImmutableCollectors;
@@ -65,6 +66,11 @@ public class PlanBuilder
         return new LimitNode(idAllocator.getNextId(), source, limit, false);
     }
 
+    public SampleNode sample(double sampleRatio, SampleNode.Type type, PlanNode source)
+    {
+        return new SampleNode(idAllocator.getNextId(), source, sampleRatio, type);
+    }
+
     public ProjectNode project(Assignments assignments, PlanNode source)
     {
         return new ProjectNode(idAllocator.getNextId(), source, assignments);
@@ -98,7 +104,7 @@ public class PlanBuilder
 
     public static Expression expression(String sql)
     {
-        return ExpressionUtils.rewriteQualifiedNamesToSymbolReferences(new SqlParser().createExpression(sql));
+        return ExpressionUtils.rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(sql));
     }
 
     public static List<Expression> expressions(String... expressions)

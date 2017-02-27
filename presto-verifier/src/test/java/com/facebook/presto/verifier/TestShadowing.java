@@ -34,7 +34,6 @@ import org.testng.annotations.Test;
 
 import java.util.Optional;
 
-import static com.facebook.presto.util.Types.checkType;
 import static com.facebook.presto.verifier.QueryType.READ;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.testng.Assert.assertEquals;
@@ -72,7 +71,7 @@ public class TestShadowing
         assertEquals(rewrittenQuery.getPreQueries().size(), 1);
         assertEquals(rewrittenQuery.getPostQueries().size(), 1);
 
-        CreateTableAsSelect createTableAs = checkType(parser.createStatement(rewrittenQuery.getPreQueries().get(0)), CreateTableAsSelect.class, "statement");
+        CreateTableAsSelect createTableAs = (CreateTableAsSelect) parser.createStatement(rewrittenQuery.getPreQueries().get(0));
         assertEquals(createTableAs.getName().getParts().size(), 1);
         assertTrue(createTableAs.getName().getSuffix().startsWith("tmp_"));
         assertFalse(createTableAs.getName().getSuffix().contains("my_test_table"));
@@ -83,8 +82,8 @@ public class TestShadowing
         SingleColumn column1 = new SingleColumn(new FunctionCall(QualifiedName.of("checksum"), ImmutableList.of(new Identifier("column1"))));
         SingleColumn column2 = new SingleColumn(new FunctionCall(QualifiedName.of("checksum"), ImmutableList.of(new FunctionCall(QualifiedName.of("round"), ImmutableList.of(new Identifier("column2"), new LongLiteral("1"))))));
         Select select = new Select(false, ImmutableList.of(column1, column2));
-        QuerySpecification querySpecification = new QuerySpecification(select, Optional.of(table), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty());
-        assertEquals(parser.createStatement(rewrittenQuery.getQuery()), new com.facebook.presto.sql.tree.Query(Optional.empty(), querySpecification, ImmutableList.of(), Optional.empty()));
+        QuerySpecification querySpecification = new QuerySpecification(select, Optional.of(table), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        assertEquals(parser.createStatement(rewrittenQuery.getQuery()), new com.facebook.presto.sql.tree.Query(Optional.empty(), querySpecification, Optional.empty(), Optional.empty()));
 
         assertEquals(parser.createStatement(rewrittenQuery.getPostQueries().get(0)), new DropTable(createTableAs.getName(), true));
     }
@@ -99,7 +98,7 @@ public class TestShadowing
         QueryRewriter rewriter = new QueryRewriter(parser, URL, QualifiedName.of("other_catalog", "other_schema", "tmp_"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), 1, new Duration(10, SECONDS));
         Query rewrittenQuery = rewriter.shadowQuery(query);
         assertEquals(rewrittenQuery.getPreQueries().size(), 1);
-        CreateTableAsSelect createTableAs = checkType(parser.createStatement(rewrittenQuery.getPreQueries().get(0)), CreateTableAsSelect.class, "statement");
+        CreateTableAsSelect createTableAs = (CreateTableAsSelect) parser.createStatement(rewrittenQuery.getPreQueries().get(0));
         assertEquals(createTableAs.getName().getParts().size(), 3);
         assertEquals(createTableAs.getName().getPrefix().get(), QualifiedName.of("other_catalog", "other_schema"));
         assertTrue(createTableAs.getName().getSuffix().startsWith("tmp_"));

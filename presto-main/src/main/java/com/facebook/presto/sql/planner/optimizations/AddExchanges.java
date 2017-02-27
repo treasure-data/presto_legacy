@@ -71,6 +71,7 @@ import com.facebook.presto.sql.tree.BooleanLiteral;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.NullLiteral;
 import com.facebook.presto.sql.tree.SymbolReference;
+import com.facebook.presto.util.maps.IdentityLinkedHashMap;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -90,7 +91,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -105,8 +105,8 @@ import static com.facebook.presto.sql.ExpressionUtils.stripDeterministicConjunct
 import static com.facebook.presto.sql.ExpressionUtils.stripNonDeterministicConjuncts;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypes;
 import static com.facebook.presto.sql.planner.FragmentTableScanCounter.hasMultipleSources;
+import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
-import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_RANDOM_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.optimizations.ActualProperties.Global.partitionedOn;
 import static com.facebook.presto.sql.planner.optimizations.ActualProperties.Global.singleStreamPartition;
@@ -546,7 +546,7 @@ public class AddExchanges
 
             Optional<PartitioningScheme> partitioningScheme = node.getPartitioningScheme();
             if (!partitioningScheme.isPresent() && redistributeWrites) {
-                partitioningScheme = Optional.of(new PartitioningScheme(Partitioning.create(FIXED_RANDOM_DISTRIBUTION, ImmutableList.of()), source.getNode().getOutputSymbols()));
+                partitioningScheme = Optional.of(new PartitioningScheme(Partitioning.create(FIXED_ARBITRARY_DISTRIBUTION, ImmutableList.of()), source.getNode().getOutputSymbols()));
             }
 
             if (partitioningScheme.isPresent()) {
@@ -660,7 +660,7 @@ public class AddExchanges
         private boolean shouldPrune(Expression predicate, Map<Symbol, ColumnHandle> assignments, Map<ColumnHandle, NullableValue> bindings, List<Symbol> correlations)
         {
             List<Expression> conjuncts = extractConjuncts(predicate);
-            IdentityHashMap<Expression, Type> expressionTypes = getExpressionTypes(
+            IdentityLinkedHashMap<Expression, Type> expressionTypes = getExpressionTypes(
                     session,
                     metadata,
                     parser,

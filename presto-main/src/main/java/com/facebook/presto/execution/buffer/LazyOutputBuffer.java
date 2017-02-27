@@ -92,7 +92,16 @@ public class LazyOutputBuffer
     @Override
     public double getUtilization()
     {
-        return 0.0;
+        OutputBuffer outputBuffer;
+        synchronized (this) {
+            outputBuffer = delegate;
+        }
+
+        // until output buffer is initialized, it is "full"
+        if (outputBuffer == null) {
+            return 1.0;
+        }
+        return outputBuffer.getUtilization();
     }
 
     @Override
@@ -141,6 +150,9 @@ public class LazyOutputBuffer
                         break;
                     case BROADCAST:
                         delegate = new BroadcastOutputBuffer(taskInstanceId, state, maxBufferSize, systemMemoryUsageListener, executor);
+                        break;
+                    case ARBITRARY:
+                        delegate = new ArbitraryOutputBuffer(taskInstanceId, state, maxBufferSize, systemMemoryUsageListener, executor);
                         break;
                 }
 

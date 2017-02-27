@@ -25,9 +25,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.facebook.presto.execution.buffer.BufferResult.emptyResults;
@@ -136,15 +136,7 @@ class ClientBuffer
                 return;
             }
 
-            pages.forEach(SerializedPageReference::addReference);
-            this.pages.addAll(pages);
-
-            long rowCount = pages.stream().mapToLong(SerializedPageReference::getPositionCount).sum();
-            rowsAdded.addAndGet(rowCount);
-            pagesAdded.addAndGet(pages.size());
-
-            long bytesAdded = pages.stream().mapToLong(SerializedPageReference::getRetainedSizeInBytes).sum();
-            bufferedBytes.addAndGet(bytesAdded);
+            addPages(pages);
 
             pendingRead = this.pendingRead;
             this.pendingRead = null;
@@ -156,12 +148,33 @@ class ClientBuffer
         }
     }
 
+    private synchronized void addPages(Collection<SerializedPageReference> pages)
+    {
+        pages.forEach(SerializedPageReference::addReference);
+        this.pages.addAll(pages);
+
+        long rowCount = pages.stream().mapToLong(SerializedPageReference::getPositionCount).sum();
+        rowsAdded.addAndGet(rowCount);
+        pagesAdded.addAndGet(pages.size());
+
+        long bytesAdded = pages.stream().mapToLong(SerializedPageReference::getRetainedSizeInBytes).sum();
+        bufferedBytes.addAndGet(bytesAdded);
+    }
+
     public CompletableFuture<BufferResult> getPages(long sequenceId, DataSize maxSize)
+    {
+        return getPages(sequenceId, maxSize, Optional.empty());
+    }
+
+    public CompletableFuture<BufferResult> getPages(long sequenceId, DataSize maxSize, Optional<PagesSupplier> pagesSupplier)
     {
         checkArgument(sequenceId >= 0, "Invalid sequence id");
 
         // acknowledge pages first, out side of locks to not trigger callbacks while holding the lock
         acknowledgePages(sequenceId);
+
+        // attempt to load some data before processing the read
+        pagesSupplier.ifPresent(supplier -> loadPagesIfNecessary(supplier, maxSize));
 
         PendingRead oldPendingRead = null;
         try {
@@ -211,8 +224,75 @@ class ClientBuffer
         }
     }
 
+    public void loadPagesIfNecessary(PagesSupplier pagesSupplier)
+    {
+        requireNonNull(pagesSupplier, "pagesSupplier is null");
+
+        // Get the max size from the current pending read, which may not be the
+        // same pending read instance by the time pages are loaded but this is
+        // safe since the size is rechecked before returning pages.
+        DataSize maxSize;
+        synchronized (this) {
+            if (pendingRead == null) {
+                return;
+            }
+            maxSize = pendingRead.getMaxSize();
+        }
+
+        boolean dataAdded = loadPagesIfNecessary(pagesSupplier, maxSize);
+
+        if (dataAdded) {
+            PendingRead pendingRead;
+            synchronized (this) {
+                pendingRead = this.pendingRead;
+            }
+            if (pendingRead != null) {
+                processRead(pendingRead);
+            }
+        }
+    }
+
+    /**
+     * If there no data, attempt to load some from the pages supplier.
+     */
+    private boolean loadPagesIfNecessary(PagesSupplier pagesSupplier, DataSize maxSize)
+    {
+        checkState(!Thread.holdsLock(this), "Can not load pages while holding a lock on this");
+
+        List<SerializedPageReference> pageReferences;
+        synchronized (this) {
+            if (noMorePages) {
+                return false;
+            }
+
+            if (!pages.isEmpty()) {
+                return false;
+            }
+
+            // The page supplier has incremented the page reference count, and addPages below also increments
+            // the reference count, so we need to drop the page supplier reference. The call dereferencePage
+            // is performed outside of synchronized to avoid making a callback while holding a lock.
+            pageReferences = pagesSupplier.getPages(maxSize);
+
+            // add the pages to this buffer, which will increase the reference count
+            addPages(pageReferences);
+
+            // check for no more pages
+            if (!pagesSupplier.mayHaveMorePages()) {
+                noMorePages = true;
+            }
+        }
+
+        // sent pages will have an initial reference count, so drop it
+        pageReferences.forEach(SerializedPageReference::dereferencePage);
+
+        return !pageReferences.isEmpty();
+    }
+
     private void processRead(PendingRead pendingRead)
     {
+        checkState(!Thread.holdsLock(this), "Can not process pending read while holding a lock on this");
+
         if (pendingRead.getResultFuture().isDone()) {
             return;
         }
@@ -375,58 +455,16 @@ class ClientBuffer
         }
     }
 
-    @ThreadSafe
-    static class SerializedPageReference
+    public interface PagesSupplier
     {
-        private final SerializedPage serializedPage;
-        private final AtomicInteger referenceCount;
-        private final Runnable onDereference;
+        /**
+         * Gets pages up to the specified size limit or a single page that exceeds the size limit.
+         */
+        List<SerializedPageReference> getPages(DataSize maxSize);
 
-        public SerializedPageReference(SerializedPage serializedPage, int referenceCount, Runnable onDereference)
-        {
-            this.serializedPage = requireNonNull(serializedPage, "page is null");
-            checkArgument(referenceCount > 0, "referenceCount must be at least 1");
-            this.referenceCount = new AtomicInteger(referenceCount);
-            this.onDereference = requireNonNull(onDereference, "onDereference is null");
-        }
-
-        public void addReference()
-        {
-            int oldReferences = referenceCount.getAndIncrement();
-            checkState(oldReferences > 0, "Page has already been dereferenced");
-        }
-
-        public SerializedPage getSerializedPage()
-        {
-            return serializedPage;
-        }
-
-        public int getPositionCount()
-        {
-            return serializedPage.getPositionCount();
-        }
-
-        public long getRetainedSizeInBytes()
-        {
-            return serializedPage.getRetainedSizeInBytes();
-        }
-
-        public void dereferencePage()
-        {
-            int remainingReferences = referenceCount.decrementAndGet();
-            checkState(remainingReferences >= 0, "Page reference count is negative");
-
-            if (remainingReferences == 0) {
-                onDereference.run();
-            }
-        }
-
-        @Override
-        public String toString()
-        {
-            return toStringHelper(this)
-                    .add("referenceCount", referenceCount)
-                    .toString();
-        }
+        /**
+         * @return true if more pages may be produced; false otherwise
+         */
+        boolean mayHaveMorePages();
     }
 }
