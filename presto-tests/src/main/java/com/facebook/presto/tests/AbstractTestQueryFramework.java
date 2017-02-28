@@ -162,16 +162,12 @@ public abstract class AbstractTestQueryFramework
 
     protected void assertQueryFails(Session session, @Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp)
     {
-        queryRunner.getExclusiveLock().lock();
         try {
             queryRunner.execute(session, sql);
             fail(format("Expected query to fail: %s", sql));
         }
         catch (RuntimeException ex) {
             assertExceptionMessage(sql, ex, expectedMessageRegExp);
-        }
-        finally {
-            queryRunner.getExclusiveLock().unlock();
         }
     }
 
@@ -232,7 +228,7 @@ public abstract class AbstractTestQueryFramework
     private static void assertExceptionMessage(String sql, Exception exception, @Language("RegExp") String regex)
     {
         if (!exception.getMessage().matches(regex)) {
-            fail(format("Expected exception message '%s' to match '%s' for query: %s", exception.getMessage(), regex, sql));
+            fail(format("Expected exception message '%s' to match '%s' for query: %s", exception.getMessage(), regex, sql), exception);
         }
     }
 

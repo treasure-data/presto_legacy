@@ -72,6 +72,7 @@ import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.spi.type.TypeSignatureParameter;
+import com.facebook.presto.sql.gen.JoinCompiler;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.TestingConnectorSession;
@@ -149,7 +150,6 @@ import static com.facebook.presto.hive.HiveType.HIVE_STRING;
 import static com.facebook.presto.hive.HiveType.toHiveType;
 import static com.facebook.presto.hive.HiveUtil.columnExtraInfo;
 import static com.facebook.presto.hive.HiveWriteUtils.createDirectory;
-import static com.facebook.presto.hive.util.Types.checkType;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
@@ -308,6 +308,8 @@ public abstract class AbstractTestHiveClient
                     .build();
 
     protected Set<HiveStorageFormat> createTableFormats = difference(ImmutableSet.copyOf(HiveStorageFormat.values()), ImmutableSet.of(AVRO));
+
+    private static final JoinCompiler JOIN_COMPILER = new JoinCompiler();
 
     protected String clientId;
     protected String database;
@@ -562,7 +564,7 @@ public abstract class AbstractTestHiveClient
                 hiveClientConfig.getMaxInitialSplits(),
                 false
         );
-        pageSinkProvider = new HivePageSinkProvider(hdfsEnvironment, metastoreClient, new GroupByHashPageIndexerFactory(), typeManager, new HiveClientConfig(), locationService, partitionUpdateCodec);
+        pageSinkProvider = new HivePageSinkProvider(hdfsEnvironment, metastoreClient, new GroupByHashPageIndexerFactory(JOIN_COMPILER), typeManager, new HiveClientConfig(), locationService, partitionUpdateCodec);
         pageSourceProvider = new HivePageSourceProvider(hiveClientConfig, hdfsEnvironment, getDefaultHiveRecordCursorProvider(hiveClientConfig), getDefaultHiveDataStreamFactories(hiveClientConfig), TYPE_MANAGER);
     }
 
@@ -2560,7 +2562,7 @@ public abstract class AbstractTestHiveClient
     {
         List<ConnectorSplit> splits = getAllSplits(tableHandle, TupleDomain.all());
         assertEquals(splits.size(), 1);
-        return checkType(getOnlyElement(splits), HiveSplit.class, "split");
+        return (HiveSplit) getOnlyElement(splits);
     }
 
     protected void assertGetRecords(
@@ -2993,7 +2995,7 @@ public abstract class AbstractTestHiveClient
         ImmutableMap.Builder<String, Integer> index = ImmutableMap.builder();
         int i = 0;
         for (ColumnHandle columnHandle : columnHandles) {
-            HiveColumnHandle hiveColumnHandle = checkType(columnHandle, HiveColumnHandle.class, "columnHandle");
+            HiveColumnHandle hiveColumnHandle = (HiveColumnHandle) columnHandle;
             index.put(hiveColumnHandle.getName(), i);
             i++;
         }

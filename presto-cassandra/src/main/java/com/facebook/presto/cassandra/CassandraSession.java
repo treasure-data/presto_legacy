@@ -49,7 +49,6 @@ import io.airlift.json.JsonCodec;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -64,6 +63,7 @@ import static com.google.common.collect.Iterables.transform;
 import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
 
+// TODO: Refactor this class to make it be "single responsibility"
 public class CassandraSession
 {
     static final String PRESTO_COMMENT_METADATA = "Presto Metadata:";
@@ -104,14 +104,7 @@ public class CassandraSession
 
     public Set<Host> getReplicas(final String schemaName, final ByteBuffer partitionKey)
     {
-        return executeWithSession(schemaName, new SessionCallable<Set<Host>>()
-        {
-            @Override
-            public Set<Host> executeWithSession(Session session)
-            {
-                return session.getCluster().getMetadata().getReplicas(schemaName, partitionKey);
-            }
-        });
+        return executeWithSession(schemaName, session -> session.getCluster().getMetadata().getReplicas(schemaName, partitionKey));
     }
 
     private Session getSession(String schemaName)
@@ -126,48 +119,18 @@ public class CassandraSession
 
     public ResultSet executeQuery(String schemaName, final String cql)
     {
-        return executeWithSession(schemaName, new SessionCallable<ResultSet>() {
-            @Override
-            public ResultSet executeWithSession(Session session)
-            {
-                return session.execute(cql);
-            }
-        });
+        return executeWithSession(schemaName, session -> session.execute(cql));
     }
 
     public ResultSet execute(String schemaName, final String cql, final Object... values)
     {
-        return executeWithSession(schemaName, new SessionCallable<ResultSet>()
-        {
-            @Override
-            public ResultSet executeWithSession(Session session)
-            {
-                return session.execute(cql, values);
-            }
-        });
-    }
-
-    public Collection<Host> getAllHosts()
-    {
-        return executeWithSession("", new SessionCallable<Collection<Host>>() {
-            @Override
-            public Collection<Host> executeWithSession(Session session)
-            {
-                return session.getCluster().getMetadata().getAllHosts();
-            }
-        });
+        return executeWithSession(schemaName, session -> session.execute(cql, values));
     }
 
     public List<String> getAllSchemas()
     {
         ImmutableList.Builder<String> builder = ImmutableList.builder();
-        List<KeyspaceMetadata> keyspaces = executeWithSession("", new SessionCallable<List<KeyspaceMetadata>>() {
-            @Override
-            public List<KeyspaceMetadata> executeWithSession(Session session)
-            {
-                return session.getCluster().getMetadata().getKeyspaces();
-            }
-        });
+        List<KeyspaceMetadata> keyspaces = executeWithSession("", session -> session.getCluster().getMetadata().getKeyspaces());
         for (KeyspaceMetadata meta : keyspaces) {
             builder.add(meta.getName());
         }
@@ -188,13 +151,7 @@ public class CassandraSession
     private KeyspaceMetadata getCheckedKeyspaceMetadata(final String schema)
             throws SchemaNotFoundException
     {
-        KeyspaceMetadata keyspaceMetadata = executeWithSession(schema, new SessionCallable<KeyspaceMetadata>() {
-            @Override
-            public KeyspaceMetadata executeWithSession(Session session)
-            {
-                return session.getCluster().getMetadata().getKeyspace(schema);
-            }
-        });
+        KeyspaceMetadata keyspaceMetadata = executeWithSession(schema, session -> session.getCluster().getMetadata().getKeyspace(schema));
         if (keyspaceMetadata == null) {
             throw new SchemaNotFoundException(schema);
         }
@@ -383,13 +340,7 @@ public class CassandraSession
         ResultSetFuture countFuture;
         if (!fullPartitionKey) {
             final Select countAll = CassandraCqlUtils.selectCountAllFrom(tableHandle).limit(limitForPartitionKeySelect);
-            countFuture = executeWithSession(schemaName, new SessionCallable<ResultSetFuture>() {
-                @Override
-                public ResultSetFuture executeWithSession(Session session)
-                {
-                    return session.executeAsync(countAll);
-                }
-            });
+            countFuture = executeWithSession(schemaName, session -> session.executeAsync(countAll));
         }
         else {
             // no need to count if partition key is completely known
@@ -415,13 +366,7 @@ public class CassandraSession
             }
 
             addWhereClause(partitionKeys.where(), partitionKeyColumns, new ArrayList<>());
-            ResultSetFuture partitionKeyFuture = executeWithSession(schemaName, new SessionCallable<ResultSetFuture>() {
-                @Override
-                public ResultSetFuture executeWithSession(Session session)
-                {
-                    return session.executeAsync(partitionKeys);
-                }
-            });
+            ResultSetFuture partitionKeyFuture = executeWithSession(schemaName, session -> session.executeAsync(partitionKeys));
 
             long count = countFuture.getUninterruptibly().one().getLong(0);
             if (count == limitForPartitionKeySelect) {
@@ -434,15 +379,14 @@ public class CassandraSession
         }
         else {
             addWhereClause(partitionKeys.where(), partitionKeyColumns, filterPrefix);
-            ResultSetFuture partitionKeyFuture = executeWithSession(schemaName, new SessionCallable<ResultSetFuture>() {
-                @Override
-                public ResultSetFuture executeWithSession(Session session)
-                {
-                    return session.executeAsync(partitionKeys);
-                }
-            });
+            ResultSetFuture partitionKeyFuture = executeWithSession(schemaName, session -> session.executeAsync(partitionKeys));
             return partitionKeyFuture.getUninterruptibly();
         }
+    }
+
+    public <T> T executeWithSession(SessionCallable<T> sessionCallable)
+    {
+        return executeWithSession("", sessionCallable);
     }
 
     public <T> T executeWithSession(String schemaName, SessionCallable<T> sessionCallable)
@@ -464,7 +408,7 @@ public class CassandraSession
         throw lastException;
     }
 
-    private interface SessionCallable<T>
+    public interface SessionCallable<T>
     {
         T executeWithSession(Session session);
     }

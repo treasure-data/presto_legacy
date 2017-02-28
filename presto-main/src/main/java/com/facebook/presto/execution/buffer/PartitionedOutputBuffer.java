@@ -18,7 +18,6 @@ import com.facebook.presto.OutputBuffers.OutputBufferId;
 import com.facebook.presto.execution.StateMachine;
 import com.facebook.presto.execution.StateMachine.StateChangeListener;
 import com.facebook.presto.execution.SystemMemoryUsageListener;
-import com.facebook.presto.execution.buffer.ClientBuffer.SerializedPageReference;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.units.DataSize;
@@ -113,7 +112,6 @@ public class PartitionedOutputBuffer
         // always get the state first before any other stats
         BufferState state = this.state.get();
 
-        int totalBufferedBytes = 0;
         int totalBufferedPages = 0;
         ImmutableList.Builder<BufferInfo> infos = ImmutableList.builder();
         for (ClientBuffer partition : partitions) {
@@ -122,7 +120,6 @@ public class PartitionedOutputBuffer
 
             PageBufferInfo pageBufferInfo = bufferInfo.getPageBufferInfo();
             totalBufferedPages += pageBufferInfo.getBufferedPages();
-            totalBufferedBytes += pageBufferInfo.getBufferedBytes();
         }
 
         return new OutputBufferInfo(
@@ -130,7 +127,7 @@ public class PartitionedOutputBuffer
                 state,
                 state.canAddBuffers(),
                 state.canAddPages(),
-                totalBufferedBytes,
+                memoryManager.getBufferedBytes(),
                 totalBufferedPages,
                 totalRowsAdded.get(),
                 totalPagesAdded.get(),
@@ -250,11 +247,8 @@ public class PartitionedOutputBuffer
             return;
         }
 
-        for (ClientBuffer partition : partitions) {
-            if (!partition.isDestroyed()) {
-                return;
-            }
+        if (partitions.stream().allMatch(ClientBuffer::isDestroyed)) {
+            destroy();
         }
-        destroy();
     }
 }

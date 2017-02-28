@@ -28,14 +28,12 @@ import com.google.common.collect.ImmutableSet;
 
 import javax.inject.Inject;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static com.facebook.presto.cassandra.util.Types.checkType;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
@@ -65,7 +63,7 @@ public class CassandraSplitManager
     @Override
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transaction, ConnectorSession session, ConnectorTableLayoutHandle layout)
     {
-        CassandraTableLayoutHandle layoutHandle = checkType(layout, CassandraTableLayoutHandle.class, "layout");
+        CassandraTableLayoutHandle layoutHandle = (CassandraTableLayoutHandle) layout;
         CassandraTableHandle cassandraTableHandle = layoutHandle.getTable();
         List<CassandraPartition> partitions = layoutHandle.getPartitions().get();
 
@@ -94,13 +92,7 @@ public class CassandraSplitManager
         String tokenExpression = table.getTokenExpression();
 
         ImmutableList.Builder<ConnectorSplit> builder = ImmutableList.builder();
-        List<CassandraTokenSplitManager.TokenSplit> tokenSplits;
-        try {
-            tokenSplits = tokenSplitMgr.getSplits(schema, tableName);
-        }
-        catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        List<CassandraTokenSplitManager.TokenSplit> tokenSplits = tokenSplitMgr.getSplits(schema, tableName);
         for (CassandraTokenSplitManager.TokenSplit tokenSplit : tokenSplits) {
             String condition = buildTokenCondition(tokenExpression, tokenSplit.getStartToken(), tokenSplit.getEndToken());
             List<HostAddress> addresses = new HostAddressFactory().AddressNamesToHostAddressList(tokenSplit.getHosts());

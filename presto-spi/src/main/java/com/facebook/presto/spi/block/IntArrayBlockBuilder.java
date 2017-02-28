@@ -123,6 +123,12 @@ public class IntArrayBlockBuilder
     }
 
     @Override
+    public int getRegionSizeInBytes(int position, int length)
+    {
+        return intSaturatedCast((Integer.BYTES + Byte.BYTES) * (long) length);
+    }
+
+    @Override
     public int getRetainedSizeInBytes()
     {
         return retainedSizeInBytes;
@@ -132,12 +138,6 @@ public class IntArrayBlockBuilder
     public int getPositionCount()
     {
         return positionCount;
-    }
-
-    @Override
-    public int getLength(int position)
-    {
-        return Integer.BYTES;
     }
 
     @Override
