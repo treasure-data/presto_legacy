@@ -23,17 +23,24 @@ import com.facebook.presto.spi.PageIndexerFactory;
 import com.facebook.presto.spi.connector.ConnectorPageSinkProvider;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.type.TypeManager;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import io.airlift.json.JsonCodec;
 
 import javax.inject.Inject;
 
 import java.util.OptionalInt;
+import java.util.Set;
 
+import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
+import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class HivePageSinkProvider
         implements ConnectorPageSinkProvider
 {
+    private final Set<HiveFileWriterFactory> fileWriterFactories;
     private final HdfsEnvironment hdfsEnvironment;
     private final ExtendedHiveMetastore metastore;
     private final PageIndexerFactory pageIndexerFactory;
@@ -41,10 +48,12 @@ public class HivePageSinkProvider
     private final int maxOpenPartitions;
     private final boolean immutablePartitions;
     private final LocationService locationService;
+    private final ListeningExecutorService writeVerificationExecutor;
     private final JsonCodec<PartitionUpdate> partitionUpdateCodec;
 
     @Inject
     public HivePageSinkProvider(
+            Set<HiveFileWriterFactory> fileWriterFactories,
             HdfsEnvironment hdfsEnvironment,
             ExtendedHiveMetastore metastore,
             PageIndexerFactory pageIndexerFactory,
@@ -53,6 +62,7 @@ public class HivePageSinkProvider
             LocationService locationService,
             JsonCodec<PartitionUpdate> partitionUpdateCodec)
     {
+        this.fileWriterFactories = ImmutableSet.copyOf(requireNonNull(fileWriterFactories, "fileWriterFactories is null"));
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         // TODO: this metastore should not have global cache
         // As a temporary workaround, always disable cache on the workers
@@ -62,6 +72,7 @@ public class HivePageSinkProvider
         this.maxOpenPartitions = config.getMaxPartitionsPerWriter();
         this.immutablePartitions = config.isImmutablePartitions();
         this.locationService = requireNonNull(locationService, "locationService is null");
+        this.writeVerificationExecutor = listeningDecorator(newFixedThreadPool(config.getWriteValidationThreads(), daemonThreadsNamed("hive-write-validation-%s")));
         this.partitionUpdateCodec = requireNonNull(partitionUpdateCodec, "partitionUpdateCodec is null");
     }
 
@@ -84,6 +95,7 @@ public class HivePageSinkProvider
         OptionalInt bucketCount = handle.getBucketProperty().isPresent() ? OptionalInt.of(handle.getBucketProperty().get().getBucketCount()) : OptionalInt.empty();
 
         HiveWriterFactory writerFactory = new HiveWriterFactory(
+                fileWriterFactories,
                 handle.getSchemaName(),
                 handle.getTableName(),
                 isCreateTable,
@@ -108,6 +120,7 @@ public class HivePageSinkProvider
                 typeManager,
                 hdfsEnvironment,
                 maxOpenPartitions,
+                writeVerificationExecutor,
                 partitionUpdateCodec,
                 session);
     }

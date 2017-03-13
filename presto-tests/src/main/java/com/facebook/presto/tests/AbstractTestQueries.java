@@ -23,7 +23,6 @@ import com.facebook.presto.sql.analyzer.SemanticException;
 import com.facebook.presto.testing.Arguments;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
-import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.type.SqlIntervalDayTime;
 import com.facebook.presto.type.SqlIntervalYearMonth;
 import com.facebook.presto.util.DateTimeZoneIndex;
@@ -141,9 +140,9 @@ public abstract class AbstractTestQueries
                     99.0,
                     false));
 
-    protected AbstractTestQueries(QueryRunner queryRunner)
+    protected AbstractTestQueries(QueryRunnerSupplier supplier)
     {
-        super(queryRunner);
+        super(supplier);
     }
 
     @Test
@@ -2051,6 +2050,52 @@ public abstract class AbstractTestQueries
     public void testJoinWithConstantExpression()
     {
         assertQuery("SELECT COUNT(*) FROM lineitem JOIN orders ON lineitem.orderkey = orders.orderkey AND 123 = 123");
+    }
+
+    @Test
+    public void testJoinWithConstantFalseExpressionWithCoercion()
+    {
+        // Covers #7520
+
+        // Cannot use assertQuery because H2 behaves differently than Presto in CHAR(x) = CHAR(y) comparison, when x != y
+        // assertQuery("select (cast ('a' as char(1)) = cast ('a' as char(2)))") would fail
+        MaterializedResult actual = computeActual("select count(*) > 0 from nation join region on (cast('a' as char(1)) = cast('a' as char(2)))");
+
+        MaterializedResult expected = resultBuilder(getSession(), BOOLEAN)
+                .row(false)
+                .build();
+
+        assertEquals(actual, expected);
+    }
+
+    @Test
+    public void testJoinWithConstantTrueExpressionWithCoercion()
+    {
+        // Covers #7520
+        assertQuery("select count(*) > 0 from nation join region on (cast(1.2 as real) = cast(1.2 as decimal(2,1)))");
+    }
+
+    @Test
+    public void testJoinWithCanonicalizedConstantFalseExpressionWithCoercion()
+    {
+        // Covers #7520
+
+        // Cannot use assertQuery because H2 behaves differently than Presto in CHAR(x) = CHAR(y) comparison, when x != y
+        // assertQuery("select (cast ('a' as char(1)) = cast ('a' as char(2)))") would fail
+        MaterializedResult actual = computeActual("select count(*) > 0 from nation join region ON CAST((CASE WHEN (TRUE IS NOT NULL) THEN 'a' ELSE 'a' END) as char(1)) = CAST('a' as char(2))");
+
+        MaterializedResult expected = resultBuilder(getSession(), BOOLEAN)
+                .row(false)
+                .build();
+
+        assertEquals(actual, expected);
+    }
+
+    @Test
+    public void testJoinWithCanonicalizedConstantTrueExpressionWithCoercion()
+    {
+        // Covers #7520
+        assertQuery("select count(*) > 0 from nation join region ON CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) as real) = CAST(1.2 as decimal(2,1))");
     }
 
     @Test
@@ -5365,7 +5410,7 @@ public abstract class AbstractTestQueries
                         .put("connector_string", "bar string")
                         .put("connector_long", "11")
                         .build()),
-                queryRunner.getMetadata().getSessionPropertyManager(),
+                getQueryRunner().getMetadata().getSessionPropertyManager(),
                 getSession().getPreparedStatements());
         MaterializedResult result = computeActual(session, "SHOW SESSION");
 
