@@ -38,7 +38,6 @@ import com.facebook.presto.tests.DistributedQueryRunner;
 import com.facebook.presto.tpch.TpchPlugin;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -59,7 +58,7 @@ public class TestBeginQuery
     protected TestBeginQuery()
             throws Exception
     {
-        super(createQueryRunner());
+        super(TestBeginQuery::createQueryRunner);
     }
 
     private static QueryRunner createQueryRunner()
@@ -77,16 +76,10 @@ public class TestBeginQuery
             throws Exception
     {
         metadata = new TestMetadata();
-        queryRunner.installPlugin(new TestPlugin(metadata));
-        queryRunner.installPlugin(new TpchPlugin());
-        queryRunner.createCatalog("test", "test", ImmutableMap.of());
-        queryRunner.createCatalog("tpch", "tpch", ImmutableMap.of());
-    }
-
-    @AfterClass(alwaysRun = true)
-    private void tearDown()
-    {
-        queryRunner.close();
+        getQueryRunner().installPlugin(new TestPlugin(metadata));
+        getQueryRunner().installPlugin(new TpchPlugin());
+        getQueryRunner().createCatalog("test", "test", ImmutableMap.of());
+        getQueryRunner().createCatalog("tpch", "tpch", ImmutableMap.of());
     }
 
     @BeforeMethod

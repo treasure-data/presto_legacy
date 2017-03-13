@@ -14,6 +14,7 @@
 package com.facebook.presto.jdbc;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -25,6 +26,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
+import static java.lang.Integer.parseInt;
 import static java.util.Objects.requireNonNull;
 
 public class PrestoDatabaseMetaData
@@ -113,12 +115,7 @@ public class PrestoDatabaseMetaData
     public String getDatabaseProductVersion()
             throws SQLException
     {
-        try {
-            return connection.getServerInfo().getNodeVersion().getVersion();
-        }
-        catch (RuntimeException e) {
-            throw new SQLException("Error fetching version from server", e);
-        }
+        return connection.getServerInfo().getNodeVersion().getVersion();
     }
 
     @Override
@@ -138,13 +135,13 @@ public class PrestoDatabaseMetaData
     @Override
     public int getDriverMajorVersion()
     {
-        return PrestoDriver.VERSION_MAJOR;
+        return PrestoDriver.DRIVER_VERSION_MAJOR;
     }
 
     @Override
     public int getDriverMinorVersion()
     {
-        return PrestoDriver.VERSION_MINOR;
+        return PrestoDriver.DRIVER_VERSION_MINOR;
     }
 
     @Override
@@ -602,7 +599,7 @@ public class PrestoDatabaseMetaData
     public boolean supportsStoredProcedures()
             throws SQLException
     {
-        // TODO: support stored procedures
+        // TODO: support stored procedure escape syntax
         return false;
     }
 
@@ -610,16 +607,14 @@ public class PrestoDatabaseMetaData
     public boolean supportsSubqueriesInComparisons()
             throws SQLException
     {
-        // TODO: support subqueries in comparisons
-        return false;
+        return true;
     }
 
     @Override
     public boolean supportsSubqueriesInExists()
             throws SQLException
     {
-        // TODO: support EXISTS
-        return false;
+        return true;
     }
 
     @Override
@@ -633,16 +628,14 @@ public class PrestoDatabaseMetaData
     public boolean supportsSubqueriesInQuantifieds()
             throws SQLException
     {
-        // TODO: support subqueries in ANY/SOME/ALL predicates
-        return false;
+        return true;
     }
 
     @Override
     public boolean supportsCorrelatedSubqueries()
             throws SQLException
     {
-        // TODO: support correlated subqueries
-        return false;
+        return true;
     }
 
     @Override
@@ -844,23 +837,21 @@ public class PrestoDatabaseMetaData
     public int getDefaultTransactionIsolation()
             throws SQLException
     {
-        // TODO: support transactions
-        return Connection.TRANSACTION_NONE;
+        return Connection.TRANSACTION_READ_UNCOMMITTED;
     }
 
     @Override
     public boolean supportsTransactions()
             throws SQLException
     {
-        // TODO: support transactions
-        return false;
+        return true;
     }
 
     @Override
     public boolean supportsTransactionIsolationLevel(int level)
             throws SQLException
     {
-        return level == Connection.TRANSACTION_NONE;
+        return true;
     }
 
     @Override
@@ -1249,29 +1240,41 @@ public class PrestoDatabaseMetaData
     public int getDatabaseMajorVersion()
             throws SQLException
     {
-        // TODO: get version from server
-        return PrestoDriver.VERSION_MAJOR;
+        return getDatabaseVersionPart(0);
     }
 
     @Override
     public int getDatabaseMinorVersion()
             throws SQLException
     {
-        return PrestoDriver.VERSION_MINOR;
+        return getDatabaseVersionPart(1);
+    }
+
+    private int getDatabaseVersionPart(int part)
+            throws SQLException
+    {
+        String version = getDatabaseProductVersion();
+        List<String> parts = Splitter.on('.').limit(3).splitToList(version);
+        try {
+            return parseInt(parts.get(part));
+        }
+        catch (IndexOutOfBoundsException | NumberFormatException e) {
+            return 0;
+        }
     }
 
     @Override
     public int getJDBCMajorVersion()
             throws SQLException
     {
-        return PrestoDriver.JDBC_VERSION_MAJOR;
+        return 4;
     }
 
     @Override
     public int getJDBCMinorVersion()
             throws SQLException
     {
-        return PrestoDriver.JDBC_VERSION_MINOR;
+        return 2;
     }
 
     @Override
