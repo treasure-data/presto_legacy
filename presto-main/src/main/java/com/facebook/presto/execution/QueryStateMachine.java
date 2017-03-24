@@ -24,6 +24,7 @@ import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.spi.ErrorCode;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
+import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
 import com.facebook.presto.sql.planner.PlanFragment;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.transaction.TransactionId;
@@ -32,10 +33,14 @@ import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.net.URI;
@@ -64,7 +69,6 @@ import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
 import static com.facebook.presto.spi.StandardErrorCode.USER_CANCELED;
 import static com.facebook.presto.util.Failures.toFailure;
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.concurrent.MoreFutures.unwrapCompletionException;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.airlift.units.Duration.succinctNanos;
 import static java.util.Objects.requireNonNull;
@@ -127,7 +131,7 @@ public class QueryStateMachine
     private final AtomicReference<Optional<Output>> output = new AtomicReference<>(Optional.empty());
     private final StateMachine<Optional<QueryInfo>> finalQueryInfo;
 
-    private final AtomicReference<String> resourceGroup = new AtomicReference<>();
+    private final AtomicReference<ResourceGroupId> resourceGroup = new AtomicReference<>();
 
     private QueryStateMachine(QueryId queryId, String query, Session session, URI self, boolean autoCommit, TransactionManager transactionManager, Executor executor, Ticker ticker, Metadata metadata)
     {
@@ -250,13 +254,13 @@ public class QueryStateMachine
         }
     }
 
-    public void setResourceGroup(String group)
+    public void setResourceGroup(ResourceGroupId group)
     {
         requireNonNull(group, "group is null");
         resourceGroup.compareAndSet(null, group);
     }
 
-    public Optional<String> getResourceGroup()
+    public Optional<ResourceGroupId> getResourceGroup()
     {
         return Optional.ofNullable(resourceGroup.get());
     }
@@ -429,7 +433,7 @@ public class QueryStateMachine
                 inputs.get(),
                 output.get(),
                 completeInfo,
-                getResourceGroup());
+                getResourceGroup().map(ResourceGroupId::toString));
     }
 
     public VersionedMemoryPoolId getMemoryPool()
@@ -577,15 +581,21 @@ public class QueryStateMachine
         }
 
         if (autoCommit) {
-            transactionManager.asyncCommit(session.getTransactionId().get())
-                    .whenComplete((value, throwable) -> {
-                        if (throwable == null) {
-                            transitionToFinished();
-                        }
-                        else {
-                            transitionToFailed(unwrapCompletionException(throwable));
-                        }
-                    });
+            ListenableFuture<?> commitFuture = transactionManager.asyncCommit(session.getTransactionId().get());
+            Futures.addCallback(commitFuture, new FutureCallback<Object>()
+            {
+                @Override
+                public void onSuccess(@Nullable Object result)
+                {
+                    transitionToFinished();
+                }
+
+                @Override
+                public void onFailure(Throwable throwable)
+                {
+                    transitionToFailed(throwable);
+                }
+            });
         }
         else {
             transitionToFinished();
