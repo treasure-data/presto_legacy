@@ -92,7 +92,6 @@ import com.facebook.presto.type.RowType;
 import com.facebook.presto.util.maps.IdentityLinkedHashMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.SliceUtf8;
 
 import javax.annotation.Nullable;
@@ -143,10 +142,11 @@ import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.facebook.presto.util.DateTimeUtils.parseTimestampLiteral;
 import static com.facebook.presto.util.DateTimeUtils.timeHasTimeZone;
 import static com.facebook.presto.util.DateTimeUtils.timestampHasTimeZone;
-import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
+import static com.facebook.presto.util.MoreSets.newIdentityHashSet;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static java.lang.String.format;
 import static java.util.Collections.newSetFromMap;
@@ -220,7 +220,7 @@ public class ExpressionAnalyzer
 
     public Set<Expression> getColumnReferences()
     {
-        return ImmutableSet.copyOf(columnReferences);
+        return newIdentityHashSet(columnReferences);
     }
 
     public IdentityLinkedHashMap<Identifier, LambdaArgumentDeclaration> getLambdaArgumentReferences()

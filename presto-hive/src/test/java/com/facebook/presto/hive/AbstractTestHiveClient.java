@@ -81,7 +81,6 @@ import com.facebook.presto.testing.TestingConnectorSession;
 import com.facebook.presto.type.ArrayType;
 import com.facebook.presto.type.MapType;
 import com.facebook.presto.type.TypeRegistry;
-import com.facebook.presto.util.ImmutableCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -178,6 +177,7 @@ import static com.facebook.presto.testing.MaterializedResult.materializeSourceDa
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.Lists.newArrayList;
@@ -331,20 +331,6 @@ public abstract class AbstractTestHiveClient
     protected SchemaTableName tablePartitionSchemaChange;
     protected SchemaTableName tablePartitionSchemaChangeNonCanonical;
 
-    protected SchemaTableName temporaryCreateTable;
-    protected SchemaTableName temporaryCreateRollbackTable;
-    protected SchemaTableName temporaryCreateEmptyTable;
-    protected SchemaTableName temporaryInsertTable;
-    protected SchemaTableName temporaryInsertIntoNewPartitionTable;
-    protected SchemaTableName temporaryInsertIntoExistingPartitionTable;
-    protected SchemaTableName temporaryInsertUnsupportedWriteType;
-    protected SchemaTableName temporaryMetadataDeleteTable;
-    protected SchemaTableName temporaryRenameTableOld;
-    protected SchemaTableName temporaryRenameTableNew;
-    protected SchemaTableName temporaryCreateView;
-    protected SchemaTableName temporaryDeleteInsert;
-    protected SchemaTableName temporaryMismatchSchemaTable;
-
     protected String invalidClientId;
     protected ConnectorTableHandle invalidTableHandle;
 
@@ -406,20 +392,6 @@ public abstract class AbstractTestHiveClient
         tableBucketedDoubleFloat = new SchemaTableName(database, "presto_test_bucketed_by_double_float");
         tablePartitionSchemaChange = new SchemaTableName(database, "presto_test_partition_schema_change");
         tablePartitionSchemaChangeNonCanonical = new SchemaTableName(database, "presto_test_partition_schema_change_non_canonical");
-
-        temporaryCreateTable = temporaryTable("create");
-        temporaryCreateRollbackTable = temporaryTable("create_rollback");
-        temporaryCreateEmptyTable = temporaryTable("create_empty");
-        temporaryInsertTable = temporaryTable("insert");
-        temporaryInsertIntoExistingPartitionTable = temporaryTable("insert_existing_partitioned");
-        temporaryInsertIntoNewPartitionTable = temporaryTable("insert_new_partitioned");
-        temporaryInsertUnsupportedWriteType = temporaryTable("insert_unsupported_type");
-        temporaryMetadataDeleteTable = temporaryTable("metadata_delete");
-        temporaryRenameTableOld = temporaryTable("rename_old");
-        temporaryRenameTableNew = temporaryTable("rename_new");
-        temporaryCreateView = temporaryTable("create_view");
-        temporaryDeleteInsert = temporaryTable("delete_insert");
-        temporaryMismatchSchemaTable = temporaryTable("mismatch_schema");
 
         invalidClientId = "hive";
         invalidTableHandle = new HiveTableHandle(invalidClientId, database, INVALID_TABLE);
@@ -815,6 +787,7 @@ public abstract class AbstractTestHiveClient
             if (storageFormat == JSON) {
                 continue;
             }
+            SchemaTableName temporaryMismatchSchemaTable = temporaryTable("mismatch_schema");
             try {
                 doTestMismatchSchemaTable(
                         temporaryMismatchSchemaTable,
@@ -1664,6 +1637,8 @@ public abstract class AbstractTestHiveClient
     @Test
     public void testRenameTable()
     {
+        SchemaTableName temporaryRenameTableOld = temporaryTable("rename_old");
+        SchemaTableName temporaryRenameTableNew = temporaryTable("rename_new");
         try {
             createDummyTable(temporaryRenameTableOld);
 
@@ -1694,6 +1669,7 @@ public abstract class AbstractTestHiveClient
             throws Exception
     {
         for (HiveStorageFormat storageFormat : createTableFormats) {
+            SchemaTableName temporaryCreateTable = temporaryTable("create");
             try {
                 doCreateTable(temporaryCreateTable, storageFormat);
             }
@@ -1707,6 +1683,7 @@ public abstract class AbstractTestHiveClient
     public void testTableCreationRollback()
             throws Exception
     {
+        SchemaTableName temporaryCreateRollbackTable = temporaryTable("create_rollback");
         try {
             Path stagingPathRoot;
             try (Transaction transaction = newTransaction()) {
@@ -1751,6 +1728,7 @@ public abstract class AbstractTestHiveClient
             throws Exception
     {
         for (HiveStorageFormat storageFormat : createTableFormats) {
+            SchemaTableName temporaryInsertTable = temporaryTable("insert");
             try {
                 doInsert(storageFormat, temporaryInsertTable);
             }
@@ -1765,6 +1743,7 @@ public abstract class AbstractTestHiveClient
             throws Exception
     {
         for (HiveStorageFormat storageFormat : createTableFormats) {
+            SchemaTableName temporaryInsertIntoNewPartitionTable = temporaryTable("insert_new_partitioned");
             try {
                 doInsertIntoNewPartition(storageFormat, temporaryInsertIntoNewPartitionTable);
             }
@@ -1779,6 +1758,7 @@ public abstract class AbstractTestHiveClient
             throws Exception
     {
         for (HiveStorageFormat storageFormat : createTableFormats) {
+            SchemaTableName temporaryInsertIntoExistingPartitionTable = temporaryTable("insert_existing_partitioned");
             try {
                 doInsertIntoExistingPartition(storageFormat, temporaryInsertIntoExistingPartitionTable);
             }
@@ -1792,6 +1772,7 @@ public abstract class AbstractTestHiveClient
     public void testInsertUnsupportedWriteType()
             throws Exception
     {
+        SchemaTableName temporaryInsertUnsupportedWriteType = temporaryTable("insert_unsupported_type");
         try {
             doInsertUnsupportedWriteType(ORC, temporaryInsertUnsupportedWriteType);
         }
@@ -1805,6 +1786,7 @@ public abstract class AbstractTestHiveClient
             throws Exception
     {
         for (HiveStorageFormat storageFormat : createTableFormats) {
+            SchemaTableName temporaryMetadataDeleteTable = temporaryTable("metadata_delete");
             try {
                 doTestMetadataDelete(storageFormat, temporaryMetadataDeleteTable);
             }
@@ -1819,6 +1801,7 @@ public abstract class AbstractTestHiveClient
             throws Exception
     {
         for (HiveStorageFormat storageFormat : createTableFormats) {
+            SchemaTableName temporaryCreateEmptyTable = temporaryTable("create_empty");
             try {
                 doCreateEmptyTable(temporaryCreateEmptyTable, storageFormat, CREATE_TABLE_COLUMNS);
             }
@@ -1831,8 +1814,9 @@ public abstract class AbstractTestHiveClient
     @Test
     public void testViewCreation()
     {
+        SchemaTableName temporaryCreateView = temporaryTable("create_view");
         try {
-            verifyViewCreation();
+            verifyViewCreation(temporaryCreateView);
         }
         finally {
             try (Transaction transaction = newTransaction()) {
@@ -1879,7 +1863,7 @@ public abstract class AbstractTestHiveClient
         }
     }
 
-    private void verifyViewCreation()
+    private void verifyViewCreation(SchemaTableName temporaryCreateView)
     {
         // replace works for new view
         doCreateView(temporaryCreateView, true);
@@ -2513,7 +2497,7 @@ public abstract class AbstractTestHiveClient
             session = newSession();
             ImmutableList<MaterializedRow> expectedRows = expectedResultBuilder.build().getMaterializedRows().stream()
                     .filter(row -> !"2015-07-03".equals(row.getField(dsColumnOrdinalPosition)))
-                    .collect(ImmutableCollectors.toImmutableList());
+                    .collect(toImmutableList());
             MaterializedResult actualAfterDelete = readTable(transaction, tableHandle, columnHandles, session, TupleDomain.all(), OptionalInt.empty(), Optional.of(storageFormat));
             assertEqualsIgnoreOrder(actualAfterDelete.getMaterializedRows(), expectedRows);
         }
@@ -3146,31 +3130,25 @@ public abstract class AbstractTestHiveClient
     public void testTransactionDeleteInsert()
             throws Exception
     {
-        try {
-            doTestTransactionDeleteInsert(
-                    RCBINARY,
-                    temporaryDeleteInsert,
-                    true,
-                    ImmutableList.<TransactionDeleteInsertTestCase>builder()
-                            .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_RIGHT_AWAY, Optional.empty()))
-                            .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_DELETE, Optional.empty()))
-                            .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_BEGIN_INSERT, Optional.empty()))
-                            .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_APPEND_PAGE, Optional.empty()))
-                            .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_SINK_FINISH, Optional.empty()))
-                            .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_FINISH_INSERT, Optional.empty()))
-                            .add(new TransactionDeleteInsertTestCase(false, false, COMMIT, Optional.of(new AddPartitionFailure())))
-                            .add(new TransactionDeleteInsertTestCase(false, false, COMMIT, Optional.of(new DirectoryRenameFailure())))
-                            .add(new TransactionDeleteInsertTestCase(false, false, COMMIT, Optional.of(new FileRenameFailure())))
-                            .add(new TransactionDeleteInsertTestCase(true, false, COMMIT, Optional.of(new DropPartitionFailure())))
-                            .add(new TransactionDeleteInsertTestCase(true, true, COMMIT, Optional.empty()))
-                            .build());
-        }
-        finally {
-            dropTable(temporaryDeleteInsert);
-        }
+        doTestTransactionDeleteInsert(
+                RCBINARY,
+                true,
+                ImmutableList.<TransactionDeleteInsertTestCase>builder()
+                        .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_RIGHT_AWAY, Optional.empty()))
+                        .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_DELETE, Optional.empty()))
+                        .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_BEGIN_INSERT, Optional.empty()))
+                        .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_APPEND_PAGE, Optional.empty()))
+                        .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_SINK_FINISH, Optional.empty()))
+                        .add(new TransactionDeleteInsertTestCase(false, false, ROLLBACK_AFTER_FINISH_INSERT, Optional.empty()))
+                        .add(new TransactionDeleteInsertTestCase(false, false, COMMIT, Optional.of(new AddPartitionFailure())))
+                        .add(new TransactionDeleteInsertTestCase(false, false, COMMIT, Optional.of(new DirectoryRenameFailure())))
+                        .add(new TransactionDeleteInsertTestCase(false, false, COMMIT, Optional.of(new FileRenameFailure())))
+                        .add(new TransactionDeleteInsertTestCase(true, false, COMMIT, Optional.of(new DropPartitionFailure())))
+                        .add(new TransactionDeleteInsertTestCase(true, true, COMMIT, Optional.empty()))
+                        .build());
     }
 
-    protected void doTestTransactionDeleteInsert(HiveStorageFormat storageFormat, SchemaTableName tableName, boolean allowInsertExisting, List<TransactionDeleteInsertTestCase> testCases)
+    protected void doTestTransactionDeleteInsert(HiveStorageFormat storageFormat, boolean allowInsertExisting, List<TransactionDeleteInsertTestCase> testCases)
             throws Exception
     {
         // There are 4 types of operations on a partition: add, drop, alter (drop then add), insert existing.
@@ -3219,35 +3197,32 @@ public abstract class AbstractTestHiveClient
                         .rows(insertData.getMaterializedRows())
                         .build();
 
-        boolean dirtyState = true;
         for (TransactionDeleteInsertTestCase testCase : testCases) {
-            if (dirtyState) {
-                // re-initialize the table
-                dropTable(tableName);
+            SchemaTableName temporaryDeleteInsert = temporaryTable("delete_insert");
+            try {
                 createEmptyTable(
-                        tableName,
+                        temporaryDeleteInsert,
                         storageFormat,
                         ImmutableList.of(new Column("col1", HIVE_LONG, Optional.empty())),
                         ImmutableList.of(new Column("pk1", HIVE_STRING, Optional.empty()), new Column("pk2", HIVE_STRING, Optional.empty())));
-                insertData(tableName, beforeData);
-                dirtyState = false;
+                insertData(temporaryDeleteInsert, beforeData);
+                try {
+                    doTestTransactionDeleteInsert(
+                            storageFormat,
+                            temporaryDeleteInsert,
+                            domainToDrop,
+                            insertData,
+                            testCase.isExpectCommitedData() ? afterData : beforeData,
+                            testCase.getTag(),
+                            testCase.isExpectQuerySucceed(),
+                            testCase.getConflictTrigger());
+                }
+                catch (AssertionError e) {
+                    throw new AssertionError(format("Test case: %s", testCase.toString()), e);
+                }
             }
-            try {
-                doTestTransactionDeleteInsert(
-                        storageFormat,
-                        tableName,
-                        domainToDrop,
-                        insertData,
-                        testCase.isExpectCommitedData() ? afterData : beforeData,
-                        testCase.getTag(),
-                        testCase.isExpectQuerySucceed(),
-                        testCase.getConflictTrigger());
-            }
-            catch (AssertionError e) {
-                throw new AssertionError(format("Test case: %s", testCase.toString()), e);
-            }
-            if (testCase.isExpectCommitedData()) {
-                dirtyState = true;
+            finally {
+                dropTable(temporaryDeleteInsert);
             }
         }
     }
