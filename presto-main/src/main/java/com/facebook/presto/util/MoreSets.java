@@ -11,21 +11,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.spiller;
+package com.facebook.presto.util;
 
-import org.weakref.jmx.Managed;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Set;
 
-public abstract class SpillerFactoryWithStats
-        implements SpillerFactory
+import static java.util.Objects.requireNonNull;
+
+public class MoreSets
 {
-    protected final AtomicLong totalSpilledBytes = new AtomicLong();
+    private MoreSets() {}
 
-    @Override
-    @Managed
-    public long getTotalSpilledBytes()
+    public static <T> Set<T> newIdentityHashSet()
     {
-        return totalSpilledBytes.get();
+        return Sets.newIdentityHashSet();
+    }
+
+    public static <T> Set<T> newIdentityHashSet(Iterable<T> elements)
+    {
+        Set<T> set = newIdentityHashSet();
+        Iterables.addAll(set, requireNonNull(elements, "elements cannot be null"));
+        return set;
     }
 }
