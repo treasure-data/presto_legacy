@@ -51,7 +51,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -2121,6 +2120,17 @@ public abstract class AbstractTestQueries
     {
         assertQuery("SELECT n.nationkey, r.regionkey FROM region r JOIN nation n ON n.regionkey = r.regionkey AND n.name < r.name");
         assertQuery("SELECT l.suppkey, n.nationkey, l.partkey, n.regionkey FROM nation n JOIN lineitem l ON l.suppkey = n.nationkey AND l.partkey < n.regionkey");
+        // test with single null value in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, CAST(-1 AS BIGINT)), (0, NULL), (0, CAST(0 AS BIGINT))) t(a, b) WHERE n.regionkey - 100 < t.b AND n.nationkey = t.a",
+                "VALUES -1, 0");
+        // test with single (first) null value in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, NULL), (0, CAST(-1 AS BIGINT)), (0, CAST(0 AS BIGINT))) t(a, b) WHERE n.regionkey - 100 < t.b AND n.nationkey = t.a",
+                "VALUES -1, 0");
+        // test with multiple null values in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, NULL), (0, NULL), (0, CAST(-1 AS BIGINT)), (0, NULL)) t(a, b) WHERE n.regionkey - 100 < t.b AND n.nationkey = t.a",
+                "VALUES -1");
+        // test with only null value in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, NULL)) t(a, b) WHERE n.regionkey - 100 < t.b AND n.nationkey = t.a", "SELECT 1 WHERE FALSE");
     }
 
     @Test
@@ -2129,6 +2139,17 @@ public abstract class AbstractTestQueries
     {
         assertQuery("SELECT n.nationkey, r.regionkey FROM region r JOIN nation n ON n.regionkey = r.regionkey AND n.name > r.name AND r.regionkey = 0");
         assertQuery("SELECT l.suppkey, n.nationkey, l.partkey, n.regionkey FROM nation n JOIN lineitem l ON l.suppkey = n.nationkey AND l.partkey > n.regionkey");
+        // test with single null value in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, CAST(-1 AS BIGINT)), (0, NULL), (0, CAST(0 AS BIGINT))) t(a, b) WHERE n.regionkey + 100 > t.b AND n.nationkey = t.a",
+                "VALUES -1, 0");
+        // test with single (first) null value in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, NULL), (0, CAST(-1 AS BIGINT)), (0, CAST(0 AS BIGINT))) t(a, b) WHERE n.regionkey + 100 > t.b AND n.nationkey = t.a",
+                "VALUES -1, 0");
+        // test with multiple null values in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, NULL), (0, NULL), (0, CAST(-1 AS BIGINT)), (0, NULL)) t(a, b) WHERE n.regionkey + 100 > t.b AND n.nationkey = t.a",
+                "VALUES -1");
+        // test with only null value in build side
+        assertQuery("SELECT b FROM nation n, (VALUES (0, NULL)) t(a, b) WHERE n.regionkey + 100 > t.b AND n.nationkey = t.a", "SELECT 1 WHERE FALSE");
     }
 
     @Test
@@ -2138,6 +2159,27 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON l.orderkey = o.orderkey AND l.shipdate < o.orderdate + INTERVAL '10' DAY",
                 "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON l.orderkey = o.orderkey AND l.shipdate < DATEADD('DAY', 10, o.orderdate)");
+    }
+
+    @Test
+    public void testJoinWithNonDeterministicLessThan()
+    {
+        MaterializedRow actualRow = getOnlyElement(computeActual(
+                "SELECT count(*) FROM " +
+                        "customer c1 JOIN customer c2 ON c1.nationkey=c2.nationkey " +
+                        "WHERE c1.custkey - RANDOM(c1.custkey) < c2.custkey").getMaterializedRows());
+        assertEquals(actualRow.getFieldCount(), 1);
+        long actualCount = (Long) actualRow.getField(0); // this should be around ~69000
+
+        MaterializedRow expectedAtLeastRow = getOnlyElement(computeActual(
+                "SELECT count(*) FROM " +
+                        "customer c1 JOIN customer c2 ON c1.nationkey=c2.nationkey " +
+                        "WHERE c1.custkey < c2.custkey").getMaterializedRows());
+        assertEquals(expectedAtLeastRow.getFieldCount(), 1);
+        long expectedAtLeastCount = (Long) expectedAtLeastRow.getField(0); // this is exactly 45022
+
+        // Technically non-deterministic unit test but has hopefully a next to impossible chance of a false positive
+        assertTrue(actualCount > expectedAtLeastCount);
     }
 
     @Test
@@ -5111,11 +5153,18 @@ public abstract class AbstractTestQueries
     }
 
     @Test
-    public void testNullOnLhsOfInPredicateDisallowed()
+    public void testNullOnLhsOfInPredicateAllowed()
     {
-        String errorMessage = "\\QNULL values are not allowed on the probe side of SemiJoin operator\\E.*";
-        assertQueryFails("SELECT NULL IN (SELECT 1)", errorMessage);
-        assertQueryFails("SELECT x FROM (VALUES NULL) t(x) WHERE x IN (SELECT 1)", errorMessage);
+        assertQuery("SELECT NULL IN (1, 2, 3)", "SELECT NULL");
+        assertQuery("SELECT NULL IN (SELECT 1)", "SELECT NULL");
+        assertQuery("SELECT NULL IN (SELECT 1 WHERE FALSE)", "SELECT FALSE");
+        assertQuery("SELECT x FROM (VALUES NULL) t(x) WHERE x IN (SELECT 1)", "SELECT 33 WHERE FALSE");
+        assertQuery("SELECT NULL IN (SELECT CAST(NULL AS BIGINT))", "SELECT NULL");
+        assertQuery("SELECT NULL IN (SELECT NULL WHERE FALSE)", "SELECT FALSE");
+        assertQuery("SELECT NULL IN ((SELECT 1) UNION ALL (SELECT NULL))", "SELECT NULL");
+        assertQuery("SELECT x IN (SELECT TRUE) FROM (SELECT * FROM (VALUES CAST(NULL AS BOOLEAN)) t(x) WHERE (x OR NULL) IS NULL)", "SELECT NULL");
+        assertQuery("SELECT x IN (SELECT 1) FROM (SELECT * FROM (VALUES CAST(NULL AS INTEGER)) t(x) WHERE (x + 10 IS NULL) OR X = 2)", "SELECT NULL");
+        assertQuery("SELECT x IN (SELECT 1 WHERE FALSE) FROM (SELECT * FROM (VALUES CAST(NULL AS INTEGER)) t(x) WHERE (x + 10 IS NULL) OR X = 2)", "SELECT FALSE");
     }
 
     @Test
@@ -5496,6 +5545,48 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testShowStatsWithoutFromFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT 1)", ".*There must be exactly one table in query passed to SHOW STATS SELECT clause");
+    }
+
+    @Test
+    public void testShowStatsWithMultipleFromFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT * FROM orders, lineitem)", ".*There must be exactly one table in query passed to SHOW STATS SELECT clause");
+    }
+
+    @Test
+    public void testShowStatsWithGroupByFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT avg(totalprice) FROM orders GROUP BY clerk)", ".*GROUP BY is not supported in SHOW STATS SELECT clause");
+    }
+
+    @Test
+    public void testShowStatsWithHavingFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT avg(orderkey) FROM orders HAVING avg(orderkey) < 5)", ".*HAVING is not supported in SHOW STATS SELECT clause");
+    }
+
+    @Test
+    public void testShowStatsWithSelectDistinctFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT DISTINCT * FROM orders)", ".*DISTINCT is not supported by SHOW STATS SELECT clause");
+    }
+
+    @Test
+    public void testShowStatsWithSelectFunctionCallFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT sin(orderkey) FROM orders)", ".*Only \\* and column references are supported by SHOW STATS SELECT clause");
+    }
+
+    @Test
+    public void testShowStatsWithWhereFunctionCallFails()
+    {
+        assertQueryFails("SHOW STATS FOR (SELECT orderkey FROM orders WHERE sin(orderkey) > 0)", ".*Only literals, column references, comparators, is \\(not\\) null and logical operators are allowed in WHERE of SHOW STATS SELECT clause");
+    }
+
+    @Test
     public void testAtTimeZone()
     {
         assertQuery("SELECT TIMESTAMP '2012-10-31 01:00' AT TIME ZONE INTERVAL '07:09' hour to minute", "SELECT TIMESTAMP '2012-10-30 18:00:00.000 America/Los_Angeles'");
@@ -5778,6 +5869,18 @@ public abstract class AbstractTestQueries
     {
         assertQueryOrdered(
                 "SELECT orderkey FROM orders UNION (SELECT custkey FROM orders UNION SELECT linenumber FROM lineitem) UNION ALL SELECT orderkey FROM lineitem ORDER BY orderkey");
+    }
+
+    @Test
+    public void testUnionWithTopN()
+    {
+        assertQuery("SELECT * FROM (" +
+                "   SELECT regionkey FROM nation " +
+                "   UNION ALL " +
+                "   SELECT nationkey FROM nation" +
+                ") t(a) " +
+                "ORDER BY a LIMIT 1",
+                "SELECT 0");
     }
 
     @Test
@@ -6208,7 +6311,7 @@ public abstract class AbstractTestQueries
         // test multi level IN subqueries
         assertQuery("SELECT 1 IN (SELECT 1), 2 IN (SELECT 1) WHERE 1 IN (SELECT 1)");
 
-         // test with subqueries on left
+        // test with subqueries on left
         assertQuery("SELECT (select 1) IN (SELECT 1)");
         assertQuery("SELECT (select 2) IN (1, (SELECT 2))");
         assertQuery("SELECT (2 + (select 1)) IN (SELECT 1)");
@@ -6295,6 +6398,18 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testAntiJoinNullHandling()
+    {
+        assertQuery("WITH empty AS (SELECT 1 WHERE FALSE) " +
+                        "SELECT 3 FROM (VALUES 1) WHERE NULL NOT IN (SELECT * FROM empty)",
+                "VALUES 3");
+
+        assertQuery("WITH empty AS (SELECT 1 WHERE FALSE) " +
+                        "SELECT x FROM (VALUES NULL) t(x) WHERE x NOT IN (SELECT * FROM empty)",
+                "VALUES NULL");
+    }
+
+    @Test
     public void testSemiJoinLimitPushDown()
     {
         assertQuery("" +
@@ -6309,10 +6424,13 @@ public abstract class AbstractTestQueries
                 "  LIMIT 10)");
     }
 
-    //Disabled till #6622 is fixed
-    @Test(enabled = false)
+    @Test
     public void testSemiJoinNullHandling()
     {
+        assertQuery("WITH empty AS (SELECT 1 WHERE FALSE) " +
+                        "SELECT 3 FROM (VALUES 1) WHERE NULL IN (SELECT * FROM empty)",
+                "SELECT 0 WHERE FALSE");
+
         assertQuery("" +
                 "SELECT orderkey\n" +
                 "  IN (\n" +
@@ -6890,6 +7008,12 @@ public abstract class AbstractTestQueries
                 " FROM nation n3 " +
                 " WHERE n3.nationkey = n1.nationkey)" +
                 "FROM nation n1");
+
+        //count in subquery
+        assertQuery("SELECT * " +
+                "FROM (VALUES (0),( 1), (2), (7)) as v1(c1) " +
+                "WHERE v1.c1 > (SELECT count(c1) from (VALUES (0),( 1), (2)) as v2(c1) WHERE v1.c1 = v2.c1)",
+                "VALUES (2), (7)");
     }
 
     @Test
@@ -6994,6 +7118,12 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT count(*) FROM orders o WHERE (SELECT * FROM (SELECT EXISTS(SELECT 1 WHERE o.orderkey = 0)))",
                 "SELECT count(*) FROM orders o WHERE o.orderkey = 0");
+
+        // not exists
+        assertQuery(
+                "SELECT count(*) FROM customer WHERE NOT EXISTS(SELECT * FROM orders WHERE orders.custkey=customer.custkey)",
+                "VALUES 500"
+        );
     }
 
     @Test
@@ -8307,17 +8437,7 @@ public abstract class AbstractTestQueries
                         parameter("quantifier").of("ALL", "ANY"),
                         parameter("value").of("1", "NULL"),
                         parameter("operator").of("=", "!=", "<", ">", "<=", ">="));
-        //the following are disabled till #6622 is fixed
-        List<String> excludedInPredicateQueries = ImmutableList.of(
-                "SELECT NULL != ALL (SELECT * FROM (SELECT 1 WHERE false))",
-                "SELECT NULL = ANY (SELECT * FROM (SELECT 1 WHERE false))",
-                "SELECT NULL != ALL (SELECT * FROM (SELECT CAST(NULL AS INTEGER)))",
-                "SELECT NULL = ANY (SELECT * FROM (SELECT CAST(NULL AS INTEGER)))",
-                "SELECT NULL = ANY (SELECT * FROM (VALUES (1), (NULL)))",
-                "SELECT NULL != ALL (SELECT * FROM (VALUES (1), (NULL)))"
-        );
-        Predicate<String> isExcluded = excludedInPredicateQueries::contains;
-        return toArgumentsArrays(queries.filter(isExcluded.negate()).map(Arguments::of));
+        return toArgumentsArrays(queries.map(Arguments::of));
     }
 
     @Test
@@ -8504,5 +8624,50 @@ public abstract class AbstractTestQueries
                         "       FROM (" + unionLineitem50Times + ")) o(c)) result(a) " +
                         "WHERE a = 1)",
                 "VALUES 3008750");
+    }
+
+    @Test
+    public void testAggregationPushedBelowOuterJoin()
+    {
+        assertQuery(
+                "SELECT * " +
+                        "FROM nation n1 " +
+                        "WHERE (n1.nationkey > ( " +
+                        "SELECT avg(nationkey) " +
+                        "FROM nation n2 " +
+                        "WHERE n1.regionkey=n2.regionkey))"
+        );
+        assertQuery(
+                "SELECT max(name), min(name), count(nationkey) + 1, count(nationkey) " +
+                        "FROM (SELECT DISTINCT regionkey FROM region) as r1 " +
+                        "LEFT JOIN " +
+                        "nation " +
+                        "ON r1.regionkey = nation.regionkey " +
+                        "GROUP BY r1.regionkey " +
+                        "HAVING sum(nationkey) < 20");
+
+        assertQuery(
+                "SELECT DISTINCT r1.regionkey " +
+                        "FROM (SELECT regionkey FROM region INTERSECT SELECT regionkey FROM region where regionkey < 4) as r1 " +
+                        "LEFT JOIN " +
+                        "nation " +
+                        "ON r1.regionkey = nation.regionkey");
+
+        assertQuery(
+                "SELECT max(nationkey) " +
+                        "FROM (SELECT regionkey FROM region EXCEPT SELECT regionkey FROM region where regionkey < 4) as r1 " +
+                        "LEFT JOIN " +
+                        "nation " +
+                        "ON r1.regionkey = nation.regionkey " +
+                        "GROUP BY r1.regionkey");
+
+        assertQuery(
+                "SELECT max(nationkey) " +
+                        "FROM (VALUES CAST (1 AS BIGINT)) v1(col1) " +
+                        "LEFT JOIN " +
+                        "nation " +
+                        "ON v1.col1 = nation.regionkey " +
+                        "GROUP BY v1.col1",
+                "VALUES 24");
     }
 }

@@ -276,7 +276,7 @@ public class UnaliasSymbolReferences
                     node.getPartitioningScheme().getPartitioning().translate(this::canonicalize),
                     outputs.build(),
                     canonicalize(node.getPartitioningScheme().getHashColumn()),
-                    node.getPartitioningScheme().isReplicateNulls(),
+                    node.getPartitioningScheme().isReplicateNullsAndAny(),
                     node.getPartitioningScheme().getBucketToPartition());
 
             return new ExchangeNode(node.getId(), node.getType(), node.getScope(), partitioningScheme, sources, inputs);
@@ -444,15 +444,8 @@ public class UnaliasSymbolReferences
         {
             PlanNode source = context.rewrite(node.getSource());
 
-            ImmutableList.Builder<Symbol> symbols = ImmutableList.builder();
-            ImmutableMap.Builder<Symbol, SortOrder> orderings = ImmutableMap.builder();
-            for (Symbol symbol : node.getOrderBy()) {
-                Symbol canonical = canonicalize(symbol);
-                symbols.add(canonical);
-                orderings.put(canonical, node.getOrderings().get(symbol));
-            }
-
-            return new TopNNode(node.getId(), source, node.getCount(), symbols.build(), orderings.build(), node.isPartial());
+            SymbolMapper mapper = new SymbolMapper(mapping);
+            return mapper.map(node, source, node.getId());
         }
 
         @Override
@@ -733,7 +726,7 @@ public class UnaliasSymbolReferences
                     scheme.getPartitioning().translate(this::canonicalize),
                     outputs.build(),
                     canonicalize(scheme.getHashColumn()),
-                    scheme.isReplicateNulls(),
+                    scheme.isReplicateNullsAndAny(),
                     scheme.getBucketToPartition());
         }
     }
