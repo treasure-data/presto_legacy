@@ -11,9 +11,9 @@ machine:
 
 dependencies:
   pre:
-    # install 8u92
+    # install 8u131
     - mkdir -p $(dirname $JAVA_HOME)
-    - test -d $JAVA_HOME || curl -L -C - -b "oraclelicense=accept-securebackup-cookie" http://download.oracle.com/otn-pub/java/jdk/8u92-b14/jdk-8u92-linux-x64.tar.gz | tar zxvf - -C $(dirname $JAVA_HOME)
+    - test -d $JAVA_HOME || curl -L -C - -b "oraclelicense=accept-securebackup-cookie" http://download.oracle.com/otn-pub/java/jdk/8u131-b11/d54c1d3a095b4ff2b6607d096fa80163/jdk-8u131-linux-x64.tar.gz | tar zxvf - -C $(dirname $JAVA_HOME)
   override:
     # Assign a unique version number to the modules
     - rake update-pom
