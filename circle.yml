@@ -6,8 +6,8 @@ machine:
     version: oraclejdk8
   environment:
     _JAVA_OPTIONS: -Xmx4g -XX:ReservedCodeCacheSize=300M -XX:MaxPermSize=300M -XX:InitiatingHeapOccupancyPercent=30
-    JAVA_HOME: $HOME/.java/jdk1.8.0_92
-    PATH:    $HOME/.java/jdk1.8.0_92/bin::$PATH
+    JAVA_HOME: $HOME/.java/jdk1.8.0_131
+    PATH:    $HOME/.java/jdk1.8.0_131/bin::$PATH
 
 dependencies:
   pre:
