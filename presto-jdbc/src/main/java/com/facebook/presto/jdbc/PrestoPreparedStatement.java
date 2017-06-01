@@ -13,6 +13,21 @@
  */
 package com.facebook.presto.jdbc;
 
+import com.facebook.presto.sql.SqlFormatter;
+import com.facebook.presto.sql.parser.IdentifierSymbol;
+import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.parser.SqlParserOptions;
+import com.facebook.presto.sql.tree.BooleanLiteral;
+import com.facebook.presto.sql.tree.DecimalLiteral;
+import com.facebook.presto.sql.tree.DoubleLiteral;
+import com.facebook.presto.sql.tree.Literal;
+import com.facebook.presto.sql.tree.LongLiteral;
+import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.StringLiteral;
+import com.facebook.presto.sql.tree.TimeLiteral;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.ISODateTimeFormat;
+
 import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
@@ -31,25 +46,63 @@ import java.sql.RowId;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLXML;
+import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class PrestoPreparedStatement
         extends PrestoStatement
         implements PreparedStatement
 {
+    private static final DateTimeFormatter ISO8601_DATE_FORMATTER = ISODateTimeFormat.date();
+    private static final DateTimeFormatter ISO8601_TIME_FORMATTER = ISODateTimeFormat.dateTime();
+
+    private final String sql;
+    private final SqlParser parser;
+    private final Map<Integer, Literal> parameters = new HashMap<>();
+
     PrestoPreparedStatement(PrestoConnection connection, String sql)
             throws SQLException
     {
         super(connection);
+        this.sql = sql;
+        this.parser = new SqlParser(new SqlParserOptions().allowIdentifierSymbol(EnumSet.allOf(IdentifierSymbol.class)));
     }
 
     @Override
     public ResultSet executeQuery()
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "executeQuery");
+        List<Literal> list = new ArrayList<>();
+        for (int idx = 0; idx < parameters.size(); ++idx) {
+            Literal value = parameters.get(Integer.valueOf(idx));
+            if (value == null) {
+                throw new SQLException(String.format("No value specified for parameter %d", idx + 1));
+            }
+            list.add(value);
+        }
+
+        PlaceholderContext ctx = PlaceholderContext.scan(parser, sql);
+        String newSql = SqlFormatter.formatSql(ctx.rewrite(list));
+        try (Statement statement = getConnection().createStatement()) {
+            return statement.executeQuery(newSql);
+        }
+    }
+
+    private void setParameter(int parameterIndex, Literal literal)
+            throws SQLException
+    {
+        if (parameterIndex < 1) {
+            throw new SQLException("Parameter index out of bound: " + (parameterIndex + 1));
+        }
+        parameters.put(parameterIndex - 1, literal);
     }
 
     @Override
@@ -63,14 +116,14 @@ public class PrestoPreparedStatement
     public void setNull(int parameterIndex, int sqlType)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setNull");
+        setParameter(parameterIndex, new NullLiteral());
     }
 
     @Override
     public void setBoolean(int parameterIndex, boolean x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setBoolean");
+        setParameter(parameterIndex, new BooleanLiteral(String.valueOf(x)));
     }
 
     @Override
@@ -84,49 +137,49 @@ public class PrestoPreparedStatement
     public void setShort(int parameterIndex, short x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setShort");
+        setParameter(parameterIndex, new LongLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setInt(int parameterIndex, int x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setInt");
+        setParameter(parameterIndex, new LongLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setLong(int parameterIndex, long x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setLong");
+        setParameter(parameterIndex, new LongLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setFloat(int parameterIndex, float x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setFloat");
+        setParameter(parameterIndex, new DoubleLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setDouble(int parameterIndex, double x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setDouble");
+        setParameter(parameterIndex, new DoubleLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setBigDecimal(int parameterIndex, BigDecimal x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setBigDecimal");
+        setParameter(parameterIndex, new DecimalLiteral(String.valueOf(x)));
     }
 
     @Override
     public void setString(int parameterIndex, String x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setString");
+        setParameter(parameterIndex, new StringLiteral(x));
     }
 
     @Override
@@ -140,21 +193,21 @@ public class PrestoPreparedStatement
     public void setDate(int parameterIndex, Date x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setDate");
+        setParameter(parameterIndex, new TimeLiteral(ISO8601_DATE_FORMATTER.print(x.getTime())));
     }
 
     @Override
     public void setTime(int parameterIndex, Time x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setTime");
+        setParameter(parameterIndex, new TimeLiteral(ISO8601_TIME_FORMATTER.print(x.getTime())));
     }
 
     @Override
     public void setTimestamp(int parameterIndex, Timestamp x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setTimestamp");
+        setParameter(parameterIndex, new TimeLiteral(ISO8601_TIME_FORMATTER.print(x.getTime())));
     }
 
     @Override
@@ -182,21 +235,126 @@ public class PrestoPreparedStatement
     public void clearParameters()
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "clearParameters");
+        parameters.clear();
     }
 
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setObject");
+        switch (targetSqlType) {
+            case Types.NULL:
+                setNull(parameterIndex, targetSqlType);
+                break;
+            case Types.TINYINT:
+            case Types.SMALLINT:
+                setShort(parameterIndex, x instanceof Short ? (Short) x : Short.valueOf(String.valueOf(x)));
+                break;
+            case Types.INTEGER:
+                setInt(parameterIndex, x instanceof Integer ? (Integer) x : Integer.valueOf(String.valueOf(x)));
+                break;
+            case Types.FLOAT:
+            case Types.DOUBLE:
+                setDouble(parameterIndex, x instanceof Double ? (Double) x : Double.valueOf(String.valueOf(x)));
+                break;
+            case Types.DECIMAL:
+            case Types.NUMERIC:
+                setBigDecimal(parameterIndex, x instanceof BigDecimal ? (BigDecimal) x : new BigDecimal(String.valueOf(x)));
+                break;
+            case Types.VARCHAR:
+            case Types.NVARCHAR:
+            case Types.LONGVARCHAR:
+            case Types.LONGNVARCHAR:
+            case Types.OTHER:
+                setString(parameterIndex, String.valueOf(x));
+                break;
+            case Types.TIME:
+                if (x instanceof Time) {
+                    setTime(parameterIndex, (Time) x);
+                }
+                else if (x instanceof java.util.Date) {
+                    setTime(parameterIndex, new Time(((java.util.Date) x).getTime()));
+                }
+                else {
+                    throw new SQLException("Unsupported target SQL type conversion: " + x.getClass().getName() + " to " + targetSqlType);
+                }
+                break;
+            case Types.DATE:
+                if (x instanceof Date) {
+                    setDate(parameterIndex, (Date) x);
+                }
+                else if (x instanceof java.util.Date) {
+                    setDate(parameterIndex, new Date(((java.util.Date) x).getTime()));
+                }
+                else {
+                    throw new SQLException("Unsupported target SQL type conversion: " + x.getClass().getName() + " to " + targetSqlType);
+                }
+                break;
+            case Types.TIMESTAMP:
+                if (x instanceof Timestamp) {
+                    setTimestamp(parameterIndex, (Timestamp) x);
+                }
+                else if (x instanceof java.util.Date) {
+                    setTimestamp(parameterIndex, new Timestamp(((java.util.Date) x).getTime()));
+                }
+                else {
+                    throw new SQLException("Unsupported target SQL type conversion: " + x.getClass().getName() + " to " + targetSqlType);
+                }
+                break;
+            default:
+                throw new SQLException("Unsupported target SQL type: " + targetSqlType);
+        }
     }
 
     @Override
     public void setObject(int parameterIndex, Object x)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setObject");
+        if (x == null) {
+            setNull(parameterIndex, Types.OTHER);
+        }
+        else if (x instanceof Boolean) {
+            setBoolean(parameterIndex, (Boolean) x);
+        }
+        else if (x instanceof Byte) {
+            setByte(parameterIndex, (Byte) x);
+        }
+        else if (x instanceof Short) {
+            setShort(parameterIndex, (Short) x);
+        }
+        else if (x instanceof Integer) {
+            setInt(parameterIndex, (Integer) x);
+        }
+        else if (x instanceof Long) {
+            setLong(parameterIndex, (Long) x);
+        }
+        else if (x instanceof Float) {
+            setFloat(parameterIndex, (Float) x);
+        }
+        else if (x instanceof Double) {
+            setDouble(parameterIndex, (Double) x);
+        }
+        else if (x instanceof BigDecimal) {
+            setBigDecimal(parameterIndex, (BigDecimal) x);
+        }
+        else if (x instanceof String) {
+            setString(parameterIndex, (String) x);
+        }
+        else if (x instanceof byte[]) {
+            setBytes(parameterIndex, (byte[]) x);
+        }
+        else if (x instanceof Date) {
+            setDate(parameterIndex, (Date) x);
+        }
+        else if (x instanceof Time) {
+            setTime(parameterIndex, (Time) x);
+        }
+        else if (x instanceof Timestamp) {
+            setTimestamp(parameterIndex, (Timestamp) x);
+        }
+        else {
+            throw new SQLException("Unsupported object type: " + x.getClass().getName());
+        }
     }
 
     @Override
@@ -280,7 +438,7 @@ public class PrestoPreparedStatement
     public void setNull(int parameterIndex, int sqlType, String typeName)
             throws SQLException
     {
-        throw new NotImplementedException("PreparedStatement", "setNull");
+        setNull(parameterIndex, sqlType);
     }
 
     @Override
@@ -308,7 +466,7 @@ public class PrestoPreparedStatement
     public void setNString(int parameterIndex, String value)
             throws SQLException
     {
-        throw new SQLFeatureNotSupportedException("setNString");
+        setString(parameterIndex, value);
     }
 
     @Override

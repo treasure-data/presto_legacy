@@ -100,7 +100,7 @@ public class PrestoConnection
             throws SQLException
     {
         checkOpen();
-        throw new NotImplementedException("Connection", "prepareStatement");
+        return new PrestoPreparedStatement(this, sql);
     }
 
     @Override
@@ -363,14 +363,14 @@ public class PrestoConnection
     public PreparedStatement prepareStatement(String sql, int[] columnIndexes)
             throws SQLException
     {
-        throw new SQLFeatureNotSupportedException("prepareStatement");
+        return prepareStatement(sql);
     }
 
     @Override
     public PreparedStatement prepareStatement(String sql, String[] columnNames)
             throws SQLException
     {
-        throw new SQLFeatureNotSupportedException("prepareStatement");
+        return prepareStatement(sql);
     }
 
     @Override
