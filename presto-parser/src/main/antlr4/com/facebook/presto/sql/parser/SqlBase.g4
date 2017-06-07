@@ -312,6 +312,7 @@ primaryExpression
     | NORMALIZE '(' valueExpression (',' normalForm)? ')'                                 #normalize
     | EXTRACT '(' identifier FROM valueExpression ')'                                     #extract
     | '(' expression ')'                                                                  #parenthesizedExpression
+    | GROUPING '(' (qualifiedName (',' qualifiedName)*)? ')'                              #groupingOperation
     ;
 
 string
@@ -442,7 +443,7 @@ number
     ;
 
 nonReserved
-    : SHOW | TABLES | COLUMNS | COLUMN | PARTITIONS | FUNCTIONS | SCHEMAS | CATALOGS | SESSION
+    : SHOW | TABLES | COLUMNS | COLUMN | PARTITIONS | FUNCTIONS | SCHEMAS | CATALOGS | SESSION | STATS
     | ADD
     | FILTER
     | AT

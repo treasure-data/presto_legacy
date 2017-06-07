@@ -90,7 +90,7 @@ public final class ValidateDependenciesChecker
     }
 
     private static class Visitor
-            extends PlanVisitor<Set<Symbol>, Void>
+            extends PlanVisitor<Void, Set<Symbol>>
     {
         @Override
         protected Void visitPlan(PlanNode node, Set<Symbol> boundSymbols)
@@ -293,6 +293,8 @@ public final class ValidateDependenciesChecker
         {
             PlanNode source = node.getSource();
             source.accept(this, boundSymbols); // visit child
+
+            checkDependencies(source.getOutputSymbols(), node.getOutputSymbols(), "Invalid node. Output column dependencies (%s) not in source plan output (%s)", node.getOutputSymbols(), source.getOutputSymbols());
 
             return null;
         }

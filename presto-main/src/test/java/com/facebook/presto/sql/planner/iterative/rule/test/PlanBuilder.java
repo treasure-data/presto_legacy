@@ -28,7 +28,6 @@ import com.facebook.presto.sql.planner.Partitioning;
 import com.facebook.presto.sql.planner.PartitioningScheme;
 import com.facebook.presto.sql.planner.PlanNodeIdAllocator;
 import com.facebook.presto.sql.planner.Symbol;
-import com.facebook.presto.sql.planner.TestingTableHandle;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.AggregationNode.Aggregation;
 import com.facebook.presto.sql.planner.plan.AggregationNode.Step;
@@ -50,6 +49,7 @@ import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FunctionCall;
+import com.facebook.presto.testing.TestingMetadata.TestingTableHandle;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -201,12 +201,16 @@ public class PlanBuilder
 
     public TableScanNode tableScan(List<Symbol> symbols, Map<Symbol, ColumnHandle> assignments)
     {
+        TableHandle tableHandle = new TableHandle(new ConnectorId("testConnector"), new TestingTableHandle());
+        return tableScan(tableHandle, symbols, assignments);
+    }
+
+    public TableScanNode tableScan(TableHandle tableHandle, List<Symbol> symbols, Map<Symbol, ColumnHandle> assignments)
+    {
         Expression originalConstraint = null;
         return new TableScanNode(
                 idAllocator.getNextId(),
-                new TableHandle(
-                        new ConnectorId("testConnector"),
-                        new TestingTableHandle()),
+                tableHandle,
                 symbols,
                 assignments,
                 Optional.empty(),
