@@ -27,18 +27,17 @@ import com.facebook.presto.metadata.FunctionKind;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.metadata.SqlScalarFunction;
-import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.sql.gen.CallSiteBinder;
+import com.facebook.presto.sql.gen.lambda.UnaryFunctionInterface;
 import com.facebook.presto.type.ArrayType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Primitives;
 
-import java.lang.invoke.MethodHandle;
 import java.util.List;
 import java.util.Optional;
 
@@ -109,7 +108,8 @@ public final class ArrayTransformFunction
                 false,
                 ImmutableList.of(false, false),
                 ImmutableList.of(false, false),
-                methodHandle(generatedClass, "transform", PageBuilder.class, ConnectorSession.class, Block.class, MethodHandle.class),
+                ImmutableList.of(Optional.empty(), Optional.of(UnaryFunctionInterface.class)),
+                methodHandle(generatedClass, "transform", PageBuilder.class, Block.class, UnaryFunctionInterface.class),
                 Optional.of(methodHandle(generatedClass, "createPageBuilder")),
                 isDeterministic());
     }
@@ -132,16 +132,15 @@ public final class ArrayTransformFunction
                 .append(newInstance(PageBuilder.class, constantType(binder, new ArrayType(outputType)).invoke("getTypeParameters", List.class)).ret());
 
         // define transform method
-        Parameter session = arg("session", ConnectorSession.class);
         Parameter pageBuilder = arg("pageBuilder", PageBuilder.class);
         Parameter block = arg("block", Block.class);
-        Parameter function = arg("function", MethodHandle.class);
+        Parameter function = arg("function", UnaryFunctionInterface.class);
 
         MethodDefinition method = definition.declareMethod(
                 a(PUBLIC, STATIC),
                 "transform",
                 type(Block.class),
-                ImmutableList.of(pageBuilder, session, block, function));
+                ImmutableList.of(pageBuilder, block, function));
 
         BytecodeBlock body = method.getBody();
         Scope scope = method.getScope();
@@ -190,7 +189,7 @@ public final class ArrayTransformFunction
                 .update(incrementVariable(position, (byte) 1))
                 .body(new BytecodeBlock()
                         .append(loadInputElement)
-                        .append(outputElement.set(function.invoke("invokeExact", outputJavaType, session, inputElement)))
+                        .append(outputElement.set(function.invoke("apply", Object.class, inputElement.cast(Object.class)).cast(outputJavaType)))
                         .append(writeOutputElement)));
 
         body.append(pageBuilder.invoke("declarePositions", void.class, positionCount));

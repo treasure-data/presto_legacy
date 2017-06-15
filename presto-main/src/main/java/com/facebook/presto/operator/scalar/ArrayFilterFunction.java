@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.operator.scalar;
 
-import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.BlockBuilderStatus;
@@ -23,10 +22,9 @@ import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.spi.function.TypeParameter;
 import com.facebook.presto.spi.function.TypeParameterSpecialization;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.gen.lambda.LambdaFunctionInterface;
 import com.google.common.base.Throwables;
 import io.airlift.slice.Slice;
-
-import java.lang.invoke.MethodHandle;
 
 import static java.lang.Boolean.TRUE;
 
@@ -41,9 +39,8 @@ public final class ArrayFilterFunction
     @SqlType("array(T)")
     public static Block filterLong(
             @TypeParameter("T") Type elementType,
-            ConnectorSession session,
             @SqlType("array(T)") Block arrayBlock,
-            @SqlType("function(T, boolean)") MethodHandle function)
+            @SqlType("function(T, boolean)") FilterLongLambda function)
     {
         int positionCount = arrayBlock.getPositionCount();
         BlockBuilder resultBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), positionCount);
@@ -55,7 +52,7 @@ public final class ArrayFilterFunction
 
             Boolean keep;
             try {
-                keep = (Boolean) function.invokeExact(session, input);
+                keep = function.apply(input);
             }
             catch (Throwable throwable) {
                 throw Throwables.propagate(throwable);
@@ -72,9 +69,8 @@ public final class ArrayFilterFunction
     @SqlType("array(T)")
     public static Block filterDouble(
             @TypeParameter("T") Type elementType,
-            ConnectorSession session,
             @SqlType("array(T)") Block arrayBlock,
-            @SqlType("function(T, boolean)") MethodHandle function)
+            @SqlType("function(T, boolean)") FilterDoubleLambda function)
     {
         int positionCount = arrayBlock.getPositionCount();
         BlockBuilder resultBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), positionCount);
@@ -86,7 +82,7 @@ public final class ArrayFilterFunction
 
             Boolean keep;
             try {
-                keep = (Boolean) function.invokeExact(session, input);
+                keep = function.apply(input);
             }
             catch (Throwable throwable) {
                 throw Throwables.propagate(throwable);
@@ -103,9 +99,8 @@ public final class ArrayFilterFunction
     @SqlType("array(T)")
     public static Block filterBoolean(
             @TypeParameter("T") Type elementType,
-            ConnectorSession session,
             @SqlType("array(T)") Block arrayBlock,
-            @SqlType("function(T, boolean)") MethodHandle function)
+            @SqlType("function(T, boolean)") FilterBooleanLambda function)
     {
         int positionCount = arrayBlock.getPositionCount();
         BlockBuilder resultBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), positionCount);
@@ -117,7 +112,7 @@ public final class ArrayFilterFunction
 
             Boolean keep;
             try {
-                keep = (Boolean) function.invokeExact(session, input);
+                keep = function.apply(input);
             }
             catch (Throwable throwable) {
                 throw Throwables.propagate(throwable);
@@ -134,9 +129,8 @@ public final class ArrayFilterFunction
     @SqlType("array(T)")
     public static Block filterSlice(
             @TypeParameter("T") Type elementType,
-            ConnectorSession session,
             @SqlType("array(T)") Block arrayBlock,
-            @SqlType("function(T, boolean)") MethodHandle function)
+            @SqlType("function(T, boolean)") FilterSliceLambda function)
     {
         int positionCount = arrayBlock.getPositionCount();
         BlockBuilder resultBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), positionCount);
@@ -148,7 +142,7 @@ public final class ArrayFilterFunction
 
             Boolean keep;
             try {
-                keep = (Boolean) function.invokeExact(session, input);
+                keep = function.apply(input);
             }
             catch (Throwable throwable) {
                 throw Throwables.propagate(throwable);
@@ -165,9 +159,8 @@ public final class ArrayFilterFunction
     @SqlType("array(T)")
     public static Block filterBlock(
             @TypeParameter("T") Type elementType,
-            ConnectorSession session,
             @SqlType("array(T)") Block arrayBlock,
-            @SqlType("function(T, boolean)") MethodHandle function)
+            @SqlType("function(T, boolean)") FilterBlockLambda function)
     {
         int positionCount = arrayBlock.getPositionCount();
         BlockBuilder resultBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), positionCount);
@@ -179,7 +172,7 @@ public final class ArrayFilterFunction
 
             Boolean keep;
             try {
-                keep = (Boolean) function.invokeExact(session, input);
+                keep = function.apply(input);
             }
             catch (Throwable throwable) {
                 throw Throwables.propagate(throwable);
@@ -196,16 +189,15 @@ public final class ArrayFilterFunction
     @SqlType("array(T)")
     public static Block filterVoid(
             @TypeParameter("T") Type elementType,
-            ConnectorSession session,
             @SqlType("array(T)") Block arrayBlock,
-            @SqlType("function(T, boolean)") MethodHandle function)
+            @SqlType("function(T, boolean)") FilterVoidLambda function)
     {
         int positionCount = arrayBlock.getPositionCount();
         BlockBuilder resultBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), positionCount);
         for (int position = 0; position < positionCount; position++) {
             Boolean keep;
             try {
-                keep = (Boolean) function.invokeExact(session, null);
+                keep = function.apply(null);
             }
             catch (Throwable throwable) {
                 throw Throwables.propagate(throwable);
@@ -215,5 +207,41 @@ public final class ArrayFilterFunction
             }
         }
         return resultBuilder.build();
+    }
+
+    @FunctionalInterface
+    public interface FilterLongLambda extends LambdaFunctionInterface
+    {
+        Boolean apply(Long x);
+    }
+
+    @FunctionalInterface
+    public interface FilterDoubleLambda extends LambdaFunctionInterface
+    {
+        Boolean apply(Double x);
+    }
+
+    @FunctionalInterface
+    public interface FilterBooleanLambda extends LambdaFunctionInterface
+    {
+        Boolean apply(Boolean x);
+    }
+
+    @FunctionalInterface
+    public interface FilterSliceLambda extends LambdaFunctionInterface
+    {
+        Boolean apply(Slice x);
+    }
+
+    @FunctionalInterface
+    public interface FilterBlockLambda extends LambdaFunctionInterface
+    {
+        Boolean apply(Block x);
+    }
+
+    @FunctionalInterface
+    public interface FilterVoidLambda extends LambdaFunctionInterface
+    {
+        Boolean apply(Void x);
     }
 }

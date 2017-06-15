@@ -41,6 +41,7 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.units.DataSize.succinctBytes;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -366,6 +367,12 @@ public class OperatorContext
         return outputPositions;
     }
 
+    @Override
+    public String toString()
+    {
+        return format("%s-%s", operatorType, planNodeId);
+    }
+
     public OperatorStats getOperatorStats()
     {
         Supplier<OperatorInfo> infoSupplier = this.infoSupplier.get();
@@ -509,7 +516,7 @@ public class OperatorContext
 
     @ThreadSafe
     private class OperatorSpillContext
-        implements SpillContext
+            implements SpillContext
     {
         private final DriverContext driverContext;
 

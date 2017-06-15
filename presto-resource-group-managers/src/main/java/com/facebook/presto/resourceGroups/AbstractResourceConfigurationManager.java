@@ -177,13 +177,20 @@ public abstract class AbstractResourceConfigurationManager
         }
         group.setMaxQueuedQueries(match.getMaxQueued());
         group.setMaxRunningQueries(match.getMaxRunning());
+        if (match.getQueuedTimeLimit().isPresent()) {
+            group.setQueuedTimeLimit(match.getQueuedTimeLimit().get());
+        }
+        if (match.getRunningTimeLimit().isPresent()) {
+            group.setRunningTimeLimit(match.getRunningTimeLimit().get());
+        }
         if (match.getSchedulingPolicy().isPresent()) {
             group.setSchedulingPolicy(match.getSchedulingPolicy().get());
         }
         if (match.getSchedulingWeight().isPresent()) {
             group.setSchedulingWeight(match.getSchedulingWeight().get());
         }
-        if (match.getJmxExport().isPresent()) {
+        // if the new and current values do not differ an exception is thrown
+        if (match.getJmxExport().isPresent() && match.getJmxExport().get() != group.getJmxExport()) {
             group.setJmxExport(match.getJmxExport().get());
         }
         if (match.getSoftCpuLimit().isPresent() || match.getHardCpuLimit().isPresent()) {

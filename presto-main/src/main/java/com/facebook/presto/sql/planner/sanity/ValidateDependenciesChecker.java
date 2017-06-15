@@ -20,6 +20,7 @@ import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.DependencyExtractor;
 import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
+import com.facebook.presto.sql.planner.plan.AggregationNode.Aggregation;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
 import com.facebook.presto.sql.planner.plan.DeleteNode;
@@ -34,6 +35,7 @@ import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.IndexSourceNode;
 import com.facebook.presto.sql.planner.plan.IntersectNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
+import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.LimitNode;
 import com.facebook.presto.sql.planner.plan.MarkDistinctNode;
 import com.facebook.presto.sql.planner.plan.MetadataDeleteNode;
@@ -57,7 +59,6 @@ import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.Expression;
-import com.facebook.presto.sql.tree.FunctionCall;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -116,8 +117,8 @@ public final class ValidateDependenciesChecker
             Set<Symbol> inputs = createInputs(source, boundSymbols);
             checkDependencies(inputs, node.getGroupingKeys(), "Invalid node. Grouping key symbols (%s) not in source plan output (%s)", node.getGroupingKeys(), node.getSource().getOutputSymbols());
 
-            for (FunctionCall call : node.getAggregations().values()) {
-                Set<Symbol> dependencies = DependencyExtractor.extractUnique(call);
+            for (Aggregation aggregation : node.getAggregations().values()) {
+                Set<Symbol> dependencies = DependencyExtractor.extractUnique(aggregation.getCall());
                 checkDependencies(inputs, dependencies, "Invalid node. Aggregation dependencies (%s) not in source plan output (%s)", dependencies, node.getSource().getOutputSymbols());
             }
 
@@ -555,6 +556,29 @@ public final class ValidateDependenciesChecker
                 Set<Symbol> dependencies = DependencyExtractor.extractUnique(expression);
                 checkDependencies(inputs, dependencies, "Invalid node. Expression dependencies (%s) not in source plan output (%s)", dependencies, inputs);
             }
+
+            return null;
+        }
+
+        @Override
+        public Void visitLateralJoin(LateralJoinNode node, Set<Symbol> boundSymbols)
+        {
+            Set<Symbol> subqueryCorrelation = ImmutableSet.<Symbol>builder()
+                    .addAll(boundSymbols)
+                    .addAll(node.getCorrelation())
+                    .build();
+
+            node.getInput().accept(this, boundSymbols); // visit child
+            node.getSubquery().accept(this, subqueryCorrelation); // visit child
+
+            checkDependencies(
+                    node.getInput().getOutputSymbols(),
+                    node.getCorrelation(),
+                    "LATERAL input must provide all the necessary correlation symbols for subquery");
+            checkDependencies(
+                    DependencyExtractor.extractUnique(node.getSubquery()),
+                    node.getCorrelation(),
+                    "not all LATERAL correlation symbols are used in subquery");
 
             return null;
         }

@@ -18,13 +18,14 @@ import com.facebook.presto.metadata.FunctionKind;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.metadata.SqlScalarFunction;
-import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
+import com.facebook.presto.sql.gen.lambda.UnaryFunctionInterface;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 
 import java.lang.invoke.MethodHandle;
+import java.util.Optional;
 
 import static com.facebook.presto.metadata.Signature.typeVariable;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
@@ -39,7 +40,7 @@ public final class ApplyFunction
 {
     public static final ApplyFunction APPLY_FUNCTION = new ApplyFunction();
 
-    private static final MethodHandle METHOD_HANDLE = methodHandle(ApplyFunction.class, "apply", ConnectorSession.class, Object.class, MethodHandle.class);
+    private static final MethodHandle METHOD_HANDLE = methodHandle(ApplyFunction.class, "apply", Object.class, UnaryFunctionInterface.class);
 
     private ApplyFunction()
     {
@@ -79,17 +80,19 @@ public final class ApplyFunction
         return new ScalarFunctionImplementation(
                 true,
                 ImmutableList.of(true, false),
+                ImmutableList.of(false, false),
+                ImmutableList.of(Optional.empty(), Optional.of(UnaryFunctionInterface.class)),
                 METHOD_HANDLE.asType(
                         METHOD_HANDLE.type()
                                 .changeReturnType(wrap(returnType.getJavaType()))
-                                .changeParameterType(1, wrap(argumentType.getJavaType()))),
+                                .changeParameterType(0, wrap(argumentType.getJavaType()))),
                 isDeterministic());
     }
 
-    public static Object apply(ConnectorSession session, Object input, MethodHandle function)
+    public static Object apply(Object input, UnaryFunctionInterface function)
     {
         try {
-            return function.invoke(session, input);
+            return function.apply(input);
         }
         catch (Throwable throwable) {
             throw Throwables.propagate(throwable);

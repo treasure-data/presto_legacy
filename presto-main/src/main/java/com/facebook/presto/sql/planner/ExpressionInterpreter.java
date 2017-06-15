@@ -131,6 +131,7 @@ import static com.google.common.base.Predicates.instanceOf;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.any;
+import static java.lang.invoke.MethodHandleProxies.asInterfaceInstance;
 import static java.util.Objects.requireNonNull;
 
 public class ExpressionInterpreter
@@ -983,25 +984,18 @@ public class ExpressionInterpreter
             }
 
             Expression body = node.getBody();
+            List<String> argumentNames = node.getArguments().stream()
+                    .map(LambdaArgumentDeclaration::getName)
+                    .collect(toImmutableList());
             FunctionType functionType = (FunctionType) expressionTypes.get(NodeRef.<Expression>of(node));
-            List<Class<?>> argumentTypes =
-                    Stream.concat(
-                            Stream.of(ConnectorSession.class),
-                            functionType.getArgumentTypes().stream()
-                                    .map(Type::getJavaType)
-                                    .map(Primitives::wrap))
-                            .collect(toImmutableList());
-            List<String> argumentNames =
-                    Stream.concat(
-                            Stream.of("$connector_session"),
-                            node.getArguments().stream()
-                                    .map(LambdaArgumentDeclaration::getName))
-                            .collect(toImmutableList());
-            checkArgument(argumentTypes.size() == argumentNames.size());
+            checkArgument(argumentNames.size() == functionType.getArgumentTypes().size());
 
             return generateVarArgsToMapAdapter(
                     Primitives.wrap(functionType.getReturnType().getJavaType()),
-                    argumentTypes,
+                    functionType.getArgumentTypes().stream()
+                            .map(Type::getJavaType)
+                            .map(Primitives::wrap)
+                            .collect(toImmutableList()),
                     argumentNames,
                     map -> process(body, new LambdaSymbolResolver(map)));
         }
@@ -1009,16 +1003,23 @@ public class ExpressionInterpreter
         @Override
         protected Object visitBindExpression(BindExpression node, Object context)
         {
-            Object value = process(node.getValue(), context);
+            List<Object> values = node.getValues().stream()
+                    .map(value -> process(value, context))
+                    .collect(toImmutableList());
             Object function = process(node.getFunction(), context);
 
-            if (hasUnresolvedValue(value, function)) {
+            if (hasUnresolvedValue(values) || hasUnresolvedValue(function)) {
+                ImmutableList.Builder<Expression> builder = ImmutableList.builder();
+                for (int i = 0; i < values.size(); i++) {
+                    builder.add(toExpression(values.get(i), type(node.getValues().get(i))));
+                }
+
                 return new BindExpression(
-                        toExpression(value, type(node.getValue())),
+                        builder.build(),
                         toExpression(function, type(node.getFunction())));
             }
 
-            return MethodHandles.insertArguments((MethodHandle) function, 1, value);
+            return MethodHandles.insertArguments((MethodHandle) function, 0, values.toArray());
         }
 
         @Override
@@ -1378,6 +1379,9 @@ public class ExpressionInterpreter
             Class<?>[] parameterArray = handle.type().parameterArray();
             for (int i = 0; i < argumentValues.size(); i++) {
                 Object argument = argumentValues.get(i);
+                if (function.getLambdaInterface().get(i).isPresent() && !MethodHandle.class.equals(function.getLambdaInterface().get(i).get())) {
+                    argument = asInterfaceInstance(function.getLambdaInterface().get(i).get(), (MethodHandle) argument);
+                }
                 if (function.getNullFlags().get(i)) {
                     boolean isNull = argument == null;
                     if (isNull) {

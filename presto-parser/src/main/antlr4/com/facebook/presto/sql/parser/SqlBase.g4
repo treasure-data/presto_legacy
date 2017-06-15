@@ -345,6 +345,10 @@ intervalField
     : YEAR | MONTH | DAY | HOUR | MINUTE | SECOND
     ;
 
+normalForm
+    : NFD | NFC | NFKD | NFKC
+    ;
+
 type
     : type ARRAY
     | ARRAY '<' type '>'
@@ -443,6 +447,7 @@ number
     ;
 
 nonReserved
+    // IMPORTANT: this rule must only contain tokens. Nested rules are not supported. See SqlParser.exitNonReserved
     : SHOW | TABLES | COLUMNS | COLUMN | PARTITIONS | FUNCTIONS | SCHEMAS | CATALOGS | SESSION | STATS
     | ADD
     | FILTER
@@ -455,7 +460,7 @@ nonReserved
     | SET | RESET
     | VIEW | REPLACE
     | IF | NULLIF | COALESCE
-    | normalForm
+    | NFD | NFC | NFKD | NFKC
     | POSITION
     | NO | DATA
     | START | TRANSACTION | COMMIT | ROLLBACK | WORK | ISOLATION | LEVEL
@@ -468,10 +473,6 @@ nonReserved
     | INPUT | OUTPUT
     | INCLUDING | EXCLUDING | PROPERTIES
     | ALL | SOME | ANY
-    ;
-
-normalForm
-    : NFD | NFC | NFKD | NFKC
     ;
 
 SELECT: 'SELECT';
