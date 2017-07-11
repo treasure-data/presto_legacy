@@ -13,7 +13,10 @@
  */
 package com.facebook.presto.failureDetector;
 
+import com.facebook.presto.client.FailureInfo;
 import com.facebook.presto.spi.HostAddress;
+import com.facebook.presto.util.Failures;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -32,6 +35,7 @@ import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 import org.weakref.jmx.Managed;
 
+import javax.annotation.Nullable;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.annotation.concurrent.GuardedBy;
@@ -164,7 +168,6 @@ public class HeartbeatFailureDetector
                 if (lastFailureException instanceof ConnectException) {
                     return GONE;
                 }
-
                 if (lastFailureException instanceof SocketTimeoutException) {
                     // TODO: distinguish between process unresponsiveness (e.g GC pause) and host reboot
                     return UNRESPONSIVE;
@@ -486,10 +489,21 @@ public class HeartbeatFailureDetector
             return lastResponseTime.get();
         }
 
-        @JsonProperty
+        @JsonIgnore
         public Exception getLastFailureException()
         {
             return lastFailureException.get();
+        }
+
+        @Nullable
+        @JsonProperty
+        public FailureInfo getLastFailureInfo()
+        {
+            Exception lastFailureException = getLastFailureException();
+            if (lastFailureException == null) {
+                return null;
+            }
+            return Failures.toFailure(lastFailureException).toFailureInfo();
         }
 
         @JsonProperty
