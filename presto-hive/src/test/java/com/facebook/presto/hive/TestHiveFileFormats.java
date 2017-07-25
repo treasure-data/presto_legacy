@@ -24,9 +24,9 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordPageSource;
 import com.facebook.presto.spi.predicate.TupleDomain;
+import com.facebook.presto.spi.type.ArrayType;
+import com.facebook.presto.spi.type.RowType;
 import com.facebook.presto.testing.TestingConnectorSession;
-import com.facebook.presto.type.ArrayType;
-import com.facebook.presto.type.RowType;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -640,6 +640,7 @@ public class TestHiveFileFormats
                 OptionalInt.empty(),
                 split.getStart(),
                 split.getLength(),
+                split.getLength(),
                 splitProperties,
                 TupleDomain.all(),
                 getColumnHandles(testColumns),
@@ -683,6 +684,7 @@ public class TestHiveFileFormats
                 split.getPath(),
                 OptionalInt.empty(),
                 split.getStart(),
+                split.getLength(),
                 split.getLength(),
                 splitProperties,
                 TupleDomain.all(),
