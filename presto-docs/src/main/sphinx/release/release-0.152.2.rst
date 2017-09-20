@@ -2,11 +2,6 @@
 Release 0.152.2
 ===============
 
-General Changes
----------------
-
-* Remove broken ``%w`` specifier for MySQL date functions.
-
 Hive Changes
 ------------
 

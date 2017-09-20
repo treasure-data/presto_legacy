@@ -57,7 +57,6 @@ public class TaskContext
     private final ScheduledExecutorService yieldExecutor;
     private final Session session;
 
-    private final AtomicLong peekMemoryReservation = new AtomicLong();
     private final AtomicLong memoryReservation = new AtomicLong();
     private final AtomicLong systemMemoryReservation = new AtomicLong();
     private final AtomicLong revocableMemoryReservation = new AtomicLong();
@@ -161,10 +160,7 @@ public class TaskContext
         checkArgument(bytes >= 0, "bytes is negative");
 
         ListenableFuture<?> future = queryContext.reserveMemory(bytes);
-        long reservation = memoryReservation.getAndAdd(bytes);
-        if (peekMemoryReservation.get() < reservation) {
-            peekMemoryReservation.set(reservation);
-        }
+        memoryReservation.getAndAdd(bytes);
         return future;
     }
 
@@ -196,10 +192,7 @@ public class TaskContext
         checkArgument(bytes >= 0, "bytes is negative");
 
         if (queryContext.tryReserveMemory(bytes)) {
-            long reservation = memoryReservation.getAndAdd(bytes);
-            if (peekMemoryReservation.get() < reservation) {
-                peekMemoryReservation.set(reservation);
-            }
+            memoryReservation.getAndAdd(bytes);
             return true;
         }
         return false;
@@ -292,12 +285,6 @@ public class TaskContext
             }
         }
         return stat;
-    }
-
-    @VisibleForTesting
-    public long getPeekMemoryReservation()
-    {
-        return peekMemoryReservation.get();
     }
 
     public TaskStats getTaskStats()

@@ -33,7 +33,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.Optional;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -106,7 +105,6 @@ public class OperatorContext
 
     private final AtomicReference<Supplier<OperatorInfo>> infoSupplier = new AtomicReference<>();
     private final boolean collectTimings;
-    private final AtomicBoolean memoryTransferred = new AtomicBoolean(false);
 
     // memoryRevokingRequestedFuture is done iff memory revoking was requested for operator
     @GuardedBy("this")
@@ -348,11 +346,6 @@ public class OperatorContext
 
     public void transferMemoryToTaskContext(long taskBytes)
     {
-        if (!memoryTransferred.compareAndSet(false, true)) {
-            // already transferred
-            return;
-        }
-
         long bytes = memoryReservation.getAndSet(0);
         driverContext.transferMemoryToTaskContext(bytes);
 
