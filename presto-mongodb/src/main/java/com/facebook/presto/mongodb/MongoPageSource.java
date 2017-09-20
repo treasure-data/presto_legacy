@@ -19,8 +19,6 @@ import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
-import com.facebook.presto.spi.block.InterleavedBlockBuilder;
 import com.facebook.presto.spi.type.NamedTypeSignature;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
@@ -247,9 +245,9 @@ public class MongoPageSource
                 Map<?, ?> mapValue = (Map<?, ?>) value;
                 BlockBuilder builder = output.beginBlockEntry();
                 List<String> fieldNames = type.getTypeSignature().getParameters().stream()
-                                        .map(TypeSignatureParameter::getNamedTypeSignature)
-                                        .map(NamedTypeSignature::getName)
-                                        .collect(Collectors.toList());
+                        .map(TypeSignatureParameter::getNamedTypeSignature)
+                        .map(NamedTypeSignature::getName)
+                        .collect(Collectors.toList());
                 checkState(fieldNames.size() == type.getTypeParameters().size(), "fieldName doesn't match with type size : %s", type);
                 for (int index = 0; index < type.getTypeParameters().size(); index++) {
                     appendTo(type.getTypeParameters().get(index), mapValue.get(fieldNames.get(index).toString()), builder);
@@ -280,18 +278,9 @@ public class MongoPageSource
         output.appendNull();
     }
 
-    private BlockBuilder createParametersBlockBuilder(Type type, int size)
-    {
-        List<Type> params = type.getTypeParameters();
-        if (isArrayType(type)) {
-            return params.get(0).createBlockBuilder(new BlockBuilderStatus(), size);
-        }
-
-        return new InterleavedBlockBuilder(params, new BlockBuilderStatus(), size * params.size());
-    }
-
     @Override
-    public void close() throws IOException
+    public void close()
+            throws IOException
     {
         cursor.close();
     }

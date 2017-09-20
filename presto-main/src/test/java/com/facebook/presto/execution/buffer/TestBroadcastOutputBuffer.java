@@ -77,7 +77,7 @@ public class TestBroadcastOutputBuffer
         stateNotificationExecutor = newScheduledThreadPool(5, daemonThreadsNamed("test-%s"));
     }
 
-    @AfterClass
+    @AfterClass(alwaysRun = true)
     public void tearDown()
             throws Exception
     {
@@ -935,7 +935,7 @@ public class TestBroadcastOutputBuffer
         BroadcastOutputBuffer buffer = new BroadcastOutputBuffer(
                 TASK_INSTANCE_ID,
                 new StateMachine<>("bufferState", stateNotificationExecutor, OPEN, TERMINAL_BUFFER_STATES),
-               dataSize,
+                dataSize,
                 ignored -> { },
                 stateNotificationExecutor);
         buffer.setOutputBuffers(outputBuffers);

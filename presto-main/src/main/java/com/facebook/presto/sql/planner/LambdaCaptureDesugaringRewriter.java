@@ -19,6 +19,7 @@ import com.facebook.presto.sql.tree.BindExpression;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
+import com.facebook.presto.sql.tree.Identifier;
 import com.facebook.presto.sql.tree.LambdaArgumentDeclaration;
 import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.SymbolReference;
@@ -52,7 +53,8 @@ public class LambdaCaptureDesugaringRewriter
     private static Expression replaceSymbols(Expression expression, ImmutableMap<Symbol, Symbol> symbolMapping)
     {
         return ExpressionTreeRewriter.rewriteWith(
-                new ExpressionRewriter<Void>() {
+                new ExpressionRewriter<Void>()
+                {
                     @Override
                     public Expression rewriteSymbolReference(SymbolReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                     {
@@ -78,6 +80,7 @@ public class LambdaCaptureDesugaringRewriter
 
             List<Symbol> lambdaArguments = node.getArguments().stream()
                     .map(LambdaArgumentDeclaration::getName)
+                    .map(Identifier::getValue)
                     .map(Symbol::new)
                     .collect(toImmutableList());
 
@@ -94,7 +97,7 @@ public class LambdaCaptureDesugaringRewriter
             for (Symbol captureSymbol : captureSymbols) {
                 Symbol extraSymbol = symbolAllocator.newSymbol(captureSymbol.getName(), symbolTypes.get(captureSymbol));
                 captureSymbolToExtraSymbol.put(captureSymbol, extraSymbol);
-                newLambdaArguments.add(new LambdaArgumentDeclaration(extraSymbol.getName()));
+                newLambdaArguments.add(new LambdaArgumentDeclaration(new Identifier(extraSymbol.getName())));
             }
             newLambdaArguments.addAll(node.getArguments());
             Expression rewrittenExpression = new LambdaExpression(newLambdaArguments.build(), replaceSymbols(rewrittenBody, captureSymbolToExtraSymbol.build()));

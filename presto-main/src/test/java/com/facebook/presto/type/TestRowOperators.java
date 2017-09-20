@@ -17,7 +17,6 @@ import com.facebook.presto.operator.scalar.AbstractTestFunctions;
 import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.BlockBuilderStatus;
-import com.facebook.presto.spi.block.InterleavedBlockBuilder;
 import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.RowType;
 import com.facebook.presto.spi.type.SqlTimestamp;
@@ -44,7 +43,7 @@ import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
 import static com.facebook.presto.type.JsonType.JSON;
-import static com.facebook.presto.type.TypeJsonUtils.appendToBlockBuilder;
+import static com.facebook.presto.util.StructuralTestUtil.appendToBlockBuilder;
 import static com.facebook.presto.util.StructuralTestUtil.mapType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.String.format;
@@ -82,8 +81,7 @@ public class TestRowOperators
         assertFunction(
                 "CAST(ROW(CAST(3.14 AS REAL), 3.1415, 1e308, DECIMAL '3.14', DECIMAL '12345678901234567890.123456789012345678', CAST(null AS REAL), CAST(null AS DOUBLE), CAST(null AS DECIMAL)) AS JSON)",
                 JSON,
-                "[3.14,3.1415,1.0E308,3.14,12345678901234567890.123456789012345678,null,null,null]"
-        );
+                "[3.14,3.1415,1.0E308,3.14,12345678901234567890.123456789012345678,null,null,null]");
 
         assertFunction(
                 "CAST(ROW('a', 'bb', CAST(null as VARCHAR), JSON '123', JSON '3.14', JSON 'false', JSON '\"abc\"', JSON '[1, \"a\", null]', JSON '{\"a\": 1, \"b\": \"str\", \"c\": null}', JSON 'null', CAST(null AS JSON)) AS JSON)",
@@ -245,14 +243,14 @@ public class TestRowOperators
     {
         checkArgument(types.size() == elements.size(), "types and elements must have the same size");
         RowType rowType = new RowType(types, Optional.empty());
-        BlockBuilder rowArrayBuilder = rowType.createBlockBuilder(new BlockBuilderStatus(), 1);
-        BlockBuilder rowBuilder = new InterleavedBlockBuilder(types, new BlockBuilderStatus(), types.size());
+        BlockBuilder blockBuilder = rowType.createBlockBuilder(new BlockBuilderStatus(), 1);
+        BlockBuilder singleRowBlockWriter = blockBuilder.beginBlockEntry();
         for (int i = 0; i < types.size(); i++) {
-            appendToBlockBuilder(types.get(i), elements.get(i), rowBuilder);
+            appendToBlockBuilder(types.get(i), elements.get(i), singleRowBlockWriter);
         }
-        rowType.writeObject(rowArrayBuilder, rowBuilder.build());
+        blockBuilder.closeEntry();
 
-        assertOperator(HASH_CODE, inputString, BIGINT, rowType.hash(rowArrayBuilder.build(), 0));
+        assertOperator(HASH_CODE, inputString, BIGINT, rowType.hash(blockBuilder.build(), 0));
     }
 
     private void assertComparisonCombination(String base, String greater)

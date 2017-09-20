@@ -70,11 +70,13 @@ import static com.facebook.presto.type.ColorType.COLOR;
 import static com.facebook.presto.type.FunctionParametricType.FUNCTION;
 import static com.facebook.presto.type.IntervalDayTimeType.INTERVAL_DAY_TIME;
 import static com.facebook.presto.type.IntervalYearMonthType.INTERVAL_YEAR_MONTH;
+import static com.facebook.presto.type.IpAddressType.IPADDRESS;
 import static com.facebook.presto.type.JoniRegexpType.JONI_REGEXP;
 import static com.facebook.presto.type.JsonPathType.JSON_PATH;
 import static com.facebook.presto.type.JsonType.JSON;
 import static com.facebook.presto.type.LikePatternType.LIKE_PATTERN;
 import static com.facebook.presto.type.ListLiteralType.LIST_LITERAL;
+import static com.facebook.presto.type.MapParametricType.MAP;
 import static com.facebook.presto.type.Re2JRegexpType.RE2J_REGEXP;
 import static com.facebook.presto.type.RowParametricType.ROW;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
@@ -137,12 +139,13 @@ public final class TypeRegistry
         addType(JSON);
         addType(CODE_POINTS);
         addType(LIST_LITERAL);
+        addType(IPADDRESS);
         addParametricType(VarcharParametricType.VARCHAR);
         addParametricType(CharParametricType.CHAR);
         addParametricType(DecimalParametricType.DECIMAL);
         addParametricType(ROW);
         addParametricType(ARRAY);
-        addParametricType(new MapParametricType(featuresConfig.isNewMapBlock()));
+        addParametricType(MAP);
         addParametricType(FUNCTION);
 
         for (Type type : types) {

@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.facebook.presto</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.181</version>
+        <version>0.184</version>
     </parent>
 
     <artifactId>presto-resource-group-managers</artifactId>
@@ -45,6 +45,11 @@
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>log</artifactId>
         </dependency>
 
         <dependency>

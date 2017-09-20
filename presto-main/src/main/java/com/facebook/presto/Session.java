@@ -225,7 +225,7 @@ public final class Session
 
     public String getPreparedStatementFromExecute(Execute execute)
     {
-        return getPreparedStatement(execute.getName());
+        return getPreparedStatement(execute.getName().getValue());
     }
 
     public String getPreparedStatement(String name)
@@ -295,7 +295,7 @@ public final class Session
 
     public ConnectorSession toConnectorSession()
     {
-        return new FullConnectorSession(queryId.toString(), identity, timeZoneKey, locale, startTime);
+        return new FullConnectorSession(queryId.toString(), identity, source, timeZoneKey, locale, startTime);
     }
 
     public ConnectorSession toConnectorSession(ConnectorId connectorId)
@@ -304,6 +304,7 @@ public final class Session
         return new FullConnectorSession(
                 queryId.toString(),
                 identity,
+                source,
                 timeZoneKey,
                 locale,
                 startTime,
