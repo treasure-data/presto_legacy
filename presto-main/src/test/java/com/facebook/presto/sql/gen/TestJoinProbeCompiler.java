@@ -127,7 +127,9 @@ public class TestJoinProbeCompiler
                 addresses,
                 channels,
                 hashChannel,
-                Optional.empty())
+                Optional.empty(),
+                Optional.empty(),
+                ImmutableList.of())
                 .get();
 
         JoinProbeCompiler joinProbeCompiler = new JoinProbeCompiler();

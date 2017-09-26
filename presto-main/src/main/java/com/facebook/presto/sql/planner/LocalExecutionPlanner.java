@@ -105,7 +105,6 @@ import com.facebook.presto.sql.gen.JoinFilterFunctionCompiler.JoinFilterFunction
 import com.facebook.presto.sql.gen.PageFunctionCompiler;
 import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.Partitioning.ArgumentBinding;
-import com.facebook.presto.sql.planner.SortExpressionExtractor.SortExpression;
 import com.facebook.presto.sql.planner.optimizations.IndexJoinOptimizer;
 import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.AggregationNode.Aggregation;
@@ -148,6 +147,7 @@ import com.facebook.presto.sql.planner.plan.WindowNode.Frame;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.SqlToRowExpressionTranslator;
 import com.facebook.presto.sql.tree.Expression;
+import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.google.common.collect.HashMultimap;
@@ -823,9 +823,7 @@ public class LocalExecutionPlanner
                     source.getTypes(),
                     (int) node.getCount(),
                     sortChannels,
-                    sortOrders,
-                    node.getStep().equals(TopNNode.Step.PARTIAL),
-                    maxPartialAggregationMemorySize);
+                    sortOrders);
 
             return new PhysicalOperation(operator, source.getLayout(), source);
         }
@@ -1586,11 +1584,31 @@ public class LocalExecutionPlanner
             Optional<JoinFilterFunctionFactory> filterFunctionFactory = node.getFilter()
                     .map(filterExpression -> compileJoinFilterFunction(
                             filterExpression,
-                            node.getSortExpression(),
                             probeLayout,
                             buildSource.getLayout(),
                             context.getTypes(),
                             context.getSession()));
+
+            Optional<SortExpressionContext> sortExpressionContext = node.getSortExpressionContext();
+
+            Optional<Integer> sortChannel = sortExpressionContext
+                    .map(SortExpressionContext::getSortExpression)
+                    .map(sortExpression -> sortExpressionAsSortChannel(
+                            sortExpression,
+                            probeLayout,
+                            buildSource.getLayout()));
+
+            List<JoinFilterFunctionFactory> searchFunctionFactories = sortExpressionContext
+                    .map(SortExpressionContext::getSearchExpressions)
+                    .map(searchExpressions -> searchExpressions.stream()
+                            .map(searchExpression -> compileJoinFilterFunction(
+                                    searchExpression,
+                                    probeLayout,
+                                    buildSource.getLayout(),
+                                    context.getTypes(),
+                                    context.getSession()))
+                            .collect(toImmutableList()))
+                    .orElse(ImmutableList.of());
 
             HashBuilderOperatorFactory hashBuilderOperatorFactory = new HashBuilderOperatorFactory(
                     buildContext.getNextOperatorId(),
@@ -1602,6 +1620,8 @@ public class LocalExecutionPlanner
                     buildHashChannel,
                     node.getType() == RIGHT || node.getType() == FULL,
                     filterFunctionFactory,
+                    sortChannel,
+                    searchFunctionFactories,
                     10_000,
                     buildContext.getDriverInstanceCount().orElse(1),
                     pagesIndexFactory);
@@ -1620,7 +1640,6 @@ public class LocalExecutionPlanner
 
         private JoinFilterFunctionFactory compileJoinFilterFunction(
                 Expression filterExpression,
-                Optional<Expression> sortExpression,
                 Map<Symbol, Integer> probeLayout,
                 Map<Symbol, Integer> buildLayout,
                 Map<Symbol, Type> types,
@@ -1632,11 +1651,6 @@ public class LocalExecutionPlanner
                     .collect(toImmutableMap(Map.Entry::getValue, entry -> types.get(entry.getKey())));
 
             Expression rewrittenFilter = new SymbolToInputRewriter(joinSourcesLayout).rewrite(filterExpression);
-            Optional<Expression> rewrittenSortExpression = sortExpression.map(
-                    expression -> new SymbolToInputRewriter(buildLayout).rewrite(expression));
-
-            Optional<SortExpression> sortChannel = rewrittenSortExpression.map(SortExpression::fromExpression);
-
             Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypesFromInput(
                     session,
                     metadata,
@@ -1646,7 +1660,18 @@ public class LocalExecutionPlanner
                     emptyList() /* parameters have already been replaced */);
 
             RowExpression translatedFilter = toRowExpression(rewrittenFilter, expressionTypes);
-            return joinFilterFunctionCompiler.compileJoinFilterFunction(translatedFilter, buildLayout.size(), sortChannel);
+            return joinFilterFunctionCompiler.compileJoinFilterFunction(translatedFilter, buildLayout.size());
+        }
+
+        private int sortExpressionAsSortChannel(
+                Expression sortExpression,
+                Map<Symbol, Integer> probeLayout,
+                Map<Symbol, Integer> buildLayout)
+        {
+            Map<Symbol, Integer> joinSourcesLayout = createJoinSourcesLayout(buildLayout, probeLayout);
+            Expression rewrittenSortExpression = new SymbolToInputRewriter(joinSourcesLayout).rewrite(sortExpression);
+            checkArgument(rewrittenSortExpression instanceof FieldReference, "Unsupported expression type [%s]", rewrittenSortExpression);
+            return ((FieldReference) rewrittenSortExpression).getFieldIndex();
         }
 
         private OperatorFactory createLookupJoin(

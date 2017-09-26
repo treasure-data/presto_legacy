@@ -62,6 +62,7 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
+import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.TimeType.TIME;
 import static com.facebook.presto.spi.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
@@ -2312,6 +2313,20 @@ public abstract class AbstractTestQueries
                 "VALUES -1");
         // test with only null value in build side
         assertQuery("SELECT b FROM nation n, (VALUES (0, NULL)) t(a, b) WHERE n.regionkey - 100 < t.b AND n.nationkey = t.a", "SELECT 1 WHERE FALSE");
+        // test with function predicate in ON clause
+        assertQuery("SELECT n.nationkey, r.regionkey FROM nation n JOIN region r ON n.regionkey = r.regionkey AND length(n.name) < length(substr(r.name, 5))");
+
+        assertQuery("SELECT * FROM " +
+                        "(VALUES (1,1),(2,1)) t1(a,b), " +
+                        "(VALUES (1,1),(1,2),(2,1)) t2(x,y) " +
+                        "WHERE a=x and b<=y",
+                "VALUES (1,1,1,1), (1,1,1,2), (2,1,2,1)");
+
+        assertQuery("SELECT * FROM " +
+                        "(VALUES (1,1),(2,1)) t1(a,b), " +
+                        "(VALUES (1,1),(1,2),(2,1)) t2(x,y) " +
+                        "WHERE a=x and b<y",
+                "VALUES (1,1,1,2)");
     }
 
     @Test
@@ -2331,6 +2346,46 @@ public abstract class AbstractTestQueries
                 "VALUES -1");
         // test with only null value in build side
         assertQuery("SELECT b FROM nation n, (VALUES (0, NULL)) t(a, b) WHERE n.regionkey + 100 > t.b AND n.nationkey = t.a", "SELECT 1 WHERE FALSE");
+        /// test with function predicate in ON clause
+        assertQuery("SELECT n.nationkey, r.regionkey FROM nation n JOIN region r ON n.regionkey = r.regionkey AND length(n.name) > length(substr(r.name, 5))");
+
+        assertQuery("SELECT * FROM " +
+                        "(VALUES (1,1),(2,1)) t1(a,b), " +
+                        "(VALUES (1,1),(1,2),(2,1)) t2(x,y) " +
+                        "WHERE a=x and b>=y",
+                "VALUES (1,1,1,1), (2,1,2,1)");
+
+        assertQuery("SELECT * FROM " +
+                        "(VALUES (1,1),(2,1)) t1(a,b), " +
+                        "(VALUES (1,1),(1,2),(2,1)) t2(x,y) " +
+                        "WHERE a=x and b>y",
+                "SELECT 1 WHERE FALSE");
+    }
+
+    @Test
+    public void testJoinWithRangePredicatesinJoinClause()
+    {
+        assertQuery("SELECT COUNT(*) " +
+                "FROM (SELECT * FROM lineitem WHERE orderkey % 16 = 0 AND partkey % 2 = 0) lineitem " +
+                "JOIN (SELECT * FROM orders WHERE orderkey % 16 = 0 AND custkey % 2 = 0) orders " +
+                "ON lineitem.orderkey % 8 = orders.orderkey % 8 AND lineitem.linenumber % 2 = 0 " +
+                "AND orders.custkey % 8 < 7 AND lineitem.suppkey % 10 < orders.custkey % 7 AND lineitem.suppkey % 7 > orders.custkey % 7");
+
+        assertQuery("SELECT COUNT(*) " +
+                "FROM (SELECT * FROM lineitem WHERE orderkey % 16 = 0 AND partkey % 2 = 0) lineitem " +
+                "JOIN (SELECT * FROM orders WHERE orderkey % 16 = 0 AND custkey % 2 = 0) orders " +
+                "ON lineitem.orderkey % 8 = orders.orderkey % 8 AND lineitem.linenumber % 2 = 0 " +
+                "AND orders.custkey % 8 < lineitem.linenumber % 2 AND lineitem.suppkey % 10 < orders.custkey % 7 AND lineitem.suppkey % 7 > orders.custkey % 7");
+    }
+
+    @Test
+    public void testJoinWithMultipleLessThanPredicatesDifferentOrders()
+    {
+        // test that fast inequality join is not sensitive to order of search conjuncts.
+        assertQuery("SELECT count(*) FROM lineitem l JOIN nation n ON l.suppkey % 5 = n.nationkey % 5 AND l.partkey % 3 < n.regionkey AND l.partkey % 3 + 1 < n.regionkey AND l.partkey % 3 + 2 < n.regionkey");
+        assertQuery("SELECT count(*) FROM lineitem l JOIN nation n ON l.suppkey % 5 = n.nationkey % 5 AND l.partkey % 3 + 2 < n.regionkey AND l.partkey % 3 + 1 < n.regionkey AND l.partkey % 3 < n.regionkey");
+        assertQuery("SELECT count(*) FROM lineitem l JOIN nation n ON l.suppkey % 5 = n.nationkey % 5 AND l.partkey % 3 > n.regionkey AND l.partkey % 3 + 1 > n.regionkey AND l.partkey % 3 + 2 > n.regionkey");
+        assertQuery("SELECT count(*) FROM lineitem l JOIN nation n ON l.suppkey % 5 = n.nationkey % 5 AND l.partkey % 3 + 2 > n.regionkey AND l.partkey % 3 + 1 > n.regionkey AND l.partkey % 3 > n.regionkey");
     }
 
     @Test
@@ -2340,6 +2395,12 @@ public abstract class AbstractTestQueries
         assertQuery(
                 "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON l.orderkey = o.orderkey AND l.shipdate < o.orderdate + INTERVAL '10' DAY",
                 "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON l.orderkey = o.orderkey AND l.shipdate < DATEADD('DAY', 10, o.orderdate)");
+        assertQuery(
+                "SELECT o.orderkey, o.orderdate, l.shipdate FROM lineitem l JOIN orders o ON l.orderkey = o.orderkey AND l.shipdate < DATE_ADD('DAY', 10, o.orderdate)",
+                "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON l.orderkey = o.orderkey AND l.shipdate < DATEADD('DAY', 10, o.orderdate)");
+        assertQuery(
+                "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON o.orderkey=l.orderkey AND o.orderdate + INTERVAL '2' DAY <= l.shipdate AND l.shipdate < o.orderdate + INTERVAL '7' DAY",
+                "SELECT o.orderkey, o.orderdate, l.shipdate FROM orders o JOIN lineitem l ON o.orderkey=l.orderkey AND DATEADD('DAY', 2, o.orderdate) <= l.shipdate AND l.shipdate < DATEADD('DAY', 7, o.orderdate)");
     }
 
     @Test
@@ -3738,6 +3799,20 @@ public abstract class AbstractTestQueries
     public void testOrderByMultipleFields()
     {
         assertQueryOrdered("SELECT custkey, orderstatus FROM orders ORDER BY custkey DESC, orderstatus");
+    }
+
+    @Test
+    public void testDuplicateColumnsInOrderByClause()
+    {
+        MaterializedResult actual = computeActual("SELECT * FROM (VALUES INTEGER '3', INTEGER '2', INTEGER '1') t(a) ORDER BY a ASC, a DESC");
+
+        MaterializedResult expected = resultBuilder(getSession(), INTEGER)
+                .row(1)
+                .row(2)
+                .row(3)
+                .build();
+
+        assertEquals(actual, expected);
     }
 
     @Test
@@ -5391,7 +5466,7 @@ public abstract class AbstractTestQueries
     @Test
     public void testDuplicateColumnsInWindowOrderByClause()
     {
-        MaterializedResult actual = computeActual("SELECT a, row_number() OVER (ORDER BY a, a) FROM (VALUES 3, 2, 1) t(a)");
+        MaterializedResult actual = computeActual("SELECT a, row_number() OVER (ORDER BY a ASC, a DESC) FROM (VALUES 3, 2, 1) t(a)");
 
         MaterializedResult expected = resultBuilder(getSession(), BIGINT, BIGINT)
                 .row(1, 1L)
@@ -5956,6 +6031,33 @@ public abstract class AbstractTestQueries
         // check that TRY is not pushed down
         assertQueryFails("SELECT TRY(x) IS NULL FROM (SELECT 1/y as x FROM (VALUES 1, 2, 3, 0, 4) t(y))", "/ by zero");
         assertQuery("SELECT x IS NULL FROM (SELECT TRY(1/y) as x FROM (VALUES 3, 0, 4) t(y))", "VALUES false, true, false");
+
+        // test try with lambda function
+        assertQuery("SELECT TRY(apply(5, x -> x + 1) / 0)", "SELECT NULL");
+        assertQuery("SELECT TRY(apply(5 + RANDOM(1), x -> x + 1) / 0)", "SELECT NULL");
+        assertQuery("SELECT apply(5 + RANDOM(1), x -> x + TRY(1 / 0))", "SELECT NULL");
+
+        // test try with invalid JSON
+        assertQuery("SELECT JSON_FORMAT(TRY(JSON 'INVALID'))", "SELECT NULL");
+        assertQuery("SELECT JSON_FORMAT(TRY (JSON_PARSE('INVALID')))", "SELECT NULL");
+
+        // tests that might be constant folded
+        assertQuery("SELECT TRY(CAST(NULL AS BIGINT))", "SELECT NULL");
+        assertQuery("SELECT TRY(CAST('123' AS BIGINT))", "SELECT 123L");
+        assertQuery("SELECT TRY(CAST('foo' AS BIGINT))", "SELECT NULL");
+        assertQuery("SELECT TRY(CAST('foo' AS BIGINT)) + TRY(CAST('123' AS BIGINT))", "SELECT NULL");
+        assertQuery("SELECT TRY(CAST(CAST(123 AS VARCHAR) AS BIGINT))", "SELECT 123L");
+        assertQuery("SELECT COALESCE(CAST(CONCAT('123', CAST(123 AS VARCHAR)) AS BIGINT), 0)", "SELECT 123123L");
+        assertQuery("SELECT TRY(CAST(CONCAT('hello', CAST(123 AS VARCHAR)) AS BIGINT))", "SELECT NULL");
+        assertQuery("SELECT COALESCE(TRY(CAST(CONCAT('a', CAST(123 AS VARCHAR)) AS INTEGER)), 0)", "SELECT 0");
+        assertQuery("SELECT COALESCE(TRY(CAST(CONCAT('a', CAST(123 AS VARCHAR)) AS BIGINT)), 0)", "SELECT 0L");
+        assertQuery("SELECT 123 + TRY(ABS(-9223372036854775807 - 1))", "SELECT NULL");
+        assertQuery("SELECT JSON_FORMAT(TRY(JSON '[]')) || '123'", "SELECT '[]123'");
+        assertQuery("SELECT JSON_FORMAT(TRY(JSON 'INVALID')) || '123'", "SELECT NULL");
+        assertQuery("SELECT TRY(2/1)", "SELECT 2");
+        assertQuery("SELECT TRY(2/0)", "SELECT null");
+        assertQuery("SELECT COALESCE(TRY(2/0), 0)", "SELECT 0");
+        assertQuery("SELECT TRY(ABS(-2))", "SELECT 2");
     }
 
     @Test
