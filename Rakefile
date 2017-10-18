@@ -40,12 +40,12 @@ end
 
 desc "compile codes"
 task "compile" do
-  sh "./mvnw test-compile -pl #{compile_target_modules.join(",")} -DskipTests"
+  sh "./mvnw -s settings.xml test-compile -pl #{compile_target_modules.join(",")} -DskipTests"
 end
 
 desc "run tests"
 task "test" do
-  sh "./mvnw -P td -pl #{active_modules.join(",")} test"
+  sh "./mvnw -s settings.xml -P td -pl #{active_modules.join(",")} test"
 end
 
 desc "set a unique version and td-specific settings"
