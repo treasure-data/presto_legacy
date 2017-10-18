@@ -17,6 +17,7 @@ import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.event.query.QueryMonitor;
 import com.facebook.presto.execution.QueryExecution.QueryExecutionFactory;
+import com.facebook.presto.execution.QueryExecution.QueryOutputInfo;
 import com.facebook.presto.execution.SqlQueryExecution.SqlQueryExecutionFactory;
 import com.facebook.presto.execution.resourceGroups.QueryQueueFullException;
 import com.facebook.presto.execution.scheduler.NodeSchedulerConfig;
@@ -24,7 +25,7 @@ import com.facebook.presto.memory.ClusterMemoryManager;
 import com.facebook.presto.metadata.InternalNodeManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.SessionPropertyManager;
-import com.facebook.presto.security.AccessControl;
+import com.facebook.presto.server.SessionContext;
 import com.facebook.presto.server.SessionSupplier;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.QueryId;
@@ -38,6 +39,7 @@ import com.facebook.presto.sql.tree.Explain;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.ThreadPoolExecutorMBean;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
@@ -80,6 +82,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PARAMET
 import static com.facebook.presto.sql.planner.ExpressionInterpreter.verifyExpressionIsConstant;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
 import static io.airlift.concurrent.Threads.threadsNamed;
 import static io.airlift.units.Duration.nanosSince;
 import static java.lang.String.format;
@@ -123,11 +126,9 @@ public class SqlQueryManager
     private final Metadata metadata;
     private final TransactionManager transactionManager;
 
-    private final AccessControl accessControl;
-
     private final QueryIdGenerator queryIdGenerator;
 
-    private final SessionPropertyManager sessionPropertyManager;
+    private final SessionSupplier sessionSupplier;
 
     private final InternalNodeManager internalNodeManager;
 
@@ -147,9 +148,8 @@ public class SqlQueryManager
             ClusterMemoryManager memoryManager,
             LocationFactory locationFactory,
             TransactionManager transactionManager,
-            AccessControl accessControl,
             QueryIdGenerator queryIdGenerator,
-            SessionPropertyManager sessionPropertyManager,
+            SessionSupplier sessionSupplier,
             InternalNodeManager internalNodeManager,
             Map<Class<? extends Statement>, QueryExecutionFactory<?>> executionFactories,
             Metadata metadata)
@@ -172,11 +172,9 @@ public class SqlQueryManager
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
         this.metadata = requireNonNull(metadata, "transactionManager is null");
 
-        this.accessControl = requireNonNull(accessControl, "accessControl is null");
-
         this.queryIdGenerator = requireNonNull(queryIdGenerator, "queryIdGenerator is null");
 
-        this.sessionPropertyManager = requireNonNull(sessionPropertyManager, "sessionPropertyManager is null");
+        this.sessionSupplier = requireNonNull(sessionSupplier, "sessionSupplier is null");
 
         this.internalNodeManager = requireNonNull(internalNodeManager, "internalNodeManager is null");
 
@@ -211,7 +209,7 @@ public class SqlQueryManager
                 }
 
                 try {
-                    enforceQueryMaxRunTimeLimits();
+                    enforeTimeLimits();
                 }
                 catch (Throwable e) {
                     log.warn(e, "Error enforcing query timeout limits");
@@ -276,18 +274,29 @@ public class SqlQueryManager
     }
 
     @Override
-    public Duration waitForStateChange(QueryId queryId, QueryState currentState, Duration maxWait)
-            throws InterruptedException
+    public ListenableFuture<QueryOutputInfo> getOutputInfo(QueryId queryId)
     {
         requireNonNull(queryId, "queryId is null");
-        requireNonNull(maxWait, "maxWait is null");
 
         QueryExecution query = queries.get(queryId);
         if (query == null) {
-            return maxWait;
+            return immediateFailedFuture(new NoSuchElementException());
         }
 
-        return query.waitForStateChange(currentState, maxWait);
+        return query.getOutputInfo();
+    }
+
+    @Override
+    public ListenableFuture<QueryState> getStateChange(QueryId queryId, QueryState currentState)
+    {
+        requireNonNull(queryId, "queryId is null");
+
+        QueryExecution query = queries.get(queryId);
+        if (query == null) {
+            return immediateFailedFuture(new NoSuchElementException());
+        }
+
+        return query.getStateChange(currentState);
     }
 
     @Override
@@ -352,9 +361,9 @@ public class SqlQueryManager
     }
 
     @Override
-    public QueryInfo createQuery(SessionSupplier sessionSupplier, String query)
+    public QueryInfo createQuery(SessionContext sessionContext, String query)
     {
-        requireNonNull(sessionSupplier, "sessionFactory is null");
+        requireNonNull(sessionContext, "sessionFactory is null");
         requireNonNull(query, "query is null");
         checkArgument(!query.isEmpty(), "query must not be empty string");
 
@@ -377,7 +386,7 @@ public class SqlQueryManager
                 acceptQueries.set(true);
             }
 
-            session = sessionSupplier.createSession(queryId, transactionManager, accessControl, sessionPropertyManager);
+            session = sessionSupplier.createSession(queryId, sessionContext);
             if (query.length() > maxQueryLength) {
                 int queryLength = query.length();
                 query = query.substring(0, maxQueryLength);
@@ -409,7 +418,7 @@ public class SqlQueryManager
             if (session == null) {
                 session = Session.builder(new SessionPropertyManager())
                         .setQueryId(queryId)
-                        .setIdentity(sessionSupplier.getIdentity())
+                        .setIdentity(sessionContext.getIdentity())
                         .build();
             }
             Optional<ResourceGroupId> resourceGroup = Optional.empty();
@@ -426,6 +435,7 @@ public class SqlQueryManager
                 queryMonitor.queryCreatedEvent(queryInfo);
                 queryMonitor.queryCompletedEvent(queryInfo);
                 stats.queryStarted();
+                stats.queryStopped();
                 stats.queryFinished(queryInfo);
             }
             finally {
@@ -541,17 +551,22 @@ public class SqlQueryManager
     }
 
     /**
-     * Enforce timeout at the query level
+     * Enforce query max runtime/execution time limits
      */
-    public void enforceQueryMaxRunTimeLimits()
+    public void enforeTimeLimits()
     {
         for (QueryExecution query : queries.values()) {
             if (query.getState().isDone()) {
                 continue;
             }
             Duration queryMaxRunTime = SystemSessionProperties.getQueryMaxRunTime(query.getSession());
-            DateTime executionStartTime = query.getQueryInfo().getQueryStats().getCreateTime();
-            if (executionStartTime.plus(queryMaxRunTime.toMillis()).isBeforeNow()) {
+            Duration queryMaxExecutionTime = SystemSessionProperties.getQueryMaxExecutionTime(query.getSession());
+            DateTime executionStartTime = query.getQueryInfo().getQueryStats().getExecutionStartTime();
+            DateTime createTime = query.getQueryInfo().getQueryStats().getCreateTime();
+            if (executionStartTime != null && executionStartTime.plus(queryMaxExecutionTime.toMillis()).isBeforeNow()) {
+                query.fail(new PrestoException(EXCEEDED_TIME_LIMIT, "Query exceeded the maximum execution time limit of " + queryMaxExecutionTime));
+            }
+            if (createTime.plus(queryMaxRunTime.toMillis()).isBeforeNow()) {
                 query.fail(new PrestoException(EXCEEDED_TIME_LIMIT, "Query exceeded maximum time limit of " + queryMaxRunTime));
             }
         }

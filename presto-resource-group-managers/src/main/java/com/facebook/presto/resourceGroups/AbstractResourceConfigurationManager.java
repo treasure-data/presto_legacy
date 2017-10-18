@@ -191,7 +191,8 @@ public abstract class AbstractResourceConfigurationManager
             }
         }
         group.setMaxQueuedQueries(match.getMaxQueued());
-        group.setMaxRunningQueries(match.getMaxRunning());
+        group.setSoftConcurrencyLimit(match.getSoftConcurrencyLimit().orElse(match.getHardConcurrencyLimit()));
+        group.setHardConcurrencyLimit(match.getHardConcurrencyLimit());
         match.getQueuedTimeLimit().ifPresent(group::setQueuedTimeLimit);
         match.getRunningTimeLimit().ifPresent(group::setRunningTimeLimit);
         match.getSchedulingPolicy().ifPresent(group::setSchedulingPolicy);

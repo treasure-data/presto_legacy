@@ -46,6 +46,7 @@ public class TestResourceGroupStateInfo
                 new DataSize(10, GIGABYTE),
                 new DataSize(100, BYTE),
                 10,
+                10,
                 100,
                 new Duration(1, HOURS),
                 new Duration(10, HOURS),
@@ -78,6 +79,7 @@ public class TestResourceGroupStateInfo
                         subGroupId,
                         new DataSize(1, GIGABYTE),
                         10,
+                        10,
                         new Duration(1, HOURS),
                         100,
                         new Duration(10, HOURS),
@@ -93,7 +95,7 @@ public class TestResourceGroupStateInfo
         assertEquals(actual.getState(), CAN_RUN);
         assertEquals(actual.getSoftMemoryLimit(), new DataSize(10, GIGABYTE));
         assertEquals(actual.getMemoryUsage(), new DataSize(100, BYTE));
-        assertEquals(actual.getMaxRunningQueries(), 10);
+        assertEquals(actual.getHardConcurrencyLimit(), 10);
         assertEquals(actual.getRunningTimeLimit(), new Duration(1, HOURS));
         assertEquals(actual.getMaxQueuedQueries(), 100);
         assertEquals(actual.getQueuedTimeLimit(), new Duration(10, HOURS));
@@ -127,7 +129,7 @@ public class TestResourceGroupStateInfo
         ResourceGroupInfo subGroup = actual.getSubGroups().get(0);
         assertEquals(subGroup.getId(), subGroupId);
         assertEquals(subGroup.getSoftMemoryLimit(), new DataSize(1, GIGABYTE));
-        assertEquals(subGroup.getMaxRunningQueries(), 10);
+        assertEquals(subGroup.getHardConcurrencyLimit(), 10);
         assertEquals(subGroup.getRunningTimeLimit(), new Duration(1, HOURS));
         assertEquals(subGroup.getMaxQueuedQueries(), 100);
         assertEquals(subGroup.getQueuedTimeLimit(), new Duration(10, HOURS));

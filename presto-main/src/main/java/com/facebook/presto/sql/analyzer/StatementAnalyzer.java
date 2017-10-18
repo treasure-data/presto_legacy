@@ -84,6 +84,7 @@ import com.facebook.presto.sql.tree.Node;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.OrderBy;
 import com.facebook.presto.sql.tree.Prepare;
+import com.facebook.presto.sql.tree.Property;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.Query;
 import com.facebook.presto.sql.tree.QuerySpecification;
@@ -142,6 +143,7 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.sql.NodeUtils.getSortItemsFromOrderBy;
+import static com.facebook.presto.sql.NodeUtils.mapFromProperties;
 import static com.facebook.presto.sql.analyzer.AggregationAnalyzer.verifyOrderByAggregations;
 import static com.facebook.presto.sql.analyzer.AggregationAnalyzer.verifySourceAggregations;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.createConstantAnalyzer;
@@ -154,6 +156,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.AMBIGUOUS_ATTRI
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.COLUMN_NAME_NOT_SPECIFIED;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.COLUMN_TYPE_UNKNOWN;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.DUPLICATE_COLUMN_NAME;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.DUPLICATE_PROPERTY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.DUPLICATE_RELATION;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_ORDINAL;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PROCEDURE_ARGUMENTS;
@@ -191,6 +194,7 @@ import static com.facebook.presto.sql.tree.WindowFrame.Type.RANGE;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.getLast;
 import static com.google.common.collect.Iterables.transform;
@@ -407,7 +411,7 @@ class StatementAnalyzer
             }
 
             validateProperties(node.getProperties(), scope);
-            analysis.setCreateTableProperties(node.getProperties());
+            analysis.setCreateTableProperties(mapFromProperties(node.getProperties()));
 
             node.getColumnAliases().ifPresent(analysis::setCreateTableColumnAliases);
             analysis.setCreateTableComment(node.getComment());
@@ -505,6 +509,15 @@ class StatementAnalyzer
         }
 
         @Override
+        protected Scope visitProperty(Property node, Optional<Scope> scope)
+        {
+            // Property value expressions must be constant
+            createConstantAnalyzer(metadata, session, analysis.getParameters(), analysis.isDescribe())
+                    .analyze(node.getValue(), createScope(scope));
+            return createAndAssignScope(node, scope);
+        }
+
+        @Override
         protected Scope visitDropTable(DropTable node, Optional<Scope> scope)
         {
             return createAndAssignScope(node, scope);
@@ -588,12 +601,16 @@ class StatementAnalyzer
             return createAndAssignScope(node, scope);
         }
 
-        private void validateProperties(Map<String, Expression> properties, Optional<Scope> scope)
+        private void validateProperties(List<Property> properties, Optional<Scope> scope)
         {
-            for (Expression expression : properties.values()) {
-                // analyze property value expressions which must be constant
-                createConstantAnalyzer(metadata, session, analysis.getParameters(), analysis.isDescribe())
-                        .analyze(expression, createScope(scope));
+            Set<String> propertyNames = new HashSet<>();
+            for (Property property : properties) {
+                if (!propertyNames.add(property.getName().getValue())) {
+                    throw new SemanticException(DUPLICATE_PROPERTY, property, "Duplicate property: %s", property.getName().getValue());
+                }
+            }
+            for (Property property : properties) {
+                process(property, scope);
             }
         }
 
@@ -1870,6 +1887,7 @@ class StatementAnalyzer
                 return queryScope.getRelationType().withAlias(name.getObjectName(), null);
             }
             catch (RuntimeException e) {
+                throwIfInstanceOf(e, PrestoException.class);
                 throw new SemanticException(VIEW_ANALYSIS_ERROR, node, "Failed analyzing stored view '%s': %s", name, e.getMessage());
             }
         }
