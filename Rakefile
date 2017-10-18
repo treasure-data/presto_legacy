@@ -83,6 +83,9 @@ EOF
 
   # Inject build profile for TD (disable version check, set distribution management tag)
   profiles = REXML::XPath.first(pom, "/project/profiles")
+  unless profiles
+    profiles = REXML::XPath.first(pom, "/project").add_element("profiles")
+  end
   profiles.add_element(REXML::Document.new(File.read("td-profile.xml")))
 
   distribution_management = <<EOF
