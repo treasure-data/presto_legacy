@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.geospatial;
+package com.facebook.presto.plugin.geospatial;
 
 import com.facebook.presto.operator.scalar.AbstractTestFunctions;
 import com.facebook.presto.spi.type.ArrayType;
@@ -26,9 +26,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-import static com.facebook.presto.geospatial.BingTileType.BING_TILE;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
 import static com.facebook.presto.operator.scalar.ApplyFunction.APPLY_FUNCTION;
+import static com.facebook.presto.plugin.geospatial.BingTileType.BING_TILE;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
@@ -91,8 +91,8 @@ public class TestBingTileFunctions
     {
         assertFunction("bing_tile_at(30.12, 60, 15)", BING_TILE, BingTile.fromCoordinates(21845, 13506, 15));
         assertFunction("bing_tile_at(0, -0.002, 1)", BING_TILE, BingTile.fromCoordinates(0, 1, 1));
-        assertFunction("bing_tile_at(1./512, 0, 1)", BING_TILE, BingTile.fromCoordinates(1, 0, 1));
-        assertFunction("bing_tile_at(1./512, 0, 9)", BING_TILE, BingTile.fromCoordinates(256, 255, 9));
+        assertFunction("bing_tile_at(1e0/512, 0, 1)", BING_TILE, BingTile.fromCoordinates(1, 0, 1));
+        assertFunction("bing_tile_at(1e0/512, 0, 9)", BING_TILE, BingTile.fromCoordinates(256, 255, 9));
 
         // Invalid calls
         // Longitude out of range
