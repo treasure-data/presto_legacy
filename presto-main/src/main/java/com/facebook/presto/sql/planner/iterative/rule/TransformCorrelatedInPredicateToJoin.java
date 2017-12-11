@@ -250,13 +250,16 @@ public class TransformCorrelatedInPredicateToJoin
                 QualifiedName.of("count"),
                 Optional.<Window>empty(),
                 Optional.of(condition),
+                Optional.empty(),
                 false,
                 ImmutableList.<Expression>of()); /* arguments */
 
         return new AggregationNode.Aggregation(
                 countCall,
                 new Signature("count", FunctionKind.AGGREGATE, BIGINT.getTypeSignature()),
-                Optional.<Symbol>empty()); /* mask */
+                Optional.<Symbol>empty(), /* mask */
+                ImmutableList.of(),
+                ImmutableList.of());
     }
 
     private static Expression isGreaterThan(Symbol symbol, long value)

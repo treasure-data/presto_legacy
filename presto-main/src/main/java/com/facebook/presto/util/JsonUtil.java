@@ -43,7 +43,7 @@ import io.airlift.slice.SliceOutput;
 import io.airlift.slice.Slices;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -89,6 +89,7 @@ import static java.lang.Float.intBitsToFloat;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.math.RoundingMode.HALF_UP;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 public final class JsonUtil
@@ -107,7 +108,9 @@ public final class JsonUtil
     public static JsonParser createJsonParser(JsonFactory factory, Slice json)
             throws IOException
     {
-        return factory.createParser((InputStream) json.getInput());
+        // Jackson tries to detect the character encoding automatically when using InputStream
+        // so we pass an InputStreamReader instead.
+        return factory.createParser(new InputStreamReader(json.getInput(), UTF_8));
     }
 
     public static JsonGenerator createJsonGenerator(JsonFactory factory, SliceOutput output)

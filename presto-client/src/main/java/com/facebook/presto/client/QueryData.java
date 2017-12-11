@@ -11,38 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.spi;
+package com.facebook.presto.client;
 
-import com.facebook.presto.spi.type.Type;
-import io.airlift.slice.Slice;
-
-import java.math.BigDecimal;
-import java.util.Collection;
 import java.util.List;
 
-public interface RecordSink
+public interface QueryData
 {
-    void beginRecord();
-
-    void finishRecord();
-
-    void appendNull();
-
-    void appendBoolean(boolean value);
-
-    void appendLong(long value);
-
-    void appendDouble(double value);
-
-    void appendBigDecimal(BigDecimal value);
-
-    void appendString(byte[] value);
-
-    void appendObject(Object value);
-
-    Collection<Slice> commit();
-
-    void rollback();
-
-    List<Type> getColumnTypes();
+    Iterable<List<Object>> getData();
 }

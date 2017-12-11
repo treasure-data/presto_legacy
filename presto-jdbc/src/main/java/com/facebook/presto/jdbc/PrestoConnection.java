@@ -17,6 +17,7 @@ import com.facebook.presto.client.ClientSession;
 import com.facebook.presto.client.ServerInfo;
 import com.facebook.presto.client.StatementClient;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import io.airlift.units.Duration;
 
 import java.net.URI;
@@ -629,6 +630,7 @@ public class PrestoConnection
                 httpUri,
                 user,
                 source,
+                ImmutableSet.of(),
                 clientInfo.get("ClientInfo"),
                 catalog.get(),
                 schema.get(),
@@ -654,8 +656,8 @@ public class PrestoConnection
         client.getSetCatalog().ifPresent(catalog::set);
         client.getSetSchema().ifPresent(schema::set);
 
-        if (client.getStartedtransactionId() != null) {
-            transactionId.set(client.getStartedtransactionId());
+        if (client.getStartedTransactionId() != null) {
+            transactionId.set(client.getStartedTransactionId());
         }
         if (client.isClearTransactionId()) {
             transactionId.set(null);

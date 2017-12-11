@@ -62,16 +62,39 @@ public interface ResourceGroupsDao
     @Mapper(ResourceGroupSpecBuilder.Mapper.class)
     List<ResourceGroupSpecBuilder> getResourceGroups(@Bind("environment") String environment);
 
-    @SqlQuery("SELECT resource_group_id, user_regex, source_regex, client_tags from selectors")
+    @SqlQuery("SELECT S.resource_group_id, S.priority, S.user_regex, S.source_regex, S.query_type, S.client_tags\n" +
+            "FROM selectors S\n" +
+            "JOIN resource_groups R ON (S.resource_group_id = R.resource_group_id)\n" +
+            "WHERE R.environment = :environment\n" +
+            "ORDER by priority DESC")
     @Mapper(SelectorRecord.Mapper.class)
-    List<SelectorRecord> getSelectors();
+    List<SelectorRecord> getSelectors(@Bind("environment") String environment);
 
     @SqlUpdate("CREATE TABLE IF NOT EXISTS selectors (\n" +
             "  resource_group_id BIGINT NOT NULL,\n" +
+            "  priority BIGINT NOT NULL,\n" +
             "  user_regex VARCHAR(512),\n" +
             "  source_regex VARCHAR(512),\n" +
+            "  query_type VARCHAR(512),\n" +
             "  client_tags VARCHAR(512),\n" +
             "  FOREIGN KEY (resource_group_id) REFERENCES resource_groups (resource_group_id)\n" +
             ")")
     void createSelectorsTable();
+
+    @SqlUpdate("CREATE TABLE IF NOT EXISTS exact_match_source_selectors(\n" +
+            "  environment VARCHAR(128) NOT NULL,\n" +
+            "  source VARCHAR(512) NOT NULL,\n" +
+            "  update_time DATETIME NOT NULL,\n" +
+            "  resource_group_id VARCHAR(256) NOT NULL,\n" +
+            "  PRIMARY KEY (environment, source) \n" +
+            ")")
+    void createExactMatchSelectorsTable();
+
+    @SqlQuery("SELECT resource_group_id\n" +
+            "FROM exact_match_source_selectors\n" +
+            "WHERE environment = :environment\n" +
+            "  AND source = :source")
+    String getExactMatchResourceGroup(
+            @Bind("environment") String environment,
+            @Bind("source") String source);
 }

@@ -15,6 +15,7 @@ package com.facebook.presto.client;
 
 import com.facebook.presto.client.OkHttpUtil.NullCallback;
 import com.facebook.presto.spi.type.TimeZoneKey;
+import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -27,6 +28,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.io.Closeable;
@@ -48,6 +50,7 @@ import static com.facebook.presto.client.PrestoHeaders.PRESTO_CATALOG;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_SESSION;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_TRANSACTION_ID;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLIENT_INFO;
+import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLIENT_TAGS;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_DEALLOCATED_PREPARE;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_LANGUAGE;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_PREPARED_STATEMENT;
@@ -95,7 +98,7 @@ public class StatementClient
     private final Set<String> resetSessionProperties = Sets.newConcurrentHashSet();
     private final Map<String, String> addedPreparedStatements = new ConcurrentHashMap<>();
     private final Set<String> deallocatedPreparedStatements = Sets.newConcurrentHashSet();
-    private final AtomicReference<String> startedtransactionId = new AtomicReference<>();
+    private final AtomicReference<String> startedTransactionId = new AtomicReference<>();
     private final AtomicBoolean clearTransactionId = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean gone = new AtomicBoolean();
@@ -140,6 +143,9 @@ public class StatementClient
 
         if (session.getSource() != null) {
             builder.addHeader(PRESTO_SOURCE, session.getSource());
+        }
+        if (session.getClientTags() != null && !session.getClientTags().isEmpty()) {
+            builder.addHeader(PRESTO_CLIENT_TAGS, Joiner.on(",").join(session.getClientTags()));
         }
         if (session.getClientInfo() != null) {
             builder.addHeader(PRESTO_CLIENT_INFO, session.getClientInfo());
@@ -205,13 +211,19 @@ public class StatementClient
         return currentResults.get().getStats();
     }
 
-    public QueryResults current()
+    public QueryStatusInfo currentStatusInfo()
     {
         checkState(isValid(), "current position is not valid (cursor past end)");
         return currentResults.get();
     }
 
-    public QueryResults finalResults()
+    public QueryData currentData()
+    {
+        checkState(isValid(), "current position is not valid (cursor past end)");
+        return currentResults.get();
+    }
+
+    public QueryStatusInfo finalStatusInfo()
     {
         checkState((!isValid()) || isFailed(), "current position is still valid");
         return currentResults.get();
@@ -247,9 +259,10 @@ public class StatementClient
         return ImmutableSet.copyOf(deallocatedPreparedStatements);
     }
 
-    public String getStartedtransactionId()
+    @Nullable
+    public String getStartedTransactionId()
     {
-        return startedtransactionId.get();
+        return startedTransactionId.get();
     }
 
     public boolean isClearTransactionId()
@@ -272,7 +285,7 @@ public class StatementClient
 
     public boolean advance()
     {
-        URI nextUri = current().getNextUri();
+        URI nextUri = currentStatusInfo().getNextUri();
         if (isClosed() || (nextUri == null)) {
             valid.set(false);
             return false;
@@ -353,7 +366,7 @@ public class StatementClient
 
         String startedTransactionId = headers.get(PRESTO_STARTED_TRANSACTION_ID);
         if (startedTransactionId != null) {
-            this.startedtransactionId.set(startedTransactionId);
+            this.startedTransactionId.set(startedTransactionId);
         }
         if (headers.get(PRESTO_CLEAR_TRANSACTION_ID) != null) {
             clearTransactionId.set(true);
@@ -383,7 +396,7 @@ public class StatementClient
     {
         checkState(!isClosed(), "client is closed");
 
-        URI uri = current().getPartialCancelUri();
+        URI uri = currentStatusInfo().getPartialCancelUri();
         if (uri != null) {
             httpDelete(uri);
         }

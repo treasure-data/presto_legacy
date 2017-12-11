@@ -44,6 +44,7 @@ public class FeaturesConfig
 {
     private boolean distributedIndexJoinsEnabled;
     private boolean distributedJoinsEnabled = true;
+    private boolean dictionaryProcessingJoinsEnabled = true;
     private boolean colocatedJoinsEnabled;
     private boolean fastInequalityJoins = true;
     private boolean reorderJoins = true;
@@ -76,6 +77,7 @@ public class FeaturesConfig
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
+    private boolean parseDecimalLiteralsAsDouble = true;
 
     private Duration iterativeOptimizerTimeout = new Duration(3, MINUTES); // by default let optimizer wait a long time in case it retrieves some data from ConnectorMetadata
 
@@ -109,6 +111,18 @@ public class FeaturesConfig
     public boolean isDistributedJoinsEnabled()
     {
         return distributedJoinsEnabled;
+    }
+
+    @Config("dictionary-processing-joins-enabled")
+    public FeaturesConfig setDictionaryProcessingJoinsEnabled(boolean dictionaryProcessingJoinsEnabled)
+    {
+        this.dictionaryProcessingJoinsEnabled = dictionaryProcessingJoinsEnabled;
+        return this;
+    }
+
+    public boolean isDictionaryProcessingJoinsEnabled()
+    {
+        return dictionaryProcessingJoinsEnabled;
     }
 
     @Config("deprecated.legacy-array-agg")
@@ -463,6 +477,18 @@ public class FeaturesConfig
     public FeaturesConfig setPushAggregationThroughJoin(boolean value)
     {
         this.pushAggregationThroughJoin = value;
+        return this;
+    }
+
+    public boolean isParseDecimalLiteralsAsDouble()
+    {
+        return parseDecimalLiteralsAsDouble;
+    }
+
+    @Config("parse-decimal-literals-as-double")
+    public FeaturesConfig setParseDecimalLiteralsAsDouble(boolean parseDecimalLiteralsAsDouble)
+    {
+        this.parseDecimalLiteralsAsDouble = parseDecimalLiteralsAsDouble;
         return this;
     }
 
