@@ -25,7 +25,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
@@ -34,6 +33,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.facebook.presto.SystemSessionProperties.QUERY_PRIORITY;
 import static com.facebook.presto.execution.QueryState.FAILED;
@@ -148,6 +148,8 @@ public class MockQueryExecution
                         new DataSize(28, BYTE),
                         29,
                         ImmutableList.of()),
+                Optional.empty(),
+                Optional.empty(),
                 ImmutableMap.of(),
                 ImmutableSet.of(),
                 ImmutableMap.of(),
@@ -183,9 +185,9 @@ public class MockQueryExecution
     }
 
     @Override
-    public ListenableFuture<QueryOutputInfo> getOutputInfo()
+    public void addOutputInfoListener(Consumer<QueryOutputInfo> listener)
     {
-        return SettableFuture.create();
+        // no-op
     }
 
     @Override

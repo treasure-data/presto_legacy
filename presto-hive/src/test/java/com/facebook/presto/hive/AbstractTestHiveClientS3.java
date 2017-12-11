@@ -18,13 +18,15 @@ import com.facebook.presto.hive.AbstractTestHiveClient.HiveTransaction;
 import com.facebook.presto.hive.AbstractTestHiveClient.Transaction;
 import com.facebook.presto.hive.HdfsEnvironment.HdfsContext;
 import com.facebook.presto.hive.authentication.NoHdfsAuthentication;
-import com.facebook.presto.hive.metastore.BridgingHiveMetastore;
 import com.facebook.presto.hive.metastore.CachingHiveMetastore;
 import com.facebook.presto.hive.metastore.Database;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.hive.metastore.PrincipalPrivileges;
 import com.facebook.presto.hive.metastore.Table;
-import com.facebook.presto.hive.metastore.ThriftHiveMetastore;
+import com.facebook.presto.hive.metastore.thrift.BridgingHiveMetastore;
+import com.facebook.presto.hive.metastore.thrift.HiveCluster;
+import com.facebook.presto.hive.metastore.thrift.TestingHiveCluster;
+import com.facebook.presto.hive.metastore.thrift.ThriftHiveMetastore;
 import com.facebook.presto.hive.s3.HiveS3Config;
 import com.facebook.presto.hive.s3.PrestoS3ConfigurationUpdater;
 import com.facebook.presto.hive.s3.S3ConfigurationUpdater;
@@ -168,7 +170,7 @@ public abstract class AbstractTestHiveClientS3
         HiveCluster hiveCluster = new TestingHiveCluster(config, host, port);
         ExecutorService executor = newCachedThreadPool(daemonThreadsNamed("hive-s3-%s"));
         HdfsConfiguration hdfsConfiguration = new HiveHdfsConfiguration(new HdfsConfigurationUpdater(config, s3Config));
-        HivePartitionManager hivePartitionManager = new HivePartitionManager(connectorId, TYPE_MANAGER, config);
+        HivePartitionManager hivePartitionManager = new HivePartitionManager(TYPE_MANAGER, config);
 
         hdfsEnvironment = new HdfsEnvironment(hdfsConfiguration, config, new NoHdfsAuthentication());
         metastoreClient = new TestingHiveMetastore(
@@ -180,7 +182,6 @@ public abstract class AbstractTestHiveClientS3
         locationService = new HiveLocationService(hdfsEnvironment);
         JsonCodec<PartitionUpdate> partitionUpdateCodec = JsonCodec.jsonCodec(PartitionUpdate.class);
         metadataFactory = new HiveMetadataFactory(
-                connectorId,
                 config,
                 metastoreClient,
                 hdfsEnvironment,
@@ -194,7 +195,6 @@ public abstract class AbstractTestHiveClientS3
                 new NodeVersion("test_version"));
         transactionManager = new HiveTransactionManager();
         splitManager = new HiveSplitManager(
-                connectorId,
                 transactionHandle -> ((HiveMetadata) transactionManager.get(transactionHandle)).getMetastore(),
                 new NamenodeStats(),
                 hdfsEnvironment,
@@ -206,6 +206,7 @@ public abstract class AbstractTestHiveClientS3
                 config.getMinPartitionBatchSize(),
                 config.getMaxPartitionBatchSize(),
                 config.getMaxInitialSplits(),
+                config.getSplitLoaderConcurrency(),
                 config.getRecursiveDirWalkerEnabled());
         pageSinkProvider = new HivePageSinkProvider(
                 getDefaultHiveFileWriterFactories(config),

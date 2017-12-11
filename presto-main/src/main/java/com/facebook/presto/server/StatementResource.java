@@ -50,7 +50,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.BoundedExecutor;
@@ -104,6 +103,8 @@ import static com.facebook.presto.client.PrestoHeaders.PRESTO_ADDED_PREPARE;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_SESSION;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_CLEAR_TRANSACTION_ID;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_DEALLOCATED_PREPARE;
+import static com.facebook.presto.client.PrestoHeaders.PRESTO_SET_CATALOG;
+import static com.facebook.presto.client.PrestoHeaders.PRESTO_SET_SCHEMA;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_SET_SESSION;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_STARTED_TRANSACTION_ID;
 import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
@@ -233,6 +234,10 @@ public class StatementResource
     {
         ResponseBuilder response = Response.ok(queryResults);
 
+        // add set catalog and schema
+        query.getSetCatalog().ifPresent(catalog -> response.header(PRESTO_SET_CATALOG, catalog));
+        query.getSetSchema().ifPresent(schema -> response.header(PRESTO_SET_SCHEMA, schema));
+
         // add set session properties
         query.getSetSessionProperties().entrySet()
                 .forEach(entry -> response.header(PRESTO_SET_SESSION, entry.getKey() + '=' + entry.getValue()));
@@ -320,6 +325,12 @@ public class StatementResource
         private List<Type> types;
 
         @GuardedBy("this")
+        private Optional<String> setCatalog;
+
+        @GuardedBy("this")
+        private Optional<String> setSchema;
+
+        @GuardedBy("this")
         private Map<String, String> setSessionProperties;
 
         @GuardedBy("this")
@@ -351,7 +362,7 @@ public class StatementResource
                 BlockEncodingSerde blockEncodingSerde)
         {
             Query result = new Query(sessionContext, query, queryManager, sessionPropertyManager, exchangeClient, dataProcessorExecutor, timeoutExecutor, blockEncodingSerde);
-            result.updateOutputInfoWhenReady();
+            result.queryManager.addOutputInfoListener(result.queryId, result::setQueryOutputInfo);
             return result;
         }
 
@@ -384,25 +395,6 @@ public class StatementResource
             this.serde = new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session)).createPagesSerde();
         }
 
-        private void updateOutputInfoWhenReady()
-        {
-            // wait for query to start
-            ListenableFuture<QueryOutputInfo> outputLocationsFuture = queryManager.getOutputInfo(queryId);
-            Futures.addCallback(outputLocationsFuture, new FutureCallback<QueryOutputInfo>()
-            {
-                @Override
-                public void onSuccess(QueryOutputInfo outputInfo)
-                {
-                    setQueryOutputInfo(outputInfo);
-                }
-
-                @Override
-                public void onFailure(Throwable t)
-                {
-                }
-            });
-        }
-
         public void cancel()
         {
             queryManager.cancelQuery(queryId);
@@ -417,6 +409,16 @@ public class StatementResource
         public QueryId getQueryId()
         {
             return queryId;
+        }
+
+        public synchronized Optional<String> getSetCatalog()
+        {
+            return setCatalog;
+        }
+
+        public synchronized Optional<String> getSetSchema()
+        {
+            return setSchema;
         }
 
         public synchronized Map<String, String> getSetSessionProperties()
@@ -580,6 +582,10 @@ public class StatementResource
                 nextResultsUri = createNextResultsUri(uriInfo);
             }
 
+            // update catalog and schema
+            setCatalog = queryInfo.getSetCatalog();
+            setSchema = queryInfo.getSetSchema();
+
             // update setSessionProperties
             setSessionProperties = queryInfo.getSetSessionProperties();
             resetSessionProperties = queryInfo.getResetSessionProperties();
@@ -618,28 +624,29 @@ public class StatementResource
 
         private synchronized void setQueryOutputInfo(QueryOutputInfo outputInfo)
         {
-            if (columns != null) {
-                return;
+            // if first callback, set column names
+            if (columns == null) {
+                List<String> columnNames = outputInfo.getColumnNames();
+                List<Type> columnTypes = outputInfo.getColumnTypes();
+                checkArgument(columnNames.size() == columnTypes.size(), "Column names and types size mismatch");
+
+                ImmutableList.Builder<Column> list = ImmutableList.builder();
+                for (int i = 0; i < columnNames.size(); i++) {
+                    String name = columnNames.get(i);
+                    TypeSignature typeSignature = columnTypes.get(i).getTypeSignature();
+                    String type = typeSignature.toString();
+                    list.add(new Column(name, type, new ClientTypeSignature(typeSignature)));
+                }
+                columns = list.build();
+                types = outputInfo.getColumnTypes();
             }
 
-            List<String> columnNames = outputInfo.getColumnNames();
-            List<Type> columnTypes = outputInfo.getColumnTypes();
-            checkArgument(columnNames.size() == columnTypes.size(), "Column names and types size mismatch");
-
-            ImmutableList.Builder<Column> list = ImmutableList.builder();
-            for (int i = 0; i < columnNames.size(); i++) {
-                String name = columnNames.get(i);
-                TypeSignature typeSignature = columnTypes.get(i).getTypeSignature();
-                String type = typeSignature.toString();
-                list.add(new Column(name, type, new ClientTypeSignature(typeSignature)));
-            }
-            columns = list.build();
-            types = outputInfo.getColumnTypes();
-
-            for (URI outputLocation : outputInfo.getBufferLocations().values()) {
+            for (URI outputLocation : outputInfo.getBufferLocations()) {
                 exchangeClient.addLocation(outputLocation);
             }
-            exchangeClient.noMoreLocations();
+            if (outputInfo.isNoMoreBufferLocations()) {
+                exchangeClient.noMoreLocations();
+            }
         }
 
         private ListenableFuture<?> queryDoneFuture(QueryState currentState)
