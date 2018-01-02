@@ -5,7 +5,7 @@
     <parent>
         <artifactId>presto-root</artifactId>
         <groupId>com.facebook.presto</groupId>
-        <version>0.190</version>
+        <version>0.191</version>
     </parent>
 
     <artifactId>presto-tests</artifactId>
@@ -154,7 +154,7 @@
 
         <dependency>
             <groupId>org.jdbi</groupId>
-            <artifactId>jdbi</artifactId>
+            <artifactId>jdbi3-core</artifactId>
         </dependency>
 
         <dependency>
