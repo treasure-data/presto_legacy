@@ -17,30 +17,38 @@ import com.facebook.presto.matching.Capture;
 import com.facebook.presto.matching.Captures;
 import com.facebook.presto.matching.Pattern;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.iterative.Rule;
+import com.facebook.presto.sql.planner.optimizations.ExpressionEquivalence;
 import com.facebook.presto.sql.planner.optimizations.TableLayoutRewriter;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
-import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.tree.BooleanLiteral;
+import com.facebook.presto.sql.tree.Expression;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.matching.Capture.newCapture;
+import static com.facebook.presto.sql.ExpressionUtils.extractConjuncts;
+import static com.facebook.presto.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static com.facebook.presto.sql.planner.plan.Patterns.filter;
 import static com.facebook.presto.sql.planner.plan.Patterns.source;
 import static com.facebook.presto.sql.planner.plan.Patterns.tableScan;
+import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static java.util.Objects.requireNonNull;
 
 public class PickTableLayout
 {
     private final Metadata metadata;
+    private final SqlParser sqlParser;
 
-    public PickTableLayout(Metadata metadata)
+    public PickTableLayout(Metadata metadata, SqlParser sqlParser)
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
+        this.sqlParser = requireNonNull(sqlParser, "sqlParser is null");
     }
 
     public Set<Rule<?>> rules()
@@ -52,7 +60,7 @@ public class PickTableLayout
 
     public PickTableLayoutForPredicate pickTableLayoutForPredicate()
     {
-        return new PickTableLayoutForPredicate(metadata);
+        return new PickTableLayoutForPredicate(metadata, sqlParser);
     }
 
     public PickTableLayoutWithoutPredicate pickTableLayoutWithoutPredicate()
@@ -64,10 +72,12 @@ public class PickTableLayout
             implements Rule<FilterNode>
     {
         private final Metadata metadata;
+        private final SqlParser sqlParser;
 
-        private PickTableLayoutForPredicate(Metadata metadata)
+        private PickTableLayoutForPredicate(Metadata metadata, SqlParser sqlParser)
         {
             this.metadata = requireNonNull(metadata, "metadata is null");
+            this.sqlParser = requireNonNull(sqlParser, "sqlParser is null");
         }
 
         private static final Capture<TableScanNode> TABLE_SCAN = newCapture();
@@ -90,14 +100,55 @@ public class PickTableLayout
         @Override
         public Result apply(FilterNode filterNode, Captures captures, Context context)
         {
+            TableScanNode tableScan = captures.get(TABLE_SCAN);
+
             TableLayoutRewriter tableLayoutRewriter = new TableLayoutRewriter(metadata, context.getSession(), context.getSymbolAllocator(), context.getIdAllocator());
             PlanNode rewrittenTableScan = tableLayoutRewriter.planTableScan(captures.get(TABLE_SCAN), filterNode.getPredicate());
 
-            if (rewrittenTableScan instanceof TableScanNode || rewrittenTableScan instanceof ValuesNode || (((FilterNode) rewrittenTableScan).getPredicate() != filterNode.getPredicate())) {
-                return Result.ofPlanNode(rewrittenTableScan);
+            if (arePlansEquivalent(filterNode, tableScan, rewrittenTableScan, context)) {
+                return Result.empty();
             }
 
-            return Result.empty();
+            return Result.ofPlanNode(rewrittenTableScan);
+        }
+
+        public boolean arePlansEquivalent(FilterNode filter, TableScanNode tableScan, PlanNode rewritten, Context context)
+        {
+            Expression resultPredicate = BooleanLiteral.TRUE_LITERAL;
+            if (rewritten instanceof FilterNode) {
+                resultPredicate = ((FilterNode) rewritten).getPredicate();
+            }
+
+            Optional<TableScanNode> rewrittenTableScan = searchFrom(rewritten)
+                    .where(TableScanNode.class::isInstance)
+                    .findSingle();
+
+            if (!areExpressionEquivalent(filter.getPredicate(), resultPredicate, context)) {
+                return false;
+            }
+
+            if (!rewrittenTableScan.isPresent()) {
+                return false;
+            }
+
+            return haveEqualConstraint(rewrittenTableScan.get(), tableScan);
+        }
+
+        private boolean areExpressionEquivalent(Expression first, Expression second, Context context)
+        {
+            if (ImmutableSet.copyOf(extractConjuncts(first)).equals(ImmutableSet.copyOf(extractConjuncts(second)))) {
+                return true;
+            }
+            ExpressionEquivalence expressionEquivalence = new ExpressionEquivalence(metadata, sqlParser);
+            if (expressionEquivalence.areExpressionsEquivalent(context.getSession(), first, second, context.getSymbolAllocator().getTypes())) {
+                return true;
+            }
+            return false;
+        }
+
+        private static boolean haveEqualConstraint(TableScanNode first, TableScanNode second)
+        {
+            return first.getCurrentConstraint().equals(second.getCurrentConstraint());
         }
     }
 

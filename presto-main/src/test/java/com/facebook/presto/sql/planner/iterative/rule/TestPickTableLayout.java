@@ -17,6 +17,7 @@ import com.facebook.presto.connector.ConnectorId;
 import com.facebook.presto.metadata.TableHandle;
 import com.facebook.presto.metadata.TableLayoutHandle;
 import com.facebook.presto.spi.predicate.Domain;
+import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.planner.iterative.Rule;
 import com.facebook.presto.sql.planner.iterative.rule.test.BaseRuleTest;
 import com.facebook.presto.sql.tree.BooleanLiteral;
@@ -52,7 +53,7 @@ public class TestPickTableLayout
     @BeforeMethod
     public void setUpPerMethod()
     {
-        pickTableLayout = new PickTableLayout(tester().getMetadata());
+        pickTableLayout = new PickTableLayout(tester().getMetadata(), new SqlParser());
 
         ConnectorId connectorId = tester().getCurrentConnectorId();
         nationTableHandle = new TableHandle(
@@ -97,6 +98,20 @@ public class TestPickTableLayout
                                 ImmutableList.of(p.symbol("nationkey", BIGINT)),
                                 ImmutableMap.of(p.symbol("nationkey", BIGINT), new TpchColumnHandle("nationkey", BIGINT)),
                                 expression("nationkey = BIGINT '44'"),
+                                Optional.of(nationTableLayoutHandle))))
+                .doesNotFire();
+    }
+
+    @Test
+    public void doesNotFireIfTableScanNothingUpdated()
+    {
+        tester().assertThat(pickTableLayout.pickTableLayoutForPredicate())
+                .on(p -> p.filter(expression("nationkey % 17 =  BIGINT '44'"),
+                        p.tableScan(
+                                nationTableHandle,
+                                ImmutableList.of(p.symbol("nationkey", BIGINT)),
+                                ImmutableMap.of(p.symbol("nationkey", BIGINT), new TpchColumnHandle("nationkey", BIGINT)),
+                                expression("TRUE"),
                                 Optional.of(nationTableLayoutHandle))))
                 .doesNotFire();
     }

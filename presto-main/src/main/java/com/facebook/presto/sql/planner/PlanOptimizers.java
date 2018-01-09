@@ -317,7 +317,7 @@ public class PlanOptimizers
                 new IterativeOptimizer(
                         stats,
                         ImmutableList.of(new com.facebook.presto.sql.planner.optimizations.PickLayout(metadata)),
-                        new PickTableLayout(metadata).rules()));
+                        new PickTableLayout(metadata, sqlParser).rules()));
 
         builder.add(
                 new IterativeOptimizer(
