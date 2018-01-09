@@ -78,7 +78,7 @@ public class PickTableLayout
 
         private static boolean shouldRewriteTableLayout(TableScanNode source)
         {
-            return !source.getLayout().isPresent() || source.getOriginalConstraint() == BooleanLiteral.TRUE_LITERAL;
+            return !source.getLayout().isPresent() || source.getOriginalConstraint().equals(BooleanLiteral.TRUE_LITERAL);
         }
 
         @Override
