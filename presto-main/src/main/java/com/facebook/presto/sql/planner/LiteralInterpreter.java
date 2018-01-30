@@ -20,6 +20,7 @@ import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.operator.scalar.VarbinaryFunctions;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.type.CharType;
 import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
@@ -52,7 +53,6 @@ import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
 import io.airlift.slice.SliceUtf8;
-import io.airlift.slice.Slices;
 
 import java.util.List;
 
@@ -171,22 +171,19 @@ public final class LiteralInterpreter
         }
 
         if (type instanceof VarcharType) {
-            if (object instanceof String) {
-                object = Slices.utf8Slice((String) object);
+            VarcharType varcharType = (VarcharType) type;
+            Slice value = (Slice) object;
+            StringLiteral stringLiteral = new StringLiteral(value.toStringUtf8());
+
+            if (!varcharType.isUnbounded() && varcharType.getLengthSafe() == SliceUtf8.countCodePoints(value)) {
+                return stringLiteral;
             }
+            return new Cast(stringLiteral, type.getDisplayName(), false, true);
+        }
 
-            if (object instanceof Slice) {
-                Slice value = (Slice) object;
-                int length = SliceUtf8.countCodePoints(value);
-
-                if (length == ((VarcharType) type).getLength()) {
-                    return new StringLiteral(value.toStringUtf8());
-                }
-
-                return new Cast(new StringLiteral(value.toStringUtf8()), type.getDisplayName(), false, true);
-            }
-
-            throw new IllegalArgumentException("object must be instance of Slice or String when type is VARCHAR");
+        if (type instanceof CharType) {
+            StringLiteral stringLiteral = new StringLiteral(((Slice) object).toStringUtf8());
+            return new Cast(stringLiteral, type.getDisplayName(), false, true);
         }
 
         if (type.equals(BOOLEAN)) {

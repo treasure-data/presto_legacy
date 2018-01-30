@@ -65,7 +65,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -76,10 +75,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.sql.planner.optimizations.QueryCardinalityUtil.isScalar;
-import static com.google.common.base.Predicates.in;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.concat;
@@ -289,14 +288,10 @@ public class PruneUnreferencedOutputs
                     .filter(context.get()::contains)
                     .collect(toImmutableSet());
 
-            Set<Symbol> requiredAssignmentSymbols = context.get();
-            if (!node.getEffectiveTupleDomain().isNone()) {
-                Set<Symbol> requiredSymbols = Maps.filterValues(node.getAssignments(), in(node.getEffectiveTupleDomain().getDomains().get().keySet())).keySet();
-                requiredAssignmentSymbols = Sets.union(context.get(), requiredSymbols);
-            }
-            Map<Symbol, ColumnHandle> newAssignments = Maps.filterKeys(node.getAssignments(), in(requiredAssignmentSymbols));
+            Map<Symbol, ColumnHandle> newAssignments = newOutputSymbols.stream()
+                    .collect(Collectors.toMap(Function.identity(), node.getAssignments()::get));
 
-            return new IndexSourceNode(node.getId(), node.getIndexHandle(), node.getTableHandle(), node.getLayout(), newLookupSymbols, newOutputSymbols, newAssignments, node.getEffectiveTupleDomain());
+            return new IndexSourceNode(node.getId(), node.getIndexHandle(), node.getTableHandle(), node.getLayout(), newLookupSymbols, newOutputSymbols, newAssignments, node.getCurrentConstraint());
         }
 
         @Override
@@ -389,20 +384,17 @@ public class PruneUnreferencedOutputs
         @Override
         public PlanNode visitTableScan(TableScanNode node, RewriteContext<Set<Symbol>> context)
         {
-            Set<Symbol> requiredTableScanOutputs = context.get().stream()
-                    .filter(node.getOutputSymbols()::contains)
-                    .collect(toImmutableSet());
-
-            List<Symbol> newOutputSymbols = node.getOutputSymbols().stream()
-                    .filter(requiredTableScanOutputs::contains)
+            List<Symbol> newOutputs = node.getOutputSymbols().stream()
+                    .filter(context.get()::contains)
                     .collect(toImmutableList());
 
-            Map<Symbol, ColumnHandle> newAssignments = Maps.filterKeys(node.getAssignments(), in(requiredTableScanOutputs));
+            Map<Symbol, ColumnHandle> newAssignments = newOutputs.stream()
+                    .collect(Collectors.toMap(Function.identity(), node.getAssignments()::get));
 
             return new TableScanNode(
                     node.getId(),
                     node.getTable(),
-                    newOutputSymbols,
+                    newOutputs,
                     newAssignments,
                     node.getLayout(),
                     node.getCurrentConstraint(),

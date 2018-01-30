@@ -22,7 +22,6 @@ import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;
 import com.facebook.presto.spi.type.CharType;
 import com.facebook.presto.spi.type.DecimalType;
-import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.VarcharType;
 import com.google.common.base.Joiner;
@@ -39,21 +38,20 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static com.facebook.presto.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
+import static com.facebook.presto.plugin.jdbc.StandardReadMappings.jdbcTypeToPrestoType;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
-import static com.facebook.presto.spi.type.CharType.createCharType;
 import static com.facebook.presto.spi.type.DateType.DATE;
-import static com.facebook.presto.spi.type.DecimalType.createDecimalType;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.RealType.REAL;
@@ -64,14 +62,10 @@ import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.TinyintType.TINYINT;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
-import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
-import static com.facebook.presto.spi.type.VarcharType.createVarcharType;
 import static com.facebook.presto.spi.type.Varchars.isVarcharType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Collections.nCopies;
 import static java.util.Locale.ENGLISH;
@@ -194,14 +188,15 @@ public class BaseJdbcClient
             try (ResultSet resultSet = getColumns(tableHandle, connection.getMetaData())) {
                 List<JdbcColumnHandle> columns = new ArrayList<>();
                 while (resultSet.next()) {
-                    Type columnType = toPrestoType(
+                    JdbcTypeHandle typeHandle = new JdbcTypeHandle(
                             resultSet.getInt("DATA_TYPE"),
                             resultSet.getInt("COLUMN_SIZE"),
                             resultSet.getInt("DECIMAL_DIGITS"));
+                    Optional<ReadMapping> columnMapping = toPrestoType(typeHandle);
                     // skip unsupported column types
-                    if (columnType != null) {
+                    if (columnMapping.isPresent()) {
                         String columnName = resultSet.getString("COLUMN_NAME");
-                        columns.add(new JdbcColumnHandle(connectorId, columnName, columnType));
+                        columns.add(new JdbcColumnHandle(connectorId, columnName, typeHandle, columnMapping.get().getType()));
                     }
                 }
                 if (columns.isEmpty()) {
@@ -214,6 +209,12 @@ public class BaseJdbcClient
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
         }
+    }
+
+    @Override
+    public Optional<ReadMapping> toPrestoType(JdbcTypeHandle typeHandle)
+    {
+        return jdbcTypeToPrestoType(typeHandle);
     }
 
     @Override
@@ -446,57 +447,6 @@ public class BaseJdbcClient
             log.debug("Execute: %s", query);
             statement.execute(query);
         }
-    }
-
-    protected Type toPrestoType(int jdbcType, int columnSize, int decimalDigits)
-    {
-        switch (jdbcType) {
-            case Types.BIT:
-            case Types.BOOLEAN:
-                return BOOLEAN;
-            case Types.TINYINT:
-                return TINYINT;
-            case Types.SMALLINT:
-                return SMALLINT;
-            case Types.INTEGER:
-                return INTEGER;
-            case Types.BIGINT:
-                return BIGINT;
-            case Types.REAL:
-                return REAL;
-            case Types.FLOAT:
-            case Types.DOUBLE:
-                return DOUBLE;
-            case Types.NUMERIC:
-            case Types.DECIMAL:
-                int precision = columnSize + max(-decimalDigits, 0); // Map decimal(p, -s) (negative scale) to decimal(p+s, 0).
-                if (precision > Decimals.MAX_PRECISION) {
-                    return null;
-                }
-                return createDecimalType(precision, max(decimalDigits, 0));
-            case Types.CHAR:
-            case Types.NCHAR:
-                return createCharType(min(columnSize, CharType.MAX_LENGTH));
-            case Types.VARCHAR:
-            case Types.NVARCHAR:
-            case Types.LONGVARCHAR:
-            case Types.LONGNVARCHAR:
-                if (columnSize > VarcharType.MAX_LENGTH) {
-                    return createUnboundedVarcharType();
-                }
-                return createVarcharType(columnSize);
-            case Types.BINARY:
-            case Types.VARBINARY:
-            case Types.LONGVARBINARY:
-                return VARBINARY;
-            case Types.DATE:
-                return DATE;
-            case Types.TIME:
-                return TIME;
-            case Types.TIMESTAMP:
-                return TIMESTAMP;
-        }
-        return null;
     }
 
     protected String toSqlType(Type type)

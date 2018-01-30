@@ -14,7 +14,7 @@
 package com.facebook.presto.sql.planner.assertions;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.cost.PlanNodeCost;
+import com.facebook.presto.cost.PlanNodeStatsEstimate;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.block.SortOrder;
 import com.facebook.presto.spi.predicate.Domain;
@@ -24,6 +24,7 @@ import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.AggregationNode.Step;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.AssignUniqueId;
+import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExceptNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
@@ -303,11 +304,17 @@ public final class PlanMatchPattern
 
     public static PlanMatchPattern join(JoinNode.Type joinType, List<ExpectedValueProvider<JoinNode.EquiJoinClause>> expectedEquiCriteria, Optional<String> expectedFilter, PlanMatchPattern left, PlanMatchPattern right)
     {
+        return join(joinType, expectedEquiCriteria, expectedFilter, Optional.empty(), left, right);
+    }
+
+    public static PlanMatchPattern join(JoinNode.Type joinType, List<ExpectedValueProvider<JoinNode.EquiJoinClause>> expectedEquiCriteria, Optional<String> expectedFilter, Optional<JoinNode.DistributionType> expectedDistributionType, PlanMatchPattern left, PlanMatchPattern right)
+    {
         return node(JoinNode.class, left, right).with(
                 new JoinMatcher(
                         joinType,
                         expectedEquiCriteria,
-                        expectedFilter.map(predicate -> rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(predicate)))));
+                        expectedFilter.map(predicate -> rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(predicate))),
+                        expectedDistributionType));
     }
 
     public static PlanMatchPattern exchange(PlanMatchPattern... sources)
@@ -419,6 +426,11 @@ public final class PlanMatchPattern
         return node(LimitNode.class, source).with(new LimitMatcher(limit));
     }
 
+    public static PlanMatchPattern enforceSingleRow(PlanMatchPattern source)
+    {
+        return node(EnforceSingleRowNode.class, source);
+    }
+
     public static PlanMatchPattern tableWriter(List<String> columns, List<String> columnNames, PlanMatchPattern source)
     {
         return node(TableWriterNode.class, source).with(new TableWriterMatcher(columns, columnNames));
@@ -449,12 +461,12 @@ public final class PlanMatchPattern
         return states.build();
     }
 
-    MatchResult detailMatches(PlanNode node, PlanNodeCost planNodeCost, Session session, Metadata metadata, SymbolAliases symbolAliases)
+    MatchResult detailMatches(PlanNode node, PlanNodeStatsEstimate stats, Session session, Metadata metadata, SymbolAliases symbolAliases)
     {
         SymbolAliases.Builder newAliases = SymbolAliases.builder();
 
         for (Matcher matcher : matchers) {
-            MatchResult matchResult = matcher.detailMatches(node, planNodeCost, session, metadata, symbolAliases);
+            MatchResult matchResult = matcher.detailMatches(node, stats, session, metadata, symbolAliases);
             if (!matchResult.isMatch()) {
                 return NO_MATCH;
             }
@@ -536,9 +548,9 @@ public final class PlanMatchPattern
         return this;
     }
 
-    public PlanMatchPattern withCost(PlanNodeCost cost)
+    public PlanMatchPattern withStats(PlanNodeStatsEstimate stats)
     {
-        matchers.add(new PlanCostMatcher(cost));
+        matchers.add(new PlanStatsMatcher(stats));
         return this;
     }
 

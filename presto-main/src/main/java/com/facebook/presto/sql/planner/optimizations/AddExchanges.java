@@ -83,7 +83,6 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.SetMultimap;
 
 import java.util.ArrayList;
@@ -96,14 +95,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 import static com.facebook.presto.SystemSessionProperties.isColocatedJoinEnabled;
 import static com.facebook.presto.SystemSessionProperties.isForceSingleNodeOutput;
 import static com.facebook.presto.sql.ExpressionUtils.combineConjuncts;
 import static com.facebook.presto.sql.ExpressionUtils.extractConjuncts;
-import static com.facebook.presto.sql.ExpressionUtils.stripDeterministicConjuncts;
-import static com.facebook.presto.sql.ExpressionUtils.stripNonDeterministicConjuncts;
+import static com.facebook.presto.sql.ExpressionUtils.filterDeterministicConjuncts;
+import static com.facebook.presto.sql.ExpressionUtils.filterNonDeterministicConjuncts;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypes;
 import static com.facebook.presto.sql.planner.FragmentTableScanCounter.countSources;
 import static com.facebook.presto.sql.planner.FragmentTableScanCounter.hasMultipleSources;
@@ -163,11 +161,6 @@ public class AddExchanges
         }
 
         Context withPreferredProperties(PreferredProperties preferredProperties)
-        {
-            return new Context(preferredProperties, correlations);
-        }
-
-        Context withCorrelations(List<Symbol> correlations)
         {
             return new Context(preferredProperties, correlations);
         }
@@ -575,7 +568,7 @@ public class AddExchanges
         private PlanWithProperties planTableScan(TableScanNode node, Expression predicate, Context context)
         {
             // don't include non-deterministic predicates
-            Expression deterministicPredicate = stripNonDeterministicConjuncts(predicate);
+            Expression deterministicPredicate = filterDeterministicConjuncts(predicate);
 
             DomainTranslator.ExtractionResult decomposedPredicate = DomainTranslator.fromPredicate(
                     metadata,
@@ -611,7 +604,7 @@ public class AddExchanges
 
             // Filter out layouts that cannot supply all the required columns
             layouts = layouts.stream()
-                    .filter(layoutHasAllNeededOutputs(node))
+                    .filter(layout -> layout.hasAllOutputs(node))
                     .collect(toList());
             checkState(!layouts.isEmpty(), "No usable layouts for %s", node);
 
@@ -630,7 +623,7 @@ public class AddExchanges
 
                         Expression resultingPredicate = combineConjuncts(
                                 DomainTranslator.toPredicate(layout.getUnenforcedConstraint().transform(assignments::get)),
-                                stripDeterministicConjuncts(predicate),
+                                filterNonDeterministicConjuncts(predicate),
                                 decomposedPredicate.getRemainingExpression());
 
                         if (!BooleanLiteral.TRUE_LITERAL.equals(resultingPredicate)) {
@@ -644,12 +637,6 @@ public class AddExchanges
                     .collect(toList());
 
             return pickPlan(possiblePlans, context);
-        }
-
-        private Predicate<TableLayoutResult> layoutHasAllNeededOutputs(TableScanNode node)
-        {
-            return layout -> !layout.getLayout().getColumns().isPresent()
-                    || layout.getLayout().getColumns().get().containsAll(Lists.transform(node.getOutputSymbols(), node.getAssignments()::get));
         }
 
         /**
@@ -765,8 +752,12 @@ public class AddExchanges
         @Override
         public PlanWithProperties visitJoin(JoinNode node, Context context)
         {
-            List<Symbol> leftSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
-            List<Symbol> rightSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight);
+            List<Symbol> leftSymbols = node.getCriteria().stream()
+                    .map(JoinNode.EquiJoinClause::getLeft)
+                    .collect(toImmutableList());
+            List<Symbol> rightSymbols = node.getCriteria().stream()
+                    .map(JoinNode.EquiJoinClause::getRight)
+                    .collect(toImmutableList());
             JoinNode.Type type = node.getType();
 
             PlanWithProperties left;
@@ -951,7 +942,9 @@ public class AddExchanges
         @Override
         public PlanWithProperties visitIndexJoin(IndexJoinNode node, Context context)
         {
-            List<Symbol> joinColumns = Lists.transform(node.getCriteria(), IndexJoinNode.EquiJoinClause::getProbe);
+            List<Symbol> joinColumns = node.getCriteria().stream()
+                    .map(IndexJoinNode.EquiJoinClause::getProbe)
+                    .collect(toImmutableList());
 
             // Only prefer grouping on join columns if no parent local property preferences
             List<LocalProperty<Symbol>> desiredLocalProperties = context.getPreferredProperties().getLocalProperties().isEmpty() ? grouped(joinColumns) : ImmutableList.of();
