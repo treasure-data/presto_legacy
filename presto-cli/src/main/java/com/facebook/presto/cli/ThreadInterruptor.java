@@ -11,19 +11,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.operator.aggregation.state;
+package com.facebook.presto.cli;
 
-import com.facebook.presto.operator.aggregation.TypedHistogram;
-import com.facebook.presto.spi.function.AccumulatorState;
-import com.facebook.presto.spi.function.AccumulatorStateMetadata;
+import javax.annotation.concurrent.GuardedBy;
 
-@AccumulatorStateMetadata(stateFactoryClass = HistogramStateFactory.class, stateSerializerClass = HistogramStateSerializer.class)
-public interface HistogramState
-        extends AccumulatorState
+import java.io.Closeable;
+
+class ThreadInterruptor
+        implements Closeable
 {
-    TypedHistogram get();
+    private final Thread thread = Thread.currentThread();
 
-    void set(TypedHistogram value);
+    @GuardedBy("this")
+    private boolean processing = true;
 
-    void addMemoryUsage(long memory);
+    public synchronized void interrupt()
+    {
+        if (processing) {
+            thread.interrupt();
+        }
+    }
+
+    @Override
+    public synchronized void close()
+    {
+        processing = false;
+        Thread.interrupted();
+    }
 }

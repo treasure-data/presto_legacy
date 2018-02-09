@@ -5,7 +5,7 @@
     <parent>
         <artifactId>presto-root</artifactId>
         <groupId>com.facebook.presto</groupId>
-        <version>0.193</version>
+        <version>0.194</version>
     </parent>
 
     <artifactId>presto-product-tests</artifactId>
@@ -60,6 +60,10 @@
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>testing</artifactId>
         </dependency>
         <dependency>
             <groupId>javax.inject</groupId>

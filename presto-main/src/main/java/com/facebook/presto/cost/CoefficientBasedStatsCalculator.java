@@ -18,12 +18,11 @@ import com.facebook.presto.Session;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.Constraint;
-import com.facebook.presto.spi.predicate.TupleDomain;
-import com.facebook.presto.spi.statistics.Estimate;
 import com.facebook.presto.spi.statistics.TableStatistics;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.sql.planner.DomainTranslator;
 import com.facebook.presto.sql.planner.Symbol;
+import com.facebook.presto.sql.planner.iterative.GroupReference;
+import com.facebook.presto.sql.planner.iterative.Lookup;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
@@ -31,26 +30,19 @@ import com.facebook.presto.sql.planner.plan.JoinNode;
 import com.facebook.presto.sql.planner.plan.LimitNode;
 import com.facebook.presto.sql.planner.plan.OutputNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
-import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.sql.planner.plan.PlanVisitor;
 import com.facebook.presto.sql.planner.plan.ProjectNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
-import com.facebook.presto.sql.tree.BooleanLiteral;
-import com.facebook.presto.sql.tree.Expression;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import static com.facebook.presto.cost.PlanNodeStatsEstimate.UNKNOWN_STATS;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Simple implementation of StatsCalculator. It make many arbitrary decisions (e.g filtering selectivity, join matching).
@@ -74,206 +66,133 @@ public class CoefficientBasedStatsCalculator
     }
 
     @Override
-    public Map<PlanNodeId, PlanNodeStatsEstimate> calculateStatsForPlan(Session session, Map<Symbol, Type> types, PlanNode node)
+    public PlanNodeStatsEstimate calculateStats(PlanNode node, StatsProvider sourceStats, Lookup lookup, Session session, Map<Symbol, Type> types)
     {
-        Visitor visitor = new Visitor(session, types);
-        node.accept(visitor, null);
-        return ImmutableMap.copyOf(visitor.getStats());
+        Visitor visitor = new Visitor(sourceStats, session);
+        return node.accept(visitor, null);
     }
 
     private class Visitor
             extends PlanVisitor<PlanNodeStatsEstimate, Void>
     {
+        private final StatsProvider sourceStats;
         private final Session session;
-        private final Map<PlanNodeId, PlanNodeStatsEstimate> stats;
-        private final Map<Symbol, Type> types;
 
-        public Visitor(Session session, Map<Symbol, Type> types)
+        public Visitor(StatsProvider sourceStats, Session session)
         {
-            this.stats = new HashMap<>();
-            this.session = session;
-            this.types = ImmutableMap.copyOf(types);
+            this.sourceStats = requireNonNull(sourceStats, "sourceStats is null");
+            this.session = requireNonNull(session, "session is null");
         }
 
-        public Map<PlanNodeId, PlanNodeStatsEstimate> getStats()
+        private PlanNodeStatsEstimate getStats(PlanNode sourceNode)
         {
-            return ImmutableMap.copyOf(stats);
+            return sourceStats.getStats(sourceNode);
         }
 
         @Override
         protected PlanNodeStatsEstimate visitPlan(PlanNode node, Void context)
         {
-            visitSources(node);
-            stats.put(node.getId(), UNKNOWN_STATS);
             return UNKNOWN_STATS;
+        }
+
+        @Override
+        public PlanNodeStatsEstimate visitGroupReference(GroupReference node, Void context)
+        {
+            // StatsCalculator should not be directly called on GroupReference
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public PlanNodeStatsEstimate visitOutput(OutputNode node, Void context)
         {
-            return copySourceStats(node);
+            return getStats(node.getSource());
         }
 
         @Override
         public PlanNodeStatsEstimate visitFilter(FilterNode node, Void context)
         {
-            PlanNodeStatsEstimate sourceStats;
-            if (node.getSource() instanceof TableScanNode) {
-                sourceStats = visitTableScanWithPredicate((TableScanNode) node.getSource(), node.getPredicate());
-            }
-            else {
-                sourceStats = visitSource(node);
-            }
-
-            final double filterCoefficient = FILTER_COEFFICIENT;
-            PlanNodeStatsEstimate filterStats = sourceStats
-                    .mapOutputRowCount(value -> value * filterCoefficient);
-            stats.put(node.getId(), filterStats);
-            return filterStats;
+            PlanNodeStatsEstimate sourceStats = getStats(node.getSource());
+            return sourceStats.mapOutputRowCount(value -> value * FILTER_COEFFICIENT);
         }
 
         @Override
         public PlanNodeStatsEstimate visitProject(ProjectNode node, Void context)
         {
-            return copySourceStats(node);
+            return getStats(node.getSource());
         }
 
         @Override
         public PlanNodeStatsEstimate visitJoin(JoinNode node, Void context)
         {
-            List<PlanNodeStatsEstimate> sourceStats = visitSources(node);
-            PlanNodeStatsEstimate leftStats = sourceStats.get(0);
-            PlanNodeStatsEstimate rightStats = sourceStats.get(1);
+            PlanNodeStatsEstimate leftStats = getStats(node.getLeft());
+            PlanNodeStatsEstimate rightStats = getStats(node.getRight());
 
             PlanNodeStatsEstimate.Builder joinStats = PlanNodeStatsEstimate.builder();
-            if (!leftStats.getOutputRowCount().isValueUnknown() && !rightStats.getOutputRowCount().isValueUnknown()) {
-                double rowCount = Math.max(leftStats.getOutputRowCount().getValue(), rightStats.getOutputRowCount().getValue()) * JOIN_MATCHING_COEFFICIENT;
-                joinStats.setOutputRowCount(new Estimate(rowCount));
-            }
-
-            stats.put(node.getId(), joinStats.build());
+            double rowCount = Math.max(leftStats.getOutputRowCount(), rightStats.getOutputRowCount()) * JOIN_MATCHING_COEFFICIENT;
+            joinStats.setOutputRowCount(rowCount);
             return joinStats.build();
         }
 
         @Override
         public PlanNodeStatsEstimate visitExchange(ExchangeNode node, Void context)
         {
-            List<PlanNodeStatsEstimate> sourceStats = visitSources(node);
-            Estimate rowCount = new Estimate(0);
-            for (PlanNodeStatsEstimate sourceStat : sourceStats) {
-                if (sourceStat.getOutputRowCount().isValueUnknown()) {
-                    rowCount = Estimate.unknownValue();
-                }
-                else {
-                    rowCount = rowCount.map(value -> value + sourceStat.getOutputRowCount().getValue());
-                }
+            double rowCount = 0;
+            for (int i = 0; i < node.getSources().size(); i++) {
+                PlanNodeStatsEstimate sourceStat = getStats(node.getSources().get(i));
+                rowCount = rowCount + sourceStat.getOutputRowCount();
             }
 
-            PlanNodeStatsEstimate exchangeStats = PlanNodeStatsEstimate.builder()
+            return PlanNodeStatsEstimate.builder()
                     .setOutputRowCount(rowCount)
                     .build();
-            stats.put(node.getId(), exchangeStats);
-            return exchangeStats;
         }
 
         @Override
         public PlanNodeStatsEstimate visitTableScan(TableScanNode node, Void context)
         {
-            return visitTableScanWithPredicate(node, BooleanLiteral.TRUE_LITERAL);
-        }
-
-        private PlanNodeStatsEstimate visitTableScanWithPredicate(TableScanNode node, Expression predicate)
-        {
-            Constraint<ColumnHandle> constraint = getConstraint(node, predicate);
-
+            Constraint<ColumnHandle> constraint = new Constraint<>(node.getCurrentConstraint(), bindings -> true);
             TableStatistics tableStatistics = metadata.getTableStatistics(session, node.getTable(), constraint);
-            PlanNodeStatsEstimate tableScanStats = PlanNodeStatsEstimate.builder()
-                    .setOutputRowCount(tableStatistics.getRowCount())
+            return PlanNodeStatsEstimate.builder()
+                    .setOutputRowCount(tableStatistics.getRowCount().getValue())
                     .build();
-
-            stats.put(node.getId(), tableScanStats);
-            return tableScanStats;
-        }
-
-        private Constraint<ColumnHandle> getConstraint(TableScanNode node, Expression predicate)
-        {
-            DomainTranslator.ExtractionResult decomposedPredicate = DomainTranslator.fromPredicate(
-                    metadata,
-                    session,
-                    predicate,
-                    types);
-
-            TupleDomain<ColumnHandle> simplifiedConstraint = decomposedPredicate.getTupleDomain()
-                    .transform(node.getAssignments()::get)
-                    .intersect(node.getCurrentConstraint());
-
-            return new Constraint<>(simplifiedConstraint, bindings -> true);
         }
 
         @Override
         public PlanNodeStatsEstimate visitValues(ValuesNode node, Void context)
         {
-            Estimate valuesCount = new Estimate(node.getRows().size());
-            PlanNodeStatsEstimate valuesStats = PlanNodeStatsEstimate.builder()
+            int valuesCount = node.getRows().size();
+            return PlanNodeStatsEstimate.builder()
                     .setOutputRowCount(valuesCount)
                     .build();
-            stats.put(node.getId(), valuesStats);
-            return valuesStats;
         }
 
         @Override
         public PlanNodeStatsEstimate visitEnforceSingleRow(EnforceSingleRowNode node, Void context)
         {
-            visitSources(node);
-            PlanNodeStatsEstimate nodeStats = PlanNodeStatsEstimate.builder()
-                    .setOutputRowCount(new Estimate(1.0))
+            return PlanNodeStatsEstimate.builder()
+                    .setOutputRowCount(1.0)
                     .build();
-            stats.put(node.getId(), nodeStats);
-            return nodeStats;
         }
 
         @Override
         public PlanNodeStatsEstimate visitSemiJoin(SemiJoinNode node, Void context)
         {
-            visitSources(node);
-            PlanNodeStatsEstimate sourceStatitics = stats.get(node.getSource().getId());
-            PlanNodeStatsEstimate semiJoinStats = sourceStatitics.mapOutputRowCount(rowCount -> rowCount * JOIN_MATCHING_COEFFICIENT);
-            stats.put(node.getId(), semiJoinStats);
-            return semiJoinStats;
+            PlanNodeStatsEstimate sourceStats = getStats(node.getSource());
+            return sourceStats.mapOutputRowCount(rowCount -> rowCount * JOIN_MATCHING_COEFFICIENT);
         }
 
         @Override
         public PlanNodeStatsEstimate visitLimit(LimitNode node, Void context)
         {
-            PlanNodeStatsEstimate sourceStats = visitSource(node);
+            PlanNodeStatsEstimate sourceStats = getStats(node.getSource());
             PlanNodeStatsEstimate.Builder limitStats = PlanNodeStatsEstimate.builder();
-            if (sourceStats.getOutputRowCount().getValue() < node.getCount()) {
+            if (sourceStats.getOutputRowCount() < node.getCount()) {
                 limitStats.setOutputRowCount(sourceStats.getOutputRowCount());
             }
             else {
-                limitStats.setOutputRowCount(new Estimate(node.getCount()));
+                limitStats.setOutputRowCount(node.getCount());
             }
-            stats.put(node.getId(), limitStats.build());
             return limitStats.build();
-        }
-
-        private PlanNodeStatsEstimate copySourceStats(PlanNode node)
-        {
-            PlanNodeStatsEstimate sourceStats = visitSource(node);
-            stats.put(node.getId(), sourceStats);
-            return sourceStats;
-        }
-
-        private List<PlanNodeStatsEstimate> visitSources(PlanNode node)
-        {
-            return node.getSources().stream()
-                    .map(source -> source.accept(this, null))
-                    .collect(Collectors.toList());
-        }
-
-        private PlanNodeStatsEstimate visitSource(PlanNode node)
-        {
-            return Iterables.getOnlyElement(visitSources(node));
         }
     }
 }

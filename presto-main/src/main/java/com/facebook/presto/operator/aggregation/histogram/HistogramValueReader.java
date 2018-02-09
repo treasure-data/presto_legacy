@@ -11,13 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.sql.planner.iterative.rule;
+package com.facebook.presto.operator.aggregation.histogram;
 
-public class TestPickTableLayoutWithoutPredicatePushDown
-        extends BasePickTableLayoutTest
+import com.facebook.presto.spi.block.Block;
+
+public interface HistogramValueReader
 {
-    public TestPickTableLayoutWithoutPredicatePushDown()
-    {
-        super(false);
-    }
+    void read(Block block, int position, long count);
 }
