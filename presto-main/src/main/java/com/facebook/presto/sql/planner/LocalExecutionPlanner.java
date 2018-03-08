@@ -15,6 +15,7 @@ package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.cost.CostCalculator;
 import com.facebook.presto.cost.StatsCalculator;
 import com.facebook.presto.execution.QueryPerformanceFetcher;
 import com.facebook.presto.execution.StageId;
@@ -79,12 +80,7 @@ import com.facebook.presto.operator.index.IndexJoinLookupStats;
 import com.facebook.presto.operator.index.IndexLookupSourceFactory;
 import com.facebook.presto.operator.index.IndexSourceOperator;
 import com.facebook.presto.operator.project.CursorProcessor;
-import com.facebook.presto.operator.project.InterpretedCursorProcessor;
-import com.facebook.presto.operator.project.InterpretedPageFilter;
-import com.facebook.presto.operator.project.InterpretedPageProjection;
-import com.facebook.presto.operator.project.PageFilter;
 import com.facebook.presto.operator.project.PageProcessor;
-import com.facebook.presto.operator.project.PageProjection;
 import com.facebook.presto.operator.window.FrameInfo;
 import com.facebook.presto.operator.window.WindowFunctionSupplier;
 import com.facebook.presto.spi.ColumnHandle;
@@ -242,6 +238,7 @@ public class LocalExecutionPlanner
     private final Metadata metadata;
     private final SqlParser sqlParser;
     private final StatsCalculator statsCalculator;
+    private final CostCalculator costCalculator;
 
     private final Optional<QueryPerformanceFetcher> queryPerformanceFetcher;
     private final PageSourceProvider pageSourceProvider;
@@ -252,7 +249,6 @@ public class LocalExecutionPlanner
     private final ExpressionCompiler expressionCompiler;
     private final PageFunctionCompiler pageFunctionCompiler;
     private final JoinFilterFunctionCompiler joinFilterFunctionCompiler;
-    private final boolean interpreterEnabled;
     private final DataSize maxIndexMemorySize;
     private final IndexJoinLookupStats indexJoinLookupStats;
     private final DataSize maxPartialAggregationMemorySize;
@@ -270,6 +266,7 @@ public class LocalExecutionPlanner
             Metadata metadata,
             SqlParser sqlParser,
             StatsCalculator statsCalculator,
+            CostCalculator costCalculator,
             Optional<QueryPerformanceFetcher> queryPerformanceFetcher,
             PageSourceProvider pageSourceProvider,
             IndexManager indexManager,
@@ -280,7 +277,6 @@ public class LocalExecutionPlanner
             PageFunctionCompiler pageFunctionCompiler,
             JoinFilterFunctionCompiler joinFilterFunctionCompiler,
             IndexJoinLookupStats indexJoinLookupStats,
-            CompilerConfig compilerConfig,
             TaskManagerConfig taskManagerConfig,
             SpillerFactory spillerFactory,
             SingleStreamSpillerFactory singleStreamSpillerFactory,
@@ -290,7 +286,6 @@ public class LocalExecutionPlanner
             JoinCompiler joinCompiler,
             LookupJoinOperators lookupJoinOperators)
     {
-        requireNonNull(compilerConfig, "compilerConfig is null");
         this.queryPerformanceFetcher = requireNonNull(queryPerformanceFetcher, "queryPerformanceFetcher is null");
         this.pageSourceProvider = requireNonNull(pageSourceProvider, "pageSourceProvider is null");
         this.indexManager = requireNonNull(indexManager, "indexManager is null");
@@ -299,6 +294,7 @@ public class LocalExecutionPlanner
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.sqlParser = requireNonNull(sqlParser, "sqlParser is null");
         this.statsCalculator = requireNonNull(statsCalculator, "statsCalculator is null");
+        this.costCalculator = requireNonNull(costCalculator, "costCalculator is null");
         this.pageSinkManager = requireNonNull(pageSinkManager, "pageSinkManager is null");
         this.expressionCompiler = requireNonNull(expressionCompiler, "compiler is null");
         this.pageFunctionCompiler = requireNonNull(pageFunctionCompiler, "pageFunctionCompiler is null");
@@ -314,8 +310,6 @@ public class LocalExecutionPlanner
         this.pagesIndexFactory = requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
         this.joinCompiler = requireNonNull(joinCompiler, "joinCompiler is null");
         this.lookupJoinOperators = requireNonNull(lookupJoinOperators, "lookupJoinOperators is null");
-
-        interpreterEnabled = compilerConfig.isInterpreterEnabled();
     }
 
     public LocalExecutionPlan plan(
@@ -665,7 +659,14 @@ public class LocalExecutionPlanner
             checkState(queryPerformanceFetcher.isPresent(), "ExplainAnalyze can only run on coordinator");
             PhysicalOperation source = node.getSource().accept(this, context);
 
-            OperatorFactory operatorFactory = new ExplainAnalyzeOperatorFactory(context.getNextOperatorId(), node.getId(), queryPerformanceFetcher.get(), metadata, statsCalculator, node.isVerbose());
+            OperatorFactory operatorFactory = new ExplainAnalyzeOperatorFactory(
+                    context.getNextOperatorId(),
+                    node.getId(),
+                    queryPerformanceFetcher.get(),
+                    metadata,
+                    statsCalculator,
+                    costCalculator,
+                    node.isVerbose());
             return new PhysicalOperation(operatorFactory, makeLayout(node), source);
         }
 
@@ -1159,72 +1160,8 @@ public class LocalExecutionPlanner
                 }
             }
             catch (RuntimeException e) {
-                if (!interpreterEnabled) {
-                    throw new PrestoException(COMPILER_ERROR, "Compiler failed and interpreter is disabled", e);
-                }
-
-                // compilation failed, use interpreter
-                log.error(e, "Compile failed for filter=%s projections=%s sourceTypes=%s error=%s", filterExpression, assignments, sourceTypes, e);
+                throw new PrestoException(COMPILER_ERROR, "Compiler failed", e);
             }
-
-            PageProcessor pageProcessor = createInterpretedColumnarPageProcessor(
-                    filterExpression,
-                    outputSymbols.stream()
-                            .map(assignments::get)
-                            .collect(toImmutableList()),
-                    context.getTypes(),
-                    sourceLayout,
-                    context.getSession());
-            if (columns != null) {
-                InterpretedCursorProcessor cursorProcessor = new InterpretedCursorProcessor(
-                        filterExpression,
-                        outputSymbols.stream()
-                                .map(assignments::get)
-                                .collect(toImmutableList()),
-                        context.getTypes(),
-                        sourceLayout,
-                        metadata,
-                        sqlParser,
-                        context.getSession());
-                OperatorFactory operatorFactory = new ScanFilterAndProjectOperatorFactory(
-                        context.getNextOperatorId(),
-                        planNodeId,
-                        sourceNode.getId(),
-                        pageSourceProvider,
-                        () -> cursorProcessor,
-                        () -> pageProcessor,
-                        columns,
-                        getTypes(rewrittenProjections, expressionTypes),
-                        getFilterAndProjectMinOutputPageSize(session),
-                        getFilterAndProjectMinOutputPageRowCount(session));
-
-                return new PhysicalOperation(operatorFactory, outputMappings, groupEnumerable ? GROUPED_EXECUTION : UNGROUPED_EXECUTION);
-            }
-            else {
-                OperatorFactory operatorFactory = new FilterAndProjectOperator.FilterAndProjectOperatorFactory(
-                        context.getNextOperatorId(),
-                        planNodeId,
-                        () -> pageProcessor,
-                        getTypes(rewrittenProjections, expressionTypes),
-                        getFilterAndProjectMinOutputPageSize(session),
-                        getFilterAndProjectMinOutputPageRowCount(session));
-                return new PhysicalOperation(operatorFactory, outputMappings, source);
-            }
-        }
-
-        private PageProcessor createInterpretedColumnarPageProcessor(
-                Optional<Expression> filter,
-                List<Expression> projections,
-                Map<Symbol, Type> symbolTypes,
-                Map<Symbol, Integer> symbolToInputMappings,
-                Session session)
-        {
-            Optional<PageFilter> pageFilter = filter
-                    .map(expression -> new InterpretedPageFilter(expression, symbolTypes, symbolToInputMappings, metadata, sqlParser, session));
-            List<PageProjection> pageProjections = projections.stream()
-                    .map(expression -> new InterpretedPageProjection(expression, symbolTypes, symbolToInputMappings, metadata, sqlParser, session))
-                    .collect(toImmutableList());
-            return new PageProcessor(pageFilter, pageProjections);
         }
 
         private RowExpression toRowExpression(Expression expression, Map<NodeRef<Expression>, Type> types)

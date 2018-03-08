@@ -104,9 +104,13 @@ public class QueryStateMachine
 
     private final AtomicReference<VersionedMemoryPoolId> memoryPool = new AtomicReference<>(new VersionedMemoryPoolId(GENERAL_POOL, 0));
 
+    private final AtomicLong currentUserMemory = new AtomicLong();
     private final AtomicLong peakUserMemory = new AtomicLong();
+
     // peak of the user + system memory reservation
+    private final AtomicLong currentTotalMemory = new AtomicLong();
     private final AtomicLong peakTotalMemory = new AtomicLong();
+
     private final AtomicReference<DateTime> lastHeartbeat = new AtomicReference<>(DateTime.now());
     private final AtomicReference<DateTime> executionStartTime = new AtomicReference<>();
     private final AtomicReference<DateTime> endTime = new AtomicReference<>();
@@ -266,10 +270,12 @@ public class QueryStateMachine
         return peakTotalMemory.get();
     }
 
-    public void updateMemoryUsage(long currentUserMemoryValue, long currentSystemMemory)
+    public void updateMemoryUsage(long deltaUserMemoryInBytes, long deltaTotalMemoryInBytes)
     {
-        peakUserMemory.accumulateAndGet(currentUserMemoryValue, Math::max);
-        peakTotalMemory.accumulateAndGet(currentUserMemoryValue + currentSystemMemory, Math::max);
+        currentUserMemory.addAndGet(deltaUserMemoryInBytes);
+        currentTotalMemory.addAndGet(deltaTotalMemoryInBytes);
+        peakUserMemory.updateAndGet(currentPeakValue -> Math.max(currentUserMemory.get(), currentPeakValue));
+        peakTotalMemory.updateAndGet(currentPeakValue -> Math.max(currentTotalMemory.get(), currentPeakValue));
     }
 
     public void setResourceGroup(ResourceGroupId group)
@@ -325,10 +331,8 @@ public class QueryStateMachine
         int blockedDrivers = 0;
         int completedDrivers = 0;
 
-        long cumulativeMemory = 0;
-        long totalMemoryReservation = 0;
-        long peakUserMemoryReservation = 0;
-        long peakTotalMemoryReservation = 0;
+        long cumulativeUserMemory = 0;
+        long userMemoryReservation = 0;
 
         long totalScheduledTime = 0;
         long totalCpuTime = 0;
@@ -363,11 +367,8 @@ public class QueryStateMachine
             blockedDrivers += stageStats.getBlockedDrivers();
             completedDrivers += stageStats.getCompletedDrivers();
 
-            cumulativeMemory += stageStats.getCumulativeMemory();
-            totalMemoryReservation += stageStats.getTotalMemoryReservation().toBytes();
-            peakUserMemoryReservation = getPeakUserMemoryInBytes();
-            peakTotalMemoryReservation = getPeakTotalMemoryInBytes();
-
+            cumulativeUserMemory += stageStats.getCumulativeUserMemory();
+            userMemoryReservation += stageStats.getUserMemoryReservation().toBytes();
             totalScheduledTime += stageStats.getTotalScheduledTime().roundTo(MILLISECONDS);
             totalCpuTime += stageStats.getTotalCpuTime().roundTo(MILLISECONDS);
             totalUserTime += stageStats.getTotalUserTime().roundTo(MILLISECONDS);
@@ -423,10 +424,10 @@ public class QueryStateMachine
                 blockedDrivers,
                 completedDrivers,
 
-                cumulativeMemory,
-                succinctBytes(totalMemoryReservation),
-                succinctBytes(peakUserMemoryReservation),
-                succinctBytes(peakTotalMemoryReservation),
+                cumulativeUserMemory,
+                succinctBytes(userMemoryReservation),
+                succinctBytes(getPeakUserMemoryInBytes()),
+                succinctBytes(getPeakTotalMemoryInBytes()),
 
                 isScheduled,
 
@@ -872,8 +873,8 @@ public class QueryStateMachine
                 queryStats.getRunningDrivers(),
                 queryStats.getBlockedDrivers(),
                 queryStats.getCompletedDrivers(),
-                queryStats.getCumulativeMemory(),
-                queryStats.getTotalMemoryReservation(),
+                queryStats.getCumulativeUserMemory(),
+                queryStats.getUserMemoryReservation(),
                 queryStats.getPeakUserMemoryReservation(),
                 queryStats.getPeakTotalMemoryReservation(),
                 queryStats.isScheduled(),

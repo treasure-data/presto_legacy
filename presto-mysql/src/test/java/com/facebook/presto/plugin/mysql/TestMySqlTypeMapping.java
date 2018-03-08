@@ -18,7 +18,6 @@ import com.facebook.presto.tests.AbstractTestQueryFramework;
 import com.facebook.presto.tests.datatype.CreateAndInsertDataSetup;
 import com.facebook.presto.tests.datatype.CreateAsSelectDataSetup;
 import com.facebook.presto.tests.datatype.DataSetup;
-import com.facebook.presto.tests.datatype.DataType;
 import com.facebook.presto.tests.datatype.DataTypeTest;
 import com.facebook.presto.tests.sql.JdbcSqlExecutor;
 import com.facebook.presto.tests.sql.PrestoSqlExecutor;
@@ -33,6 +32,7 @@ import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharTyp
 import static com.facebook.presto.spi.type.VarcharType.createVarcharType;
 import static com.facebook.presto.tests.datatype.DataType.bigintDataType;
 import static com.facebook.presto.tests.datatype.DataType.charDataType;
+import static com.facebook.presto.tests.datatype.DataType.decimalDataType;
 import static com.facebook.presto.tests.datatype.DataType.doubleDataType;
 import static com.facebook.presto.tests.datatype.DataType.integerDataType;
 import static com.facebook.presto.tests.datatype.DataType.realDataType;
@@ -180,15 +180,22 @@ public class TestMySqlTypeMapping
     private DataTypeTest decimalTests()
     {
         return DataTypeTest.create()
-                .addRoundTrip(DataType.decimalType(3, 0), new BigDecimal("193"))
-                .addRoundTrip(DataType.decimalType(3, 0), new BigDecimal("19"))
-                .addRoundTrip(DataType.decimalType(3, 0), new BigDecimal("-193"))
-                .addRoundTrip(DataType.decimalType(3, 1), new BigDecimal("10.1"))
-                .addRoundTrip(DataType.decimalType(3, 1), new BigDecimal("-10.1"))
-                .addRoundTrip(DataType.decimalType(30, 5), new BigDecimal("3141592653589793238462643.38327"))
-                .addRoundTrip(DataType.decimalType(30, 5), new BigDecimal("-3141592653589793238462643.38327"))
-                .addRoundTrip(DataType.decimalType(38, 0), new BigDecimal("27182818284590452353602874713526624977"))
-                .addRoundTrip(DataType.decimalType(38, 0), new BigDecimal("-27182818284590452353602874713526624977"));
+                .addRoundTrip(decimalDataType(3, 0), new BigDecimal("193"))
+                .addRoundTrip(decimalDataType(3, 0), new BigDecimal("19"))
+                .addRoundTrip(decimalDataType(3, 0), new BigDecimal("-193"))
+                .addRoundTrip(decimalDataType(3, 1), new BigDecimal("10.0"))
+                .addRoundTrip(decimalDataType(3, 1), new BigDecimal("10.1"))
+                .addRoundTrip(decimalDataType(3, 1), new BigDecimal("-10.1"))
+                .addRoundTrip(decimalDataType(4, 2), new BigDecimal("2"))
+                .addRoundTrip(decimalDataType(4, 2), new BigDecimal("2.3"))
+                .addRoundTrip(decimalDataType(24, 2), new BigDecimal("2"))
+                .addRoundTrip(decimalDataType(24, 2), new BigDecimal("2.3"))
+                .addRoundTrip(decimalDataType(24, 2), new BigDecimal("123456789.3"))
+                .addRoundTrip(decimalDataType(24, 4), new BigDecimal("12345678901234567890.31"))
+                .addRoundTrip(decimalDataType(30, 5), new BigDecimal("3141592653589793238462643.38327"))
+                .addRoundTrip(decimalDataType(30, 5), new BigDecimal("-3141592653589793238462643.38327"))
+                .addRoundTrip(decimalDataType(38, 0), new BigDecimal("27182818284590452353602874713526624977"))
+                .addRoundTrip(decimalDataType(38, 0), new BigDecimal("-27182818284590452353602874713526624977"));
     }
 
     @Test

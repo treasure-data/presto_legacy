@@ -119,7 +119,6 @@ public class DistributedQueryRunner
             }
 
             Map<String, String> extraCoordinatorProperties = new HashMap<>();
-            extraCoordinatorProperties.put("optimizer.optimize-mixed-distinct-aggregations", "true");
             extraCoordinatorProperties.put("experimental.iterative-optimizer-enabled", "true");
             extraCoordinatorProperties.putAll(extraProperties);
             extraCoordinatorProperties.putAll(coordinatorProperties);
@@ -183,11 +182,9 @@ public class DistributedQueryRunner
         ImmutableMap.Builder<String, String> propertiesBuilder = ImmutableMap.<String, String>builder()
                 .put("query.client.timeout", "10m")
                 .put("exchange.http-client.idle-timeout", "1h")
-                .put("compiler.interpreter-enabled", "false")
                 .put("task.max-index-memory", "16kB") // causes index joins to fault load
                 .put("datasources", "system")
-                .put("distributed-index-joins-enabled", "true")
-                .put("optimizer.optimize-mixed-distinct-aggregations", "true");
+                .put("distributed-index-joins-enabled", "true");
         if (coordinator) {
             propertiesBuilder.put("node-scheduler.include-coordinator", "true");
             propertiesBuilder.put("distributed-joins-enabled", "true");
@@ -381,6 +378,15 @@ public class DistributedQueryRunner
         finally {
             lock.readLock().unlock();
         }
+    }
+
+    @Override
+    public Plan createPlan(Session session, String sql)
+    {
+        QueryId queryId = executeWithQueryId(session, sql).getQueryId();
+        Plan queryPlan = getQueryPlan(queryId);
+        coordinator.getQueryManager().cancelQuery(queryId);
+        return queryPlan;
     }
 
     public QueryInfo getQueryInfo(QueryId queryId)

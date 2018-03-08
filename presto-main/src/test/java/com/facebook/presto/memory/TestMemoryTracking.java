@@ -52,6 +52,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
+@Test(singleThreaded = true)
 public class TestMemoryTracking
 {
     private static final DataSize queryMaxMemory = new DataSize(1, GIGABYTE);
@@ -394,10 +395,10 @@ public class TestMemoryTracking
             long expectedRevocableMemory,
             long expectedSystemMemory)
     {
-        assertEquals(operatorStats.getMemoryReservation().toBytes(), expectedUserMemory);
-        assertEquals(driverStats.getMemoryReservation().toBytes(), expectedUserMemory);
-        assertEquals(pipelineStats.getMemoryReservation().toBytes(), expectedUserMemory);
-        assertEquals(taskStats.getMemoryReservation().toBytes(), expectedUserMemory);
+        assertEquals(operatorStats.getUserMemoryReservation().toBytes(), expectedUserMemory);
+        assertEquals(driverStats.getUserMemoryReservation().toBytes(), expectedUserMemory);
+        assertEquals(pipelineStats.getUserMemoryReservation().toBytes(), expectedUserMemory);
+        assertEquals(taskStats.getUserMemoryReservation().toBytes(), expectedUserMemory);
 
         assertEquals(operatorStats.getSystemMemoryReservation().toBytes(), expectedSystemMemory);
         assertEquals(driverStats.getSystemMemoryReservation().toBytes(), expectedSystemMemory);

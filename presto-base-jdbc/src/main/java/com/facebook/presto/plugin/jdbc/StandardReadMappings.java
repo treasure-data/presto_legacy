@@ -34,6 +34,7 @@ import static com.facebook.presto.spi.type.CharType.createCharType;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DecimalType.createDecimalType;
 import static com.facebook.presto.spi.type.Decimals.encodeScaledValue;
+import static com.facebook.presto.spi.type.Decimals.encodeShortScaledValue;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.RealType.REAL;
@@ -96,10 +97,12 @@ public final class StandardReadMappings
 
     public static ReadMapping decimalReadMapping(DecimalType decimalType)
     {
+        // JDBC driver can return BigDecimal with lower scale than column's scale when there are trailing zeroes
+        int scale = decimalType.getScale();
         if (decimalType.isShort()) {
-            return longReadMapping(decimalType, (resultSet, columnIndex) -> resultSet.getBigDecimal(columnIndex).unscaledValue().longValueExact());
+            return longReadMapping(decimalType, (resultSet, columnIndex) -> encodeShortScaledValue(resultSet.getBigDecimal(columnIndex), scale));
         }
-        return sliceReadMapping(decimalType, (resultSet, columnIndex) -> encodeScaledValue(resultSet.getBigDecimal(columnIndex)));
+        return sliceReadMapping(decimalType, (resultSet, columnIndex) -> encodeScaledValue(resultSet.getBigDecimal(columnIndex), scale));
     }
 
     public static ReadMapping charReadMapping(CharType charType)

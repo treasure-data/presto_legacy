@@ -91,6 +91,7 @@ import com.facebook.presto.operator.scalar.FailureFunction;
 import com.facebook.presto.operator.scalar.HyperLogLogFunctions;
 import com.facebook.presto.operator.scalar.JoniRegexpCasts;
 import com.facebook.presto.operator.scalar.JoniRegexpFunctions;
+import com.facebook.presto.operator.scalar.JoniRegexpReplaceLambdaFunction;
 import com.facebook.presto.operator.scalar.JsonFunctions;
 import com.facebook.presto.operator.scalar.JsonOperators;
 import com.facebook.presto.operator.scalar.MapCardinalityFunction;
@@ -105,6 +106,7 @@ import com.facebook.presto.operator.scalar.MapToMapCast;
 import com.facebook.presto.operator.scalar.MapValues;
 import com.facebook.presto.operator.scalar.MathFunctions;
 import com.facebook.presto.operator.scalar.Re2JRegexpFunctions;
+import com.facebook.presto.operator.scalar.Re2JRegexpReplaceLambdaFunction;
 import com.facebook.presto.operator.scalar.RepeatFunction;
 import com.facebook.presto.operator.scalar.ScalarFunctionImplementation;
 import com.facebook.presto.operator.scalar.SequenceFunction;
@@ -210,13 +212,13 @@ import static com.facebook.presto.operator.aggregation.DecimalAverageAggregation
 import static com.facebook.presto.operator.aggregation.DecimalSumAggregation.DECIMAL_SUM_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.MapAggregationFunction.MAP_AGG;
 import static com.facebook.presto.operator.aggregation.MapUnionAggregation.MAP_UNION;
-import static com.facebook.presto.operator.aggregation.MaxByAggregationFunction.MAX_BY;
-import static com.facebook.presto.operator.aggregation.MaxByNAggregationFunction.MAX_BY_N_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.MaxNAggregationFunction.MAX_N_AGGREGATION;
-import static com.facebook.presto.operator.aggregation.MinByAggregationFunction.MIN_BY;
-import static com.facebook.presto.operator.aggregation.MinByNAggregationFunction.MIN_BY_N_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.MinNAggregationFunction.MIN_N_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.MultimapAggregationFunction.MULTIMAP_AGG;
+import static com.facebook.presto.operator.aggregation.minmaxby.MaxByAggregationFunction.MAX_BY;
+import static com.facebook.presto.operator.aggregation.minmaxby.MaxByNAggregationFunction.MAX_BY_N_AGGREGATION;
+import static com.facebook.presto.operator.aggregation.minmaxby.MinByAggregationFunction.MIN_BY;
+import static com.facebook.presto.operator.aggregation.minmaxby.MinByNAggregationFunction.MIN_BY_N_AGGREGATION;
 import static com.facebook.presto.operator.scalar.ArrayConcatFunction.ARRAY_CONCAT_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayConstructor.ARRAY_CONSTRUCTOR;
 import static com.facebook.presto.operator.scalar.ArrayFlattenFunction.ARRAY_FLATTEN_FUNCTION;
@@ -587,9 +589,11 @@ public class FunctionRegistry
         switch (featuresConfig.getRegexLibrary()) {
             case JONI:
                 builder.scalars(JoniRegexpFunctions.class);
+                builder.scalar(JoniRegexpReplaceLambdaFunction.class);
                 break;
             case RE2J:
                 builder.scalars(Re2JRegexpFunctions.class);
+                builder.scalar(Re2JRegexpReplaceLambdaFunction.class);
                 break;
         }
 
