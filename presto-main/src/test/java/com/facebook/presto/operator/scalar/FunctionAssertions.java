@@ -42,8 +42,10 @@ import com.facebook.presto.spi.HostAddress;
 import com.facebook.presto.spi.InMemoryRecordSet;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordPageSource;
 import com.facebook.presto.spi.RecordSet;
+import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.type.TimeZoneKey;
 import com.facebook.presto.spi.type.Type;
@@ -118,6 +120,7 @@ import static com.facebook.presto.sql.relational.Expressions.constant;
 import static com.facebook.presto.sql.relational.SqlToRowExpressionTranslator.translate;
 import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static com.facebook.presto.testing.TestingTaskContext.createTaskContext;
+import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static io.airlift.testing.Assertions.assertInstanceOf;
@@ -248,6 +251,30 @@ public final class FunctionAssertions
 
         Object actual = selectSingleValue(projection, expectedType, compiler);
         assertEquals(actual, expected);
+    }
+
+    public void assertInvalidFunction(String projection, StandardErrorCode errorCode, String messagePattern)
+    {
+        try {
+            evaluateInvalid(projection);
+            fail("Expected to throw a PrestoException with message matching " + messagePattern);
+        }
+        catch (PrestoException e) {
+            try {
+                assertEquals(e.getErrorCode(), errorCode.toErrorCode());
+                assertTrue(e.getMessage().equals(messagePattern) || e.getMessage().matches(messagePattern));
+            }
+            catch (Throwable failure) {
+                failure.addSuppressed(e);
+                throw failure;
+            }
+        }
+    }
+
+    private void evaluateInvalid(String projection)
+    {
+        // type isn't necessary as the function is not valid
+        selectSingleValue(projection, UNKNOWN, compiler);
     }
 
     public void assertFunctionString(String projection, Type expectedType, String expected)

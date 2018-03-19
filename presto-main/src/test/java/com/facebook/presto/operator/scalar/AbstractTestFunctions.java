@@ -20,6 +20,7 @@ import com.facebook.presto.metadata.SqlFunction;
 import com.facebook.presto.metadata.SqlScalarFunction;
 import com.facebook.presto.spi.ErrorCodeSupplier;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.function.OperatorType;
 import com.facebook.presto.spi.type.DecimalParseResult;
 import com.facebook.presto.spi.type.Decimals;
@@ -118,6 +119,11 @@ public abstract class AbstractTestFunctions
         catch (RuntimeException e) {
             // Expected
         }
+    }
+
+    protected void assertInvalidFunction(String projection, StandardErrorCode errorCode, String messagePattern)
+    {
+        functionAssertions.assertInvalidFunction(projection, errorCode, messagePattern);
     }
 
     protected void assertInvalidFunction(String projection, String message)

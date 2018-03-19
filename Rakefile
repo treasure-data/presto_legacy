@@ -93,12 +93,12 @@ EOF
       <repository>
       	<id>treasuredata</id>
 	      <name>treasuredata-releases</name>
-	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-release-local</url>
+	      <url>https://treasuredata.jfrog.io/treasuredata/libs-release-local</url>
       </repository>
       <snapshotRepository>
 	      <id>treasuredata</id>
 	      <name>treasuredata-snapshots</name>
-	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-snapshot-local</url>
+	      <url>https://treasuredata.jfrog.io/treasuredata/libs-snapshot-local</url>
       </snapshotRepository>
     </distributionManagement>
 EOF
@@ -108,7 +108,7 @@ EOF
       <repository>
 	      <id>treasuredata</id>
 	      <name>treasuredata-releases</name>
-	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-release</url>
+	      <url>https://treasuredata.jfrog.io/treasuredata/libs-release</url>
 	      <snapshots>
           <enabled>false</enabled>
       	</snapshots>
@@ -116,7 +116,7 @@ EOF
       <repository>
 	      <id>treasuredata-snapshots</id>
 	      <name>treasuredata-snapshots</name>
-	      <url>https://treasuredata.artifactoryonline.com/treasuredata/libs-snapshot</url>
+	      <url>https://treasuredata.jfrog.io/treasuredata/libs-snapshot</url>
 	      <releases>
           <enabled>false</enabled>
 	      </releases>
