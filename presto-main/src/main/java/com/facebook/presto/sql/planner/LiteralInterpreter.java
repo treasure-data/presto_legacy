@@ -21,6 +21,7 @@ import com.facebook.presto.operator.scalar.VarbinaryFunctions;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.type.CharType;
+import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.SqlDate;
 import com.facebook.presto.spi.type.StandardTypes;
@@ -61,6 +62,7 @@ import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
+import static com.facebook.presto.spi.type.Decimals.isShortDecimal;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.RealType.REAL;
@@ -144,15 +146,13 @@ public final class LiteralInterpreter
             if (value.isNaN()) {
                 return new FunctionCall(QualifiedName.of("nan"), ImmutableList.of());
             }
-            else if (value.equals(Double.NEGATIVE_INFINITY)) {
+            if (value.equals(Double.NEGATIVE_INFINITY)) {
                 return ArithmeticUnaryExpression.negative(new FunctionCall(QualifiedName.of("infinity"), ImmutableList.of()));
             }
-            else if (value.equals(Double.POSITIVE_INFINITY)) {
+            if (value.equals(Double.POSITIVE_INFINITY)) {
                 return new FunctionCall(QualifiedName.of("infinity"), ImmutableList.of());
             }
-            else {
-                return new DoubleLiteral(object.toString());
-            }
+            return new DoubleLiteral(object.toString());
         }
 
         if (type.equals(REAL)) {
@@ -161,15 +161,24 @@ public final class LiteralInterpreter
             if (value.isNaN()) {
                 return new Cast(new FunctionCall(QualifiedName.of("nan"), ImmutableList.of()), StandardTypes.REAL);
             }
-            else if (value.equals(Float.NEGATIVE_INFINITY)) {
+            if (value.equals(Float.NEGATIVE_INFINITY)) {
                 return ArithmeticUnaryExpression.negative(new Cast(new FunctionCall(QualifiedName.of("infinity"), ImmutableList.of()), StandardTypes.REAL));
             }
-            else if (value.equals(Float.POSITIVE_INFINITY)) {
+            if (value.equals(Float.POSITIVE_INFINITY)) {
                 return new Cast(new FunctionCall(QualifiedName.of("infinity"), ImmutableList.of()), StandardTypes.REAL);
             }
-            else {
-                return new GenericLiteral("REAL", value.toString());
+            return new GenericLiteral("REAL", value.toString());
+        }
+
+        if (type instanceof DecimalType) {
+            String string;
+            if (isShortDecimal(type)) {
+                string = Decimals.toString((long) object, ((DecimalType) type).getScale());
             }
+            else {
+                string = Decimals.toString((Slice) object, ((DecimalType) type).getScale());
+            }
+            return new Cast(new DecimalLiteral(string), type.getDisplayName());
         }
 
         if (type instanceof VarcharType) {

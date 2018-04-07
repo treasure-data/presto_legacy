@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.sql.analyzer;
 
+import com.facebook.presto.operator.aggregation.arrayagg.ArrayAggGroupImplementation;
+import com.facebook.presto.operator.aggregation.histogram.HistogramGroupImplementation;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.configuration.ConfigurationFactory;
 import io.airlift.configuration.testing.ConfigAssertions;
@@ -22,8 +24,6 @@ import org.testng.annotations.Test;
 
 import java.util.Map;
 
-import static com.facebook.presto.operator.aggregation.histogram.HistogramGroupImplementation.LEGACY;
-import static com.facebook.presto.operator.aggregation.histogram.HistogramGroupImplementation.NEW;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.SPILLER_SPILL_PATH;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.SPILL_ENABLED;
 import static com.facebook.presto.sql.analyzer.RegexLibrary.JONI;
@@ -45,18 +45,17 @@ public class TestFeaturesConfig
                 .setCpuCostWeight(75)
                 .setMemoryCostWeight(10)
                 .setNetworkCostWeight(15)
-                .setResourceGroupsEnabled(false)
                 .setDistributedIndexJoinsEnabled(false)
                 .setDistributedJoinsEnabled(true)
                 .setFastInequalityJoins(true)
                 .setColocatedJoinsEnabled(false)
+                .setSpatialJoinsEnabled(true)
                 .setJoinReorderingEnabled(true)
                 .setRedistributeWrites(true)
                 .setScaleWriters(false)
                 .setWriterMinSize(new DataSize(32, MEGABYTE))
                 .setOptimizeMetadataQueries(false)
                 .setOptimizeHashGeneration(true)
-                .setOptimizeSingleDistinct(true)
                 .setPushTableWriteThroughUnion(true)
                 .setDictionaryAggregation(false)
                 .setLegacyArrayAgg(false)
@@ -81,12 +80,14 @@ public class TestFeaturesConfig
                 .setLegacyJoinUsing(false)
                 .setEnableIntermediateAggregations(false)
                 .setPushAggregationThroughJoin(true)
-                .setParseDecimalLiteralsAsDouble(true)
+                .setParseDecimalLiteralsAsDouble(false)
                 .setForceSingleNodeOutput(true)
                 .setPagesIndexEagerCompactionEnabled(false)
                 .setFilterAndProjectMinOutputPageSize(new DataSize(25, KILOBYTE))
                 .setFilterAndProjectMinOutputPageRowCount(256)
-                .setHistogramGroupImplementation(NEW));
+                .setUseMarkDistinct(true)
+                .setHistogramGroupImplementation(HistogramGroupImplementation.NEW)
+                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW));
     }
 
     @Test
@@ -96,7 +97,6 @@ public class TestFeaturesConfig
                 .put("cpu-cost-weight", "0.4")
                 .put("memory-cost-weight", "0.3")
                 .put("network-cost-weight", "0.2")
-                .put("experimental.resource-groups-enabled", "true")
                 .put("experimental.iterative-optimizer-enabled", "false")
                 .put("experimental.iterative-optimizer-timeout", "10s")
                 .put("experimental.enable-new-stats-calculator", "true")
@@ -108,13 +108,13 @@ public class TestFeaturesConfig
                 .put("distributed-joins-enabled", "false")
                 .put("fast-inequality-joins", "false")
                 .put("colocated-joins-enabled", "true")
+                .put("spatial-joins-enabled", "false")
                 .put("reorder-joins", "false")
                 .put("redistribute-writes", "false")
                 .put("scale-writers", "true")
                 .put("writer-min-size", "42GB")
                 .put("optimizer.optimize-metadata-queries", "true")
                 .put("optimizer.optimize-hash-generation", "false")
-                .put("optimizer.optimize-single-distinct", "false")
                 .put("optimizer.optimize-mixed-distinct-aggregations", "true")
                 .put("optimizer.push-table-write-through-union", "false")
                 .put("optimizer.dictionary-aggregation", "true")
@@ -132,19 +132,20 @@ public class TestFeaturesConfig
                 .put("exchange.compression-enabled", "true")
                 .put("deprecated.legacy-timestamp", "false")
                 .put("optimizer.enable-intermediate-aggregations", "true")
-                .put("parse-decimal-literals-as-double", "false")
+                .put("parse-decimal-literals-as-double", "true")
                 .put("optimizer.force-single-node-output", "false")
                 .put("pages-index.eager-compaction-enabled", "true")
                 .put("experimental.filter-and-project-min-output-page-size", "1MB")
                 .put("experimental.filter-and-project-min-output-page-row-count", "2048")
-                .put("histogram.implemenation", "LEGACY")
+                .put("histogram.implementation", "LEGACY")
+                .put("arrayagg.implementation", "LEGACY")
+                .put("optimizer.use-mark-distinct", "false")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
                 .setCpuCostWeight(0.4)
                 .setMemoryCostWeight(0.3)
                 .setNetworkCostWeight(0.2)
-                .setResourceGroupsEnabled(true)
                 .setIterativeOptimizerEnabled(false)
                 .setIterativeOptimizerTimeout(new Duration(10, SECONDS))
                 .setEnableNewStatsCalculator(true)
@@ -152,13 +153,13 @@ public class TestFeaturesConfig
                 .setDistributedJoinsEnabled(false)
                 .setFastInequalityJoins(false)
                 .setColocatedJoinsEnabled(true)
+                .setSpatialJoinsEnabled(false)
                 .setJoinReorderingEnabled(false)
                 .setRedistributeWrites(false)
                 .setScaleWriters(true)
                 .setWriterMinSize(new DataSize(42, GIGABYTE))
                 .setOptimizeMetadataQueries(true)
                 .setOptimizeHashGeneration(false)
-                .setOptimizeSingleDistinct(false)
                 .setOptimizeMixedDistinctAggregations(true)
                 .setPushTableWriteThroughUnion(false)
                 .setDictionaryAggregation(true)
@@ -180,12 +181,14 @@ public class TestFeaturesConfig
                 .setLegacyTimestamp(false)
                 .setLegacyJoinUsing(true)
                 .setEnableIntermediateAggregations(true)
-                .setParseDecimalLiteralsAsDouble(false)
+                .setParseDecimalLiteralsAsDouble(true)
                 .setForceSingleNodeOutput(false)
                 .setPagesIndexEagerCompactionEnabled(true)
                 .setFilterAndProjectMinOutputPageSize(new DataSize(1, MEGABYTE))
                 .setFilterAndProjectMinOutputPageRowCount(2048)
-                .setHistogramGroupImplementation(LEGACY);
+                .setUseMarkDistinct(false)
+                .setHistogramGroupImplementation(HistogramGroupImplementation.LEGACY)
+                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY);
         assertFullMapping(properties, expected);
     }
 

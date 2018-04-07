@@ -432,13 +432,11 @@ public final class DomainTranslator
                     return super.visitComparisonExpression(node, complement);
                 }
 
-                NullableValue value = normalized.getValue();
-                Type valueType = value.getType(); // type of value
                 Type castSourceType = typeOf(castExpression.getExpression(), session, metadata, types); // type of expression which is then cast to type of value
 
                 // we use saturated floor cast value -> castSourceType to rewrite original expression to new one with one cast peeled off the symbol side
                 Optional<Expression> coercedExpression = coerceComparisonWithRounding(
-                        castSourceType, castExpression.getExpression(), valueType, value.getValue(), normalized.getComparisonType());
+                        castSourceType, castExpression.getExpression(), normalized.getValue(), normalized.getComparisonType());
 
                 if (coercedExpression.isPresent()) {
                     return process(coercedExpression.get(), complement);
@@ -584,11 +582,15 @@ public final class DomainTranslator
         private Optional<Expression> coerceComparisonWithRounding(
                 Type symbolExpressionType,
                 Expression symbolExpression,
-                Type valueType,
-                Object value,
+                NullableValue nullableValue,
                 ComparisonExpressionType comparisonType)
         {
-            requireNonNull(value, "value is null");
+            requireNonNull(nullableValue, "nullableValue is null");
+            if (nullableValue.isNull()) {
+                return Optional.empty();
+            }
+            Type valueType = nullableValue.getType();
+            Object value = nullableValue.getValue();
             return floorValue(valueType, symbolExpressionType, value)
                     .map((floorValue) -> rewriteComparisonExpression(symbolExpressionType, symbolExpression, valueType, value, floorValue, comparisonType));
         }
@@ -685,7 +687,7 @@ public final class DomainTranslator
         @Override
         protected ExtractionResult visitInPredicate(InPredicate node, Boolean complement)
         {
-            if (!(node.getValue() instanceof SymbolReference) || !(node.getValueList() instanceof InListExpression)) {
+            if (!(node.getValueList() instanceof InListExpression)) {
                 return super.visitInPredicate(node, complement);
             }
 
@@ -696,7 +698,17 @@ public final class DomainTranslator
             for (Expression expression : valueList.getValues()) {
                 disjuncts.add(new ComparisonExpression(EQUAL, node.getValue(), expression));
             }
-            return process(or(disjuncts.build()), complement);
+            ExtractionResult extractionResult = process(or(disjuncts.build()), complement);
+
+            // preserve original IN predicate as remaining predicate
+            if (extractionResult.tupleDomain.isAll()) {
+                Expression originalPredicate = node;
+                if (complement) {
+                    originalPredicate = new NotExpression(originalPredicate);
+                }
+                return new ExtractionResult(extractionResult.tupleDomain, originalPredicate);
+            }
+            return extractionResult;
         }
 
         @Override

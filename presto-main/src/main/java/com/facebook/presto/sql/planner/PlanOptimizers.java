@@ -41,6 +41,7 @@ import com.facebook.presto.sql.planner.iterative.rule.MergeLimitWithDistinct;
 import com.facebook.presto.sql.planner.iterative.rule.MergeLimitWithSort;
 import com.facebook.presto.sql.planner.iterative.rule.MergeLimitWithTopN;
 import com.facebook.presto.sql.planner.iterative.rule.MergeLimits;
+import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationToMarkDistinct;
 import com.facebook.presto.sql.planner.iterative.rule.PickTableLayout;
 import com.facebook.presto.sql.planner.iterative.rule.PruneAggregationColumns;
 import com.facebook.presto.sql.planner.iterative.rule.PruneAggregationSourceColumns;
@@ -78,10 +79,11 @@ import com.facebook.presto.sql.planner.iterative.rule.RemoveUnreferencedScalarAp
 import com.facebook.presto.sql.planner.iterative.rule.RemoveUnreferencedScalarLateralNodes;
 import com.facebook.presto.sql.planner.iterative.rule.SimplifyCountOverConstant;
 import com.facebook.presto.sql.planner.iterative.rule.SimplifyExpressions;
-import com.facebook.presto.sql.planner.iterative.rule.SingleMarkDistinctToGroupBy;
+import com.facebook.presto.sql.planner.iterative.rule.SingleDistinctAggregationToGroupBy;
 import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedInPredicateToJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedScalarAggregationToJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformExistsApplyToLateralNode;
+import com.facebook.presto.sql.planner.iterative.rule.TransformSpatialPredicateToJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformUncorrelatedInPredicateSubqueryToSemiJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformUncorrelatedLateralToJoin;
 import com.facebook.presto.sql.planner.optimizations.AddExchanges;
@@ -252,6 +254,8 @@ public class PlanOptimizers
                                         new PushLimitThroughSemiJoin(),
                                         new RemoveTrivialFilters(),
                                         new ImplementFilteredAggregations(),
+                                        new SingleDistinctAggregationToGroupBy(),
+                                        new MultipleDistinctAggregationToMarkDistinct(),
                                         new ImplementBernoulliSampleAsFilter(),
                                         new MergeLimitWithDistinct(),
                                         new PruneCountAggregationOverScalar(),
@@ -351,16 +355,6 @@ public class PlanOptimizers
                         new PickTableLayout(metadata).rules()),
                 projectionPushDown);
 
-        if (featuresConfig.isOptimizeSingleDistinct()) {
-            builder.add(
-                    new IterativeOptimizer(
-                            stats,
-                            statsCalculator,
-                            estimatedExchangesCostCalculator,
-                            ImmutableSet.of(new SingleMarkDistinctToGroupBy())),
-                    new PruneUnreferencedOutputs());
-        }
-
         builder.add(new OptimizeMixedDistinctAggregations(metadata));
         builder.add(new IterativeOptimizer(
                 stats,
@@ -400,11 +394,16 @@ public class PlanOptimizers
         builder.add(inlineProjections);
         builder.add(new UnaliasSymbolReferences()); // Run unalias after merging projections to simplify projections more efficiently
         builder.add(new PruneUnreferencedOutputs());
+        // TODO Make PredicatePushDown aware of spatial joins, move TransformSpatialPredicateToJoin
+        // before AddExchanges and update AddExchanges to set REPLICATED distribution for the build side.
         builder.add(new IterativeOptimizer(
                 stats,
                 statsCalculator,
                 costCalculator,
-                ImmutableSet.of(new RemoveRedundantIdentityProjections())));
+                ImmutableSet.of(
+                        new RemoveRedundantIdentityProjections(),
+                        new TransformSpatialPredicateToJoin(metadata),
+                        new InlineProjections())));
 
         // Optimizers above this don't understand local exchanges, so be careful moving this.
         builder.add(new AddLocalExchanges(metadata, sqlParser));

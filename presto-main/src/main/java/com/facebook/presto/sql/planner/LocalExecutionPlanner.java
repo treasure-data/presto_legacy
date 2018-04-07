@@ -51,6 +51,7 @@ import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.OrderByOperator.OrderByOperatorFactory;
 import com.facebook.presto.operator.OutputFactory;
 import com.facebook.presto.operator.PagesIndex;
+import com.facebook.presto.operator.PagesSpatialIndexFactory;
 import com.facebook.presto.operator.PartitionFunction;
 import com.facebook.presto.operator.PartitionedLookupSourceFactory;
 import com.facebook.presto.operator.PartitionedOutputOperator.PartitionedOutputFactory;
@@ -60,6 +61,9 @@ import com.facebook.presto.operator.ScanFilterAndProjectOperator.ScanFilterAndPr
 import com.facebook.presto.operator.SetBuilderOperator.SetBuilderOperatorFactory;
 import com.facebook.presto.operator.SetBuilderOperator.SetSupplier;
 import com.facebook.presto.operator.SourceOperatorFactory;
+import com.facebook.presto.operator.SpatialIndexBuilderOperator.SpatialIndexBuilderOperatorFactory;
+import com.facebook.presto.operator.SpatialIndexBuilderOperator.SpatialPredicate;
+import com.facebook.presto.operator.SpatialJoinOperator.SpatialJoinOperatorFactory;
 import com.facebook.presto.operator.TableScanOperator.TableScanOperatorFactory;
 import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.operator.TaskOutputOperator.TaskOutputFactory;
@@ -147,12 +151,16 @@ import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.planner.plan.WindowNode.Frame;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.SqlToRowExpressionTranslator;
+import com.facebook.presto.sql.tree.ComparisonExpression;
+import com.facebook.presto.sql.tree.ComparisonExpressionType;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.OrderBy;
 import com.facebook.presto.sql.tree.SortItem;
+import com.facebook.presto.sql.tree.SymbolReference;
+import com.google.common.base.VerifyException;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -207,9 +215,11 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.TypeUtils.writeNativeValue;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypes;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.getExpressionTypesFromInput;
+import static com.facebook.presto.sql.planner.ExpressionNodeInliner.replaceExpression;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.COORDINATOR_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_BROADCAST_DISTRIBUTION;
+import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SCALED_WRITER_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Scope.LOCAL;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.FULL;
@@ -217,6 +227,14 @@ import static com.facebook.presto.sql.planner.plan.JoinNode.Type.RIGHT;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.CreateHandle;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.InsertHandle;
 import static com.facebook.presto.sql.planner.plan.TableWriterNode.WriterTarget;
+import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
+import static com.facebook.presto.sql.tree.ComparisonExpressionType.LESS_THAN;
+import static com.facebook.presto.sql.tree.ComparisonExpressionType.LESS_THAN_OR_EQUAL;
+import static com.facebook.presto.util.SpatialJoinUtils.ST_CONTAINS;
+import static com.facebook.presto.util.SpatialJoinUtils.ST_DISTANCE;
+import static com.facebook.presto.util.SpatialJoinUtils.ST_INTERSECTS;
+import static com.facebook.presto.util.SpatialJoinUtils.extractSupportedSpatialComparisons;
+import static com.facebook.presto.util.SpatialJoinUtils.extractSupportedSpatialFunctions;
 import static com.google.common.base.Functions.forMap;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -253,6 +271,7 @@ public class LocalExecutionPlanner
     private final IndexJoinLookupStats indexJoinLookupStats;
     private final DataSize maxPartialAggregationMemorySize;
     private final DataSize maxPagePartitioningBufferSize;
+    private final DataSize maxLocalExchangeBufferSize;
     private final SpillerFactory spillerFactory;
     private final SingleStreamSpillerFactory singleStreamSpillerFactory;
     private final PartitioningSpillerFactory partitioningSpillerFactory;
@@ -307,6 +326,7 @@ public class LocalExecutionPlanner
         this.blockEncodingSerde = requireNonNull(blockEncodingSerde, "blockEncodingSerde is null");
         this.maxPartialAggregationMemorySize = taskManagerConfig.getMaxPartialAggregationMemoryUsage();
         this.maxPagePartitioningBufferSize = taskManagerConfig.getMaxPagePartitioningBufferSize();
+        this.maxLocalExchangeBufferSize = taskManagerConfig.getMaxLocalExchangeBufferSize();
         this.pagesIndexFactory = requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
         this.joinCompiler = requireNonNull(joinCompiler, "joinCompiler is null");
         this.lookupJoinOperators = requireNonNull(lookupJoinOperators, "lookupJoinOperators is null");
@@ -325,6 +345,7 @@ public class LocalExecutionPlanner
 
         if (partitioningScheme.getPartitioning().getHandle().equals(FIXED_BROADCAST_DISTRIBUTION) ||
                 partitioningScheme.getPartitioning().getHandle().equals(FIXED_ARBITRARY_DISTRIBUTION) ||
+                partitioningScheme.getPartitioning().getHandle().equals(SCALED_WRITER_DISTRIBUTION) ||
                 partitioningScheme.getPartitioning().getHandle().equals(SINGLE_DISTRIBUTION) ||
                 partitioningScheme.getPartitioning().getHandle().equals(COORDINATOR_DISTRIBUTION)) {
             return plan(taskContext, planGrouped, plan, outputLayout, types, partitionedSourceOrder, new TaskOutputFactory(outputBuffer));
@@ -663,7 +684,7 @@ public class LocalExecutionPlanner
                     context.getNextOperatorId(),
                     node.getId(),
                     queryPerformanceFetcher.get(),
-                    metadata,
+                    metadata.getFunctionRegistry(),
                     statsCalculator,
                     costCalculator,
                     node.isVerbose());
@@ -1223,7 +1244,7 @@ public class LocalExecutionPlanner
                         false);
                 for (int i = 0; i < row.size(); i++) {
                     // evaluate the literal value
-                    Object result = ExpressionInterpreter.expressionInterpreter(row.get(i), metadata, context.getSession(), expressionTypes).evaluate(0);
+                    Object result = ExpressionInterpreter.expressionInterpreter(row.get(i), metadata, context.getSession(), expressionTypes).evaluate();
                     writeNativeValue(outputTypes.get(i), pageBuilder.getBlockBuilder(i), result);
                 }
             }
@@ -1485,11 +1506,15 @@ public class LocalExecutionPlanner
         @Override
         public PhysicalOperation visitJoin(JoinNode node, LocalExecutionPlanContext context)
         {
-            List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
+            if (node.isSpatialJoin()) {
+                return createSpatialJoin(node, context);
+            }
+
             if (node.isCrossJoin()) {
                 return createNestedLoopJoin(node, context);
             }
 
+            List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
             List<Symbol> leftSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
             List<Symbol> rightSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
 
@@ -1502,6 +1527,125 @@ public class LocalExecutionPlanner
                 default:
                     throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
             }
+        }
+
+        private PhysicalOperation createSpatialJoin(JoinNode node, LocalExecutionPlanContext context)
+        {
+            verify(node.getFilter().isPresent() && node.getCriteria().isEmpty());
+            Expression filterExpression = node.getFilter().get();
+            List<FunctionCall> spatialFunctions = extractSupportedSpatialFunctions(filterExpression);
+            for (FunctionCall spatialFunction : spatialFunctions) {
+                Optional<PhysicalOperation> operation = tryCreateSpatialJoin(context, node, removeExpressionFromFilter(filterExpression, spatialFunction), spatialFunction, Optional.empty(), Optional.empty());
+                if (operation.isPresent()) {
+                    return operation.get();
+                }
+            }
+
+            List<ComparisonExpression> spatialComparisons = extractSupportedSpatialComparisons(filterExpression);
+            for (ComparisonExpression spatialComparison : spatialComparisons) {
+                if (spatialComparison.getType() == LESS_THAN || spatialComparison.getType() == LESS_THAN_OR_EQUAL) {
+                    // ST_Distance(a, b) <= r
+                    Expression radius = spatialComparison.getRight();
+                    if (radius instanceof SymbolReference && getSymbolReferences(node.getRight().getOutputSymbols()).contains(radius)) {
+                        FunctionCall spatialFunction = (FunctionCall) spatialComparison.getLeft();
+                        Optional<PhysicalOperation> operation = tryCreateSpatialJoin(context, node, removeExpressionFromFilter(filterExpression, spatialComparison), spatialFunction, Optional.of(radius), Optional.of(spatialComparison.getType()));
+                        if (operation.isPresent()) {
+                            return operation.get();
+                        }
+                    }
+                }
+            }
+
+            throw new VerifyException("No valid spatial relationship found for spatial join");
+        }
+
+        private Optional<PhysicalOperation> tryCreateSpatialJoin(
+                LocalExecutionPlanContext context,
+                JoinNode node,
+                Optional<Expression> filterExpression,
+                FunctionCall spatialFunction,
+                Optional<Expression> radius,
+                Optional<ComparisonExpressionType> comparisonType)
+        {
+            List<Expression> arguments = spatialFunction.getArguments();
+            verify(arguments.size() == 2);
+
+            if (!(arguments.get(0) instanceof SymbolReference) || !(arguments.get(1) instanceof SymbolReference)) {
+                return Optional.empty();
+            }
+
+            SymbolReference firstSymbol = (SymbolReference) arguments.get(0);
+            SymbolReference secondSymbol = (SymbolReference) arguments.get(1);
+
+            PlanNode probeNode = node.getLeft();
+            Set<SymbolReference> probeSymbols = getSymbolReferences(probeNode.getOutputSymbols());
+
+            PlanNode buildNode = node.getRight();
+            Set<SymbolReference> buildSymbols = getSymbolReferences(buildNode.getOutputSymbols());
+
+            if (probeSymbols.contains(firstSymbol) && buildSymbols.contains(secondSymbol)) {
+                return Optional.of(createSpatialLookupJoin(
+                        node,
+                        probeNode,
+                        Symbol.from(firstSymbol),
+                        buildNode,
+                        Symbol.from(secondSymbol),
+                        radius.map(Symbol::from),
+                        spatialTest(spatialFunction, true, comparisonType),
+                        filterExpression,
+                        context));
+            }
+            else if (probeSymbols.contains(secondSymbol) && buildSymbols.contains(firstSymbol)) {
+                return Optional.of(createSpatialLookupJoin(
+                        node,
+                        probeNode,
+                        Symbol.from(secondSymbol),
+                        buildNode,
+                        Symbol.from(firstSymbol),
+                        radius.map(Symbol::from),
+                        spatialTest(spatialFunction, false, comparisonType),
+                        filterExpression,
+                        context));
+            }
+            return Optional.empty();
+        }
+
+        private Optional<Expression> removeExpressionFromFilter(Expression filter, Expression expression)
+        {
+            Expression updatedJoinFilter = replaceExpression(filter, ImmutableMap.of(expression, TRUE_LITERAL));
+            return updatedJoinFilter == TRUE_LITERAL ? Optional.empty() : Optional.of(updatedJoinFilter);
+        }
+
+        private SpatialPredicate spatialTest(FunctionCall functionCall, boolean probeFirst, Optional<ComparisonExpressionType> comparisonType)
+        {
+            switch (functionCall.getName().toString().toLowerCase()) {
+                case ST_CONTAINS:
+                    if (probeFirst) {
+                        return (buildGeometry, probeGeometry, radius) -> probeGeometry.contains(buildGeometry);
+                    }
+                    else {
+                        return (buildGeometry, probeGeometry, radius) -> buildGeometry.contains(probeGeometry);
+                    }
+                case ST_INTERSECTS:
+                    return (buildGeometry, probeGeometry, radius) -> buildGeometry.intersects(probeGeometry);
+                case ST_DISTANCE:
+                    if (comparisonType.get() == LESS_THAN) {
+                        return (buildGeometry, probeGeometry, radius) -> buildGeometry.distance(probeGeometry) < radius.getAsDouble();
+                    }
+                    else if (comparisonType.get() == LESS_THAN_OR_EQUAL) {
+                        return (buildGeometry, probeGeometry, radius) -> buildGeometry.distance(probeGeometry) <= radius.getAsDouble();
+                    }
+                    else {
+                        throw new UnsupportedOperationException("Unsupported comparison type: " + comparisonType.get());
+                    }
+                default:
+                    throw new UnsupportedOperationException("Unsupported spatial function: " + functionCall.getName());
+            }
+        }
+
+        private Set<SymbolReference> getSymbolReferences(Collection<Symbol> symbols)
+        {
+            return symbols.stream().map(Symbol::toSymbolReference).collect(toImmutableSet());
         }
 
         private PhysicalOperation createNestedLoopJoin(JoinNode node, LocalExecutionPlanContext context)
@@ -1543,6 +1687,119 @@ public class LocalExecutionPlanner
             OperatorFactory operatorFactory = new NestedLoopJoinOperatorFactory(context.getNextOperatorId(), node.getId(), nestedLoopJoinPagesSupplier, probeSource.getTypes());
             PhysicalOperation operation = new PhysicalOperation(operatorFactory, outputMappings.build(), probeSource);
             return operation;
+        }
+
+        private PhysicalOperation createSpatialLookupJoin(
+                JoinNode node,
+                PlanNode probeNode,
+                Symbol probeSymbol,
+                PlanNode buildNode,
+                Symbol buildSymbol,
+                Optional<Symbol> radiusSymbol,
+                SpatialPredicate spatialRelationshipTest,
+                Optional<Expression> joinFilter,
+                LocalExecutionPlanContext context)
+        {
+            // Plan probe
+            PhysicalOperation probeSource = probeNode.accept(this, context);
+
+            // Plan build
+            PagesSpatialIndexFactory pagesSpatialIndexFactory = createPagesSpatialIndexFactory(node,
+                    buildNode,
+                    buildSymbol,
+                    radiusSymbol,
+                    probeSource.getLayout(),
+                    spatialRelationshipTest,
+                    joinFilter,
+                    context);
+
+            OperatorFactory operator = createSpatialLookupJoin(node, probeNode, probeSource, probeSymbol, pagesSpatialIndexFactory, context);
+
+            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+            List<Symbol> outputSymbols = node.getOutputSymbols();
+            for (int i = 0; i < outputSymbols.size(); i++) {
+                Symbol symbol = outputSymbols.get(i);
+                outputMappings.put(symbol, i);
+            }
+
+            return new PhysicalOperation(operator, outputMappings.build(), probeSource);
+        }
+
+        private OperatorFactory createSpatialLookupJoin(JoinNode node,
+                PlanNode probeNode,
+                PhysicalOperation probeSource,
+                Symbol probeSymbol,
+                PagesSpatialIndexFactory pagesSpatialIndexFactory,
+                LocalExecutionPlanContext context)
+        {
+            List<Type> probeTypes = probeSource.getTypes();
+            List<Symbol> probeOutputSymbols = node.getOutputSymbols().stream()
+                    .filter(symbol -> probeNode.getOutputSymbols().contains(symbol))
+                    .collect(toImmutableList());
+            List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(probeOutputSymbols, probeSource.getLayout()));
+            Integer probeChannel = channelGetter(probeSource).apply(probeSymbol);
+
+            return new SpatialJoinOperatorFactory(
+                    context.getNextOperatorId(),
+                    node.getId(),
+                    probeTypes,
+                    probeOutputChannels,
+                    probeChannel,
+                    pagesSpatialIndexFactory);
+        }
+
+        private PagesSpatialIndexFactory createPagesSpatialIndexFactory(
+                JoinNode node,
+                PlanNode buildNode,
+                Symbol buildSymbol,
+                Optional<Symbol> radiusSymbol,
+                Map<Symbol, Integer> probeLayout,
+                SpatialPredicate spatialRelationshipTest,
+                Optional<Expression> joinFilter,
+                LocalExecutionPlanContext context)
+        {
+            LocalExecutionPlanContext buildContext = context.createSubContext();
+            PhysicalOperation buildSource = buildNode.accept(this, buildContext);
+            List<Symbol> buildOutputSymbols = node.getOutputSymbols().stream()
+                    .filter(symbol -> buildNode.getOutputSymbols().contains(symbol))
+                    .collect(toImmutableList());
+            Map<Symbol, Integer> buildLayout = buildSource.getLayout();
+            List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(buildOutputSymbols, buildLayout));
+            Function<Symbol, Integer> buildChannelGetter = channelGetter(buildSource);
+            Integer buildChannel = buildChannelGetter.apply(buildSymbol);
+            Optional<Integer> radiusChannel = radiusSymbol.map(buildChannelGetter::apply);
+
+            Optional<JoinFilterFunctionFactory> filterFunctionFactory = joinFilter
+                    .map(filterExpression -> compileJoinFilterFunction(
+                            filterExpression,
+                            probeLayout,
+                            buildLayout,
+                            context.getTypes(),
+                            context.getSession()));
+
+            SpatialIndexBuilderOperatorFactory builderOperatorFactory = new SpatialIndexBuilderOperatorFactory(
+                    buildContext.getNextOperatorId(),
+                    node.getId(),
+                    buildSource.getTypes(),
+                    buildOutputChannels,
+                    buildChannel,
+                    radiusChannel,
+                    spatialRelationshipTest,
+                    filterFunctionFactory,
+                    10_000,
+                    pagesIndexFactory);
+
+            context.addDriverFactory(
+                    buildContext.isInputDriver(),
+                    false,
+                    ImmutableList.<OperatorFactory>builder()
+                            .addAll(buildSource.getOperatorFactories())
+                            .add(builderOperatorFactory)
+                            .build(),
+                    buildContext.getDriverInstanceCount(),
+                    buildSource.getPipelineExecutionStrategy());
+
+            return builderOperatorFactory.getPagesSpatialIndexFactory();
         }
 
         private PhysicalOperation createLookupJoin(JoinNode node,
@@ -1952,7 +2209,8 @@ public class LocalExecutionPlanner
                     types,
                     channels,
                     hashChannel,
-                    exchangeSourcePipelineExecutionStrategy);
+                    exchangeSourcePipelineExecutionStrategy,
+                    maxLocalExchangeBufferSize);
             for (int i = 0; i < node.getSources().size(); i++) {
                 DriverFactoryParameters driverFactoryParameters = driverFactoryParametersList.get(i);
                 PhysicalOperation source = driverFactoryParameters.getSource();
@@ -2037,7 +2295,7 @@ public class LocalExecutionPlanner
             return metadata
                     .getFunctionRegistry()
                     .getAggregateFunctionImplementation(aggregation.getSignature())
-                    .bind(arguments, maskChannel, source.getTypes(), getChannelsForSymbols(sortKeys, source.getLayout()), sortOrders, pagesIndexFactory);
+                    .bind(arguments, maskChannel, source.getTypes(), getChannelsForSymbols(sortKeys, source.getLayout()), sortOrders, pagesIndexFactory, aggregation.getCall().isDistinct(), joinCompiler, session);
         }
 
         private PhysicalOperation planGlobalAggregation(int operatorId, AggregationNode node, PhysicalOperation source)

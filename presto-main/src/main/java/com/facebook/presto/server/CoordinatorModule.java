@@ -28,7 +28,6 @@ import com.facebook.presto.execution.DropTableTask;
 import com.facebook.presto.execution.DropViewTask;
 import com.facebook.presto.execution.ForQueryExecution;
 import com.facebook.presto.execution.GrantTask;
-import com.facebook.presto.execution.PlanFlattener;
 import com.facebook.presto.execution.PrepareTask;
 import com.facebook.presto.execution.QueryExecution;
 import com.facebook.presto.execution.QueryExecutionMBean;
@@ -36,8 +35,6 @@ import com.facebook.presto.execution.QueryIdGenerator;
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryManager;
 import com.facebook.presto.execution.QueryQueueManager;
-import com.facebook.presto.execution.QueryQueueRule;
-import com.facebook.presto.execution.QueryQueueRuleFactory;
 import com.facebook.presto.execution.RemoteTaskFactory;
 import com.facebook.presto.execution.RenameColumnTask;
 import com.facebook.presto.execution.RenameSchemaTask;
@@ -47,12 +44,11 @@ import com.facebook.presto.execution.RevokeTask;
 import com.facebook.presto.execution.RollbackTask;
 import com.facebook.presto.execution.SetSessionTask;
 import com.facebook.presto.execution.SqlQueryManager;
-import com.facebook.presto.execution.SqlQueryQueueManager;
 import com.facebook.presto.execution.StartTransactionTask;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.execution.UseTask;
 import com.facebook.presto.execution.resourceGroups.InternalResourceGroupManager;
-import com.facebook.presto.execution.resourceGroups.LegacyResourceGroupConfigurationManagerFactory;
+import com.facebook.presto.execution.resourceGroups.LegacyResourceGroupConfigurationManager;
 import com.facebook.presto.execution.resourceGroups.ResourceGroupManager;
 import com.facebook.presto.execution.scheduler.AllAtOnceExecutionPolicy;
 import com.facebook.presto.execution.scheduler.ExecutionPolicy;
@@ -70,7 +66,6 @@ import com.facebook.presto.operator.ForScheduler;
 import com.facebook.presto.server.protocol.StatementResource;
 import com.facebook.presto.server.remotetask.RemoteTaskStats;
 import com.facebook.presto.spi.memory.ClusterMemoryPoolManager;
-import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.QueryExplainer;
 import com.facebook.presto.sql.tree.AddColumn;
 import com.facebook.presto.sql.tree.Call;
@@ -175,14 +170,8 @@ public class CoordinatorModule
         binder.bind(InternalResourceGroupManager.class).in(Scopes.SINGLETON);
         newExporter(binder).export(InternalResourceGroupManager.class).withGeneratedName();
         binder.bind(ResourceGroupManager.class).to(InternalResourceGroupManager.class);
-        binder.bind(LegacyResourceGroupConfigurationManagerFactory.class).in(Scopes.SINGLETON);
-        if (buildConfigObject(FeaturesConfig.class).isResourceGroupsEnabled()) {
-            binder.bind(QueryQueueManager.class).to(InternalResourceGroupManager.class);
-        }
-        else {
-            binder.bind(QueryQueueManager.class).to(SqlQueryQueueManager.class).in(Scopes.SINGLETON);
-            binder.bind(new TypeLiteral<List<QueryQueueRule>>() {}).toProvider(QueryQueueRuleFactory.class).in(Scopes.SINGLETON);
-        }
+        binder.bind(QueryQueueManager.class).to(InternalResourceGroupManager.class);
+        binder.bind(LegacyResourceGroupConfigurationManager.class).in(Scopes.SINGLETON);
         newExporter(binder).export(QueryManager.class).withGeneratedName();
 
         // cluster memory manager
@@ -202,9 +191,8 @@ public class CoordinatorModule
         // cluster statistics
         jaxrsBinder(binder).bind(ClusterStatsResource.class);
 
-        // explainers
+        // query explainer
         binder.bind(QueryExplainer.class).in(Scopes.SINGLETON);
-        binder.bind(PlanFlattener.class).in(Scopes.SINGLETON);
 
         // execution scheduler
         binder.bind(RemoteTaskFactory.class).to(HttpRemoteTaskFactory.class).in(Scopes.SINGLETON);
@@ -215,6 +203,7 @@ public class CoordinatorModule
 
         httpClientBinder(binder).bindHttpClient("scheduler", ForScheduler.class)
                 .withTracing()
+                .withFilter(GenerateTraceTokenRequestFilter.class)
                 .withConfigDefaults(config -> {
                     config.setIdleTimeout(new Duration(30, SECONDS));
                     config.setRequestTimeout(new Duration(10, SECONDS));

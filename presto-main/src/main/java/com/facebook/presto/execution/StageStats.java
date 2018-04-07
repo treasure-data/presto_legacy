@@ -15,9 +15,9 @@ package com.facebook.presto.execution;
 
 import com.facebook.presto.operator.BlockedReason;
 import com.facebook.presto.operator.OperatorStats;
+import com.facebook.presto.spi.eventlistener.StageGcStatistics;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.stats.Distribution.DistributionSnapshot;
@@ -75,42 +75,9 @@ public class StageStats
 
     private final DataSize physicalWrittenDataSize;
 
-    private final List<OperatorStats> operatorSummaries;
+    private final StageGcStatistics gcInfo;
 
-    @VisibleForTesting
-    public StageStats()
-    {
-        this.schedulingComplete = null;
-        this.getSplitDistribution = null;
-        this.scheduleTaskDistribution = null;
-        this.addSplitDistribution = null;
-        this.totalTasks = 0;
-        this.runningTasks = 0;
-        this.completedTasks = 0;
-        this.totalDrivers = 0;
-        this.queuedDrivers = 0;
-        this.runningDrivers = 0;
-        this.blockedDrivers = 0;
-        this.completedDrivers = 0;
-        this.cumulativeUserMemory = 0.0;
-        this.userMemoryReservation = null;
-        this.peakUserMemoryReservation = null;
-        this.totalScheduledTime = null;
-        this.totalCpuTime = null;
-        this.totalUserTime = null;
-        this.totalBlockedTime = null;
-        this.fullyBlocked = false;
-        this.blockedReasons = ImmutableSet.of();
-        this.rawInputDataSize = null;
-        this.rawInputPositions = 0;
-        this.processedInputDataSize = null;
-        this.processedInputPositions = 0;
-        this.bufferedDataSize = null;
-        this.outputDataSize = null;
-        this.outputPositions = 0;
-        this.physicalWrittenDataSize = null;
-        this.operatorSummaries = null;
-    }
+    private final List<OperatorStats> operatorSummaries;
 
     @JsonCreator
     public StageStats(
@@ -153,6 +120,8 @@ public class StageStats
 
             @JsonProperty("physicalWrittenDataSize") DataSize physicalWrittenDataSize,
 
+            @JsonProperty("gcInfo") StageGcStatistics gcInfo,
+
             @JsonProperty("operatorSummaries") List<OperatorStats> operatorSummaries)
     {
         this.schedulingComplete = schedulingComplete;
@@ -177,8 +146,8 @@ public class StageStats
         this.blockedDrivers = blockedDrivers;
         checkArgument(completedDrivers >= 0, "completedDrivers is negative");
         this.completedDrivers = completedDrivers;
-
-        this.cumulativeUserMemory = requireNonNull(cumulativeUserMemory, "cumulativeUserMemory is null");
+        checkArgument(cumulativeUserMemory >= 0, "cumulativeUserMemory is negative");
+        this.cumulativeUserMemory = cumulativeUserMemory;
         this.userMemoryReservation = requireNonNull(userMemoryReservation, "userMemoryReservation is null");
         this.peakUserMemoryReservation = requireNonNull(peakUserMemoryReservation, "peakUserMemoryReservation is null");
 
@@ -203,6 +172,8 @@ public class StageStats
         this.outputPositions = outputPositions;
 
         this.physicalWrittenDataSize = requireNonNull(physicalWrittenDataSize, "writtenDataSize is null");
+
+        this.gcInfo = requireNonNull(gcInfo, "gcInfo is null");
 
         this.operatorSummaries = ImmutableList.copyOf(requireNonNull(operatorSummaries, "operatorSummaries is null"));
     }
@@ -379,6 +350,12 @@ public class StageStats
     public DataSize getPhysicalWrittenDataSize()
     {
         return physicalWrittenDataSize;
+    }
+
+    @JsonProperty
+    public StageGcStatistics getGcInfo()
+    {
+        return gcInfo;
     }
 
     @JsonProperty

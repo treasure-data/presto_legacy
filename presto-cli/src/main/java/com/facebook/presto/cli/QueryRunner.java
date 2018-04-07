@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.cli;
 
-import com.facebook.presto.client.ClientException;
 import com.facebook.presto.client.ClientSession;
 import com.facebook.presto.client.StatementClient;
 import com.google.common.net.HostAndPort;
@@ -33,6 +32,7 @@ import static com.facebook.presto.client.OkHttpUtil.setupKerberos;
 import static com.facebook.presto.client.OkHttpUtil.setupSocksProxy;
 import static com.facebook.presto.client.OkHttpUtil.setupSsl;
 import static com.facebook.presto.client.OkHttpUtil.setupTimeouts;
+import static com.facebook.presto.client.StatementClientFactory.newStatementClient;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -61,8 +61,7 @@ public class QueryRunner
             Optional<String> kerberosConfigPath,
             Optional<String> kerberosKeytabPath,
             Optional<String> kerberosCredentialCachePath,
-            boolean kerberosUseCanonicalHostname,
-            boolean kerberosEnabled)
+            boolean kerberosUseCanonicalHostname)
     {
         this.session = new AtomicReference<>(requireNonNull(session, "session is null"));
         this.debug = debug;
@@ -71,16 +70,18 @@ public class QueryRunner
 
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
 
-        setupTimeouts(builder, 5, SECONDS);
+        setupTimeouts(builder, 30, SECONDS);
         setupCookieJar(builder);
         setupSocksProxy(builder, socksProxy);
         setupHttpProxy(builder, httpProxy);
         setupBasicAuth(builder, session, user, password);
 
-        if (kerberosEnabled) {
+        if (kerberosRemoteServiceName.isPresent()) {
+            checkArgument(session.getServer().getScheme().equalsIgnoreCase("https"),
+                    "Authentication using Kerberos requires HTTPS to be enabled");
             setupKerberos(
                     builder,
-                    kerberosRemoteServiceName.orElseThrow(() -> new ClientException("Kerberos remote service name must be set")),
+                    kerberosRemoteServiceName.get(),
                     kerberosUseCanonicalHostname,
                     kerberosPrincipal,
                     kerberosConfigPath.map(File::new),
@@ -122,7 +123,7 @@ public class QueryRunner
         sslSetup.accept(builder);
         OkHttpClient client = builder.build();
 
-        return new StatementClient(client, session, query);
+        return newStatementClient(client, session, query);
     }
 
     @Override

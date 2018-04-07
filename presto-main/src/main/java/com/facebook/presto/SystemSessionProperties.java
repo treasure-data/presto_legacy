@@ -37,6 +37,7 @@ import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 
 public final class SystemSessionProperties
 {
@@ -60,6 +61,7 @@ public final class SystemSessionProperties
     public static final String EXECUTION_POLICY = "execution_policy";
     public static final String DICTIONARY_AGGREGATION = "dictionary_aggregation";
     public static final String PLAN_WITH_TABLE_NODE_PARTITIONING = "plan_with_table_node_partitioning";
+    public static final String SPATIAL_JOIN = "spatial_join";
     public static final String COLOCATED_JOIN = "colocated_join";
     public static final String CONCURRENT_LIFESPANS_PER_NODE = "concurrent_lifespans_per_task";
     public static final String REORDER_JOINS = "reorder_joins";
@@ -85,6 +87,7 @@ public final class SystemSessionProperties
     public static final String FORCE_SINGLE_NODE_OUTPUT = "force_single_node_output";
     public static final String FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_SIZE = "filter_and_project_min_output_page_size";
     public static final String FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT = "filter_and_project_min_output_page_row_count";
+    public static final String USE_MARK_DISTINCT = "use_mark_distinct";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -138,15 +141,7 @@ public final class SystemSessionProperties
                         Integer.class,
                         taskManagerConfig.getWriterCount(),
                         false,
-                        value -> {
-                            int concurrency = ((Number) value).intValue();
-                            if (Integer.bitCount(concurrency) != 1) {
-                                throw new PrestoException(
-                                        StandardErrorCode.INVALID_SESSION_PROPERTY,
-                                        format("%s must be a power of 2: %s", TASK_WRITER_COUNT, concurrency));
-                            }
-                            return concurrency;
-                        },
+                        value -> validateValueIsPowerOfTwo(value, TASK_WRITER_COUNT),
                         value -> value),
                 booleanSessionProperty(
                         REDISTRIBUTE_WRITES,
@@ -179,15 +174,7 @@ public final class SystemSessionProperties
                         Integer.class,
                         taskManagerConfig.getTaskConcurrency(),
                         false,
-                        value -> {
-                            int concurrency = ((Number) value).intValue();
-                            if (Integer.bitCount(concurrency) != 1) {
-                                throw new PrestoException(
-                                        StandardErrorCode.INVALID_SESSION_PROPERTY,
-                                        format("%s must be a power of 2: %s", TASK_CONCURRENCY, concurrency));
-                            }
-                            return concurrency;
-                        },
+                        value -> validateValueIsPowerOfTwo(value, TASK_CONCURRENCY),
                         value -> value),
                 booleanSessionProperty(
                         TASK_SHARE_INDEX_LOADING,
@@ -283,6 +270,11 @@ public final class SystemSessionProperties
                         COLOCATED_JOIN,
                         "Experimental: Use a colocated join when possible",
                         featuresConfig.isColocatedJoinsEnabled(),
+                        false),
+                booleanSessionProperty(
+                        SPATIAL_JOIN,
+                        "Use spatial index for spatial join when possible",
+                        featuresConfig.isSpatialJoinsEnabled(),
                         false),
                 integerSessionProperty(
                         CONCURRENT_LIFESPANS_PER_NODE,
@@ -397,6 +389,11 @@ public final class SystemSessionProperties
                         FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT,
                         "Experimental: Minimum output page row count for filter and project operators",
                         featuresConfig.getFilterAndProjectMinOutputPageRowCount(),
+                        false),
+                booleanSessionProperty(
+                        USE_MARK_DISTINCT,
+                        "Implement DISTINCT aggregations using MarkDistinct",
+                        featuresConfig.isUseMarkDistinct(),
                         false));
     }
 
@@ -520,6 +517,11 @@ public final class SystemSessionProperties
         return session.getSystemProperty(COLOCATED_JOIN, Boolean.class);
     }
 
+    public static boolean isSpatialJoinEanbled(Session session)
+    {
+        return session.getSystemProperty(SPATIAL_JOIN, Boolean.class);
+    }
+
     public static OptionalInt getConcurrentLifespansPerNode(Session session)
     {
         Integer result = session.getSystemProperty(CONCURRENT_LIFESPANS_PER_NODE, Integer.class);
@@ -640,5 +642,21 @@ public final class SystemSessionProperties
     public static int getFilterAndProjectMinOutputPageRowCount(Session session)
     {
         return session.getSystemProperty(FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT, Integer.class);
+    }
+
+    public static boolean useMarkDistinct(Session session)
+    {
+        return session.getSystemProperty(USE_MARK_DISTINCT, Boolean.class);
+    }
+
+    private static int validateValueIsPowerOfTwo(Object value, String property)
+    {
+        int intValue = ((Number) requireNonNull(value, "value is null")).intValue();
+        if (Integer.bitCount(intValue) != 1) {
+            throw new PrestoException(
+                    StandardErrorCode.INVALID_SESSION_PROPERTY,
+                    format("%s must be a power of 2: %s", property, intValue));
+        }
+        return intValue;
     }
 }

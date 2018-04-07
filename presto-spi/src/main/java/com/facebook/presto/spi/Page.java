@@ -16,6 +16,7 @@ package com.facebook.presto.spi;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.DictionaryBlock;
 import com.facebook.presto.spi.block.DictionaryId;
+import org.openjdk.jol.info.ClassLayout;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,12 +26,16 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.facebook.presto.spi.block.DictionaryId.randomDictionaryId;
+import static io.airlift.slice.SizeOf.sizeOf;
 import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class Page
 {
+    public static final int INSTANCE_SIZE = ClassLayout.parseClass(Page.class).instanceSize() +
+            (2 * ClassLayout.parseClass(AtomicLong.class).instanceSize());
+
     private final Block[] blocks;
     private final int positionCount;
     private final AtomicLong sizeInBytes = new AtomicLong(-1);
@@ -75,18 +80,13 @@ public class Page
     {
         long retainedSizeInBytes = this.retainedSizeInBytes.get();
         if (retainedSizeInBytes < 0) {
-            retainedSizeInBytes = 0;
+            retainedSizeInBytes = INSTANCE_SIZE + sizeOf(blocks);
             for (Block block : blocks) {
                 retainedSizeInBytes += block.getRetainedSizeInBytes();
             }
             this.retainedSizeInBytes.set(retainedSizeInBytes);
         }
         return retainedSizeInBytes;
-    }
-
-    public Block[] getBlocks()
-    {
-        return blocks.clone();
     }
 
     public Block getBlock(int channel)
@@ -119,6 +119,18 @@ public class Page
             slicedBlocks[i] = blocks[i].getRegion(positionOffset, length);
         }
         return new Page(length, slicedBlocks);
+    }
+
+    public Page appendColumn(Block block)
+    {
+        requireNonNull(block, "block is null");
+        if (positionCount != block.getPositionCount()) {
+            throw new IllegalArgumentException("Block does not have same position count");
+        }
+
+        Block[] newBlocks = Arrays.copyOf(blocks, blocks.length + 1);
+        newBlocks[blocks.length] = block;
+        return new Page(newBlocks);
     }
 
     public void compact()
@@ -267,10 +279,22 @@ public class Page
     {
         requireNonNull(retainedPositions, "retainedPositions is null");
 
-        Block[] blocks = Arrays.stream(getBlocks())
-                .map(block -> block.getPositions(retainedPositions, offset, length))
-                .toArray(Block[]::new);
+        Block[] blocks = new Block[this.blocks.length];
+        Arrays.setAll(blocks, i -> this.blocks[i].getPositions(retainedPositions, offset, length));
         return new Page(length, blocks);
+    }
+
+    public Page prependColumn(Block column)
+    {
+        if (column.getPositionCount() != positionCount) {
+            throw new IllegalArgumentException(String.format("Column does not have same position count (%s) as page (%s)", column.getPositionCount(), positionCount));
+        }
+
+        Block[] result = new Block[blocks.length + 1];
+        result[0] = column;
+        System.arraycopy(blocks, 0, result, 1, blocks.length);
+
+        return new Page(positionCount, result);
     }
 
     private static class DictionaryBlockIndexes

@@ -219,14 +219,14 @@ public abstract class AbstractTestHiveClientS3
                 partitionUpdateCodec,
                 new TestingNodeManager("fake-environment"),
                 new HiveEventClient(),
-                new HiveSessionProperties(config),
+                new HiveSessionProperties(config, new OrcFileWriterConfig()),
                 new HiveWriterStats());
         pageSourceProvider = new HivePageSourceProvider(config, hdfsEnvironment, getDefaultHiveRecordCursorProvider(config), getDefaultHiveDataStreamFactories(config), TYPE_MANAGER);
     }
 
     protected ConnectorSession newSession()
     {
-        return new TestingConnectorSession(new HiveSessionProperties(new HiveClientConfig()).getSessionProperties());
+        return new TestingConnectorSession(new HiveSessionProperties(new HiveClientConfig(), new OrcFileWriterConfig()).getSessionProperties());
     }
 
     protected Transaction newTransaction()
@@ -270,7 +270,7 @@ public abstract class AbstractTestHiveClientS3
     public void testGetFileStatus()
             throws Exception
     {
-        Path basePath = new Path("s3://presto-test-hive/");
+        Path basePath = new Path(format("s3://%s/", writableBucket));
         Path tablePath = new Path(basePath, "presto_test_s3");
         Path filePath = new Path(tablePath, "test1.csv");
         FileSystem fs = hdfsEnvironment.getFileSystem(TESTING_CONTEXT, basePath);

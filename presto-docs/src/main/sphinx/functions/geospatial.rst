@@ -155,9 +155,18 @@ Accessors
 
     Returns ``true`` if this Geometry is an empty geometrycollection, polygon, point etc.
 
+.. function:: ST_IsSimple(Geometry) -> boolean
+
+    Returns ``true`` if this Geometry has no anomalous geometric points, such as self intersection or self tangency.
+
 .. function:: ST_IsRing(Geometry) -> boolean
 
     Returns ``true`` if and only if the line is closed and simple.
+
+.. function:: ST_IsValid(Geometry) -> boolean
+
+    Returns ``true`` if and only if the input geometry is well formed.
+    Use :func:`geometry_invalid_reason` to determine why the geometry is not well formed.
 
 .. function:: ST_Length(Geometry) -> double
 
@@ -184,6 +193,11 @@ Accessors
 
     Returns the first point of a LineString geometry as a Point.
 
+.. function:: simplify_geometry(Geometry, double) -> Geometry
+
+    Returns a "simplified" version of the input geometry using the Douglas-Peucker algorithm.
+    Will avoid creating derived geometries (polygons in particular) that are invalid.
+
 .. function:: ST_EndPoint(Geometry) -> point
 
     Returns the last point of a LineString geometry as a Point.
@@ -204,6 +218,15 @@ Accessors
 .. function:: ST_NumInteriorRing(Geometry) -> bigint
 
     Returns the cardinality of the collection of interior rings of a polygon.
+
+.. function:: geometry_invalid_reason(Geometry) -> varchar
+
+    Returns the reason for why the input geometry is not valid.
+    Returns null if the input is valid.
+
+.. function:: great_circle_distance(latitude1, longitude1, latitude2, longitude2) -> double
+
+    Returns the great-circle distance between two points on Earth's surface in kilometers.
 
 Bing Tiles
 ----------
