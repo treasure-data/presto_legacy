@@ -21,7 +21,6 @@ import com.facebook.presto.rcfile.text.TextRcFileEncoding;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Decimals;
@@ -353,7 +352,7 @@ public class RcFileTester
         if (complexStructuralTestsEnabled) {
             Iterable<Object> simpleStructs = transform(insertNullEvery(5, writeValues), RcFileTester::toHiveStruct);
             testRoundTripType(
-                    new RowType(ImmutableList.of(createRowType(type)), Optional.of(ImmutableList.of("field"))),
+                    RowType.from(ImmutableList.of(RowType.field("field", createRowType(type)))),
                     transform(simpleStructs, Collections::singletonList),
                     skipFormatsSet);
         }
@@ -668,7 +667,7 @@ public class RcFileTester
                 new DataSize(100, KILOBYTE),   // use a smaller size to create more row groups
                 new DataSize(200, KILOBYTE),
                 true);
-        BlockBuilder blockBuilder = type.createBlockBuilder(new BlockBuilderStatus(), 1024);
+        BlockBuilder blockBuilder = type.createBlockBuilder(null, 1024);
         while (values.hasNext()) {
             Object value = values.next();
             writeValue(type, blockBuilder, value);
@@ -997,7 +996,7 @@ public class RcFileTester
         else if (type.getTypeSignature().getBase().equals(ROW)) {
             return getStandardStructObjectInspector(
                     type.getTypeSignature().getParameters().stream()
-                            .map(parameter -> parameter.getNamedTypeSignature().getName())
+                            .map(parameter -> parameter.getNamedTypeSignature().getName().get())
                             .collect(toList()),
                     type.getTypeParameters().stream()
                             .map(RcFileTester::getJavaObjectInspector)
@@ -1169,7 +1168,10 @@ public class RcFileTester
 
     private static RowType createRowType(Type type)
     {
-        return new RowType(ImmutableList.of(type, type, type), Optional.of(ImmutableList.of("a", "b", "c")));
+        return RowType.from(ImmutableList.of(
+                RowType.field("a", type),
+                RowType.field("b", type),
+                RowType.field("c", type)));
     }
 
     private static Object toHiveStruct(Object input)

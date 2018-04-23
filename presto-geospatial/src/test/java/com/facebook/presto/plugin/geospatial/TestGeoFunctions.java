@@ -13,19 +13,14 @@
  */
 package com.facebook.presto.plugin.geospatial;
 
-import com.esri.core.geometry.Envelope;
 import com.facebook.presto.operator.scalar.AbstractTestFunctions;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.type.Type;
-import io.airlift.slice.Slices;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import static com.facebook.presto.geospatial.GeometryUtils.deserializeEnvelope;
 import static com.facebook.presto.metadata.FunctionExtractor.extractFunctions;
-import static com.facebook.presto.plugin.geospatial.GeoFunctions.stGeometryFromText;
 import static com.facebook.presto.plugin.geospatial.GeometryType.GEOMETRY;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
@@ -51,7 +46,7 @@ public class TestGeoFunctions
     @Test
     public void testGeometryGetObjectValue()
     {
-        BlockBuilder builder = GEOMETRY.createBlockBuilder(new BlockBuilderStatus(), 1);
+        BlockBuilder builder = GEOMETRY.createBlockBuilder(null, 1);
         GEOMETRY.writeSlice(builder, GeoFunctions.stPoint(1.2, 3.4));
         Block block = builder.build();
 
@@ -68,7 +63,7 @@ public class TestGeoFunctions
     @Test
     public void testSTLineFromText()
     {
-        assertFunction("ST_AsText(ST_LineFromText('LINESTRING EMPTY'))", VARCHAR, "MULTILINESTRING EMPTY");
+        assertFunction("ST_AsText(ST_LineFromText('LINESTRING EMPTY'))", VARCHAR, "LINESTRING EMPTY");
         assertFunction("ST_AsText(ST_LineFromText('LINESTRING (1 1, 2 2, 1 3)'))", VARCHAR, "LINESTRING (1 1, 2 2, 1 3)");
         assertInvalidFunction("ST_AsText(ST_LineFromText('MULTILINESTRING EMPTY'))", "ST_LineFromText only applies to LINE_STRING. Input type is: MULTI_LINE_STRING");
         assertInvalidFunction("ST_AsText(ST_LineFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'))", "ST_LineFromText only applies to LINE_STRING. Input type is: POLYGON");
@@ -77,7 +72,7 @@ public class TestGeoFunctions
     @Test
     public void testSTPolygon()
     {
-        assertFunction("ST_AsText(ST_Polygon('POLYGON EMPTY'))", VARCHAR, "MULTIPOLYGON EMPTY");
+        assertFunction("ST_AsText(ST_Polygon('POLYGON EMPTY'))", VARCHAR, "POLYGON EMPTY");
         assertFunction("ST_AsText(ST_Polygon('POLYGON ((1 1, 1 4, 4 4, 4 1))'))", VARCHAR, "POLYGON ((1 1, 4 1, 4 4, 1 4, 1 1))");
         assertInvalidFunction("ST_AsText(ST_Polygon('LINESTRING (1 1, 2 2, 1 3)'))", "ST_Polygon only applies to POLYGON. Input type is: LINE_STRING");
     }
@@ -259,6 +254,21 @@ public class TestGeoFunctions
     }
 
     @Test
+    public void testLineLocatePoint()
+    {
+        assertFunction("line_locate_point(ST_GeometryFromText('LINESTRING (0 0, 0 1)'), ST_Point(0, 0.2))", DOUBLE, 0.2);
+        assertFunction("line_locate_point(ST_GeometryFromText('LINESTRING (0 0, 0 1, 2 1)'), ST_Point(0, 0.2))", DOUBLE, 0.2);
+        assertFunction("line_locate_point(ST_GeometryFromText('LINESTRING (0 0, 0 1, 2 1)'), ST_Point(0.9, 1))", DOUBLE, 1.9);
+        assertFunction("line_locate_point(ST_GeometryFromText('MULTILINESTRING ((0 0, 0 1), (2 2, 4 2))'), ST_Point(3, 1))", DOUBLE, 2.0);
+
+        assertFunction("line_locate_point(ST_GeometryFromText('LINESTRING EMPTY'), ST_Point(0, 1))", DOUBLE, null);
+        assertFunction("line_locate_point(ST_GeometryFromText('LINESTRING (0 0, 0 1, 2 1)'), ST_GeometryFromText('POINT EMPTY'))", DOUBLE, null);
+
+        assertInvalidFunction("line_locate_point(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_Point(0.4, 1))", "First argument to line_locate_point must be a LineString or a MultiLineString. Got: Polygon");
+        assertInvalidFunction("line_locate_point(ST_GeometryFromText('LINESTRING (0 0, 0 1, 2 1)'), ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'))", "Second argument to line_locate_point must be a Point. Got: Polygon");
+    }
+
+    @Test
     public void testSTMax()
     {
         assertFunction("ST_XMax(ST_GeometryFromText('POINT (1.5 2.5)'))", DOUBLE, 1.5);
@@ -353,13 +363,13 @@ public class TestGeoFunctions
     @Test
     public void testSTBoundary()
     {
-        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('POINT (1 2)')))", VARCHAR, "POINT EMPTY");
-        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('MULTIPOINT (1 2, 2 4, 3 6, 4 8)')))", VARCHAR, "POINT EMPTY");
-        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('LINESTRING EMPTY')))", VARCHAR, "POINT EMPTY");
+        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('POINT (1 2)')))", VARCHAR, "MULTIPOINT EMPTY");
+        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('MULTIPOINT (1 2, 2 4, 3 6, 4 8)')))", VARCHAR, "MULTIPOINT EMPTY");
+        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('LINESTRING EMPTY')))", VARCHAR, "MULTIPOINT EMPTY");
         assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('LINESTRING (8 4, 5 7)')))", VARCHAR, "MULTIPOINT ((8 4), (5 7))");
         assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('LINESTRING (100 150,50 60, 70 80, 160 170)')))", VARCHAR, "MULTIPOINT ((100 150), (160 170))");
         assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))')))", VARCHAR, "MULTIPOINT ((1 1), (5 1), (2 4), (4 4))");
-        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('POLYGON ((1 1, 4 1, 1 4))')))", VARCHAR, "LINESTRING (1 1, 4 1, 1 4, 1 1)");
+        assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('POLYGON ((1 1, 4 1, 1 4))')))", VARCHAR, "MULTILINESTRING ((1 1, 4 1, 1 4, 1 1))");
         assertFunction("ST_AsText(ST_Boundary(ST_GeometryFromText('MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1)), ((0 0, 0 2, 2 2, 2 0)))')))", VARCHAR, "MULTILINESTRING ((1 1, 3 1, 3 3, 1 3, 1 1), (0 0, 2 0, 2 2, 0 2, 0 0))");
     }
 
@@ -367,7 +377,7 @@ public class TestGeoFunctions
     public void testSTEnvelope()
     {
         assertFunction("ST_AsText(ST_Envelope(ST_GeometryFromText('MULTIPOINT (1 2, 2 4, 3 6, 4 8)')))", VARCHAR, "POLYGON ((1 2, 4 2, 4 8, 1 8, 1 2))");
-        assertFunction("ST_AsText(ST_Envelope(ST_GeometryFromText('LINESTRING EMPTY')))", VARCHAR, "MULTIPOLYGON EMPTY");
+        assertFunction("ST_AsText(ST_Envelope(ST_GeometryFromText('LINESTRING EMPTY')))", VARCHAR, "POLYGON EMPTY");
         assertFunction("ST_AsText(ST_Envelope(ST_GeometryFromText('LINESTRING (1 1, 2 2, 1 3)')))", VARCHAR, "POLYGON ((1 1, 2 1, 2 3, 1 3, 1 1))");
         assertFunction("ST_AsText(ST_Envelope(ST_GeometryFromText('LINESTRING (8 4, 5 7)')))", VARCHAR, "POLYGON ((5 4, 8 4, 8 7, 5 7, 5 4))");
         assertFunction("ST_AsText(ST_Envelope(ST_GeometryFromText('MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))')))", VARCHAR, "POLYGON ((1 1, 5 1, 5 4, 1 4, 1 1))");
@@ -420,6 +430,21 @@ public class TestGeoFunctions
         assertFunction("ST_AsText(ST_Intersection(ST_GeometryFromText('MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1)), ((0 0, 0 2, 2 2, 2 0)))'), ST_GeometryFromText('POLYGON ((0 1, 3 1, 3 3, 0 3))')))", VARCHAR, "GEOMETRYCOLLECTION (LINESTRING (1 1, 2 1), MULTIPOLYGON (((0 1, 1 1, 1 2, 0 2, 0 1)), ((2 1, 3 1, 3 3, 1 3, 1 2, 2 2, 2 1))))");
         assertFunction("ST_AsText(ST_Intersection(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_GeometryFromText('LINESTRING (2 0, 2 3)')))", VARCHAR, "LINESTRING (2 1, 2 3)");
         assertFunction("ST_AsText(ST_Intersection(ST_GeometryFromText('POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))'), ST_GeometryFromText('LINESTRING (0 0, 1 -1, 1 2)')))", VARCHAR, "GEOMETRYCOLLECTION (POINT (0 0), LINESTRING (1 0, 1 1))");
+
+        // test intersection of envelopes
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((-1 4, 1 4, 1 6, -1 6, -1 4))", "POLYGON ((0 4, 1 4, 1 5, 0 5, 0 4))");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((1 4, 2 4, 2 6, 1 6, 1 4))", "POLYGON ((1 4, 2 4, 2 5, 1 5, 1 4))");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((4 4, 6 4, 6 6, 4 6, 4 4))", "POLYGON ((4 4, 5 4, 5 5, 4 5, 4 4))");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((10 10, 11 10, 11 11, 10 11, 10 10))", "POLYGON EMPTY");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((-1 -1, 0 -1, 0 1, -1 1, -1 -1))", "LINESTRING (0 0, 0 1)");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((1 -1, 2 -1, 2 0, 1 0, 1 -1))", "LINESTRING (1 0, 2 0)");
+        assertEnvelopeIntersection("POLYGON ((0 0, 5 0, 5 5, 0 5, 0 0))", "POLYGON ((-1 -1, 0 -1, 0 0, -1 0, -1 -1))", "POINT (0 0)");
+    }
+
+    private void assertEnvelopeIntersection(String envelope, String otherEnvelope, String intersection)
+    {
+        assertFunction("ST_AsText(ST_Intersection(ST_Envelope(ST_GeometryFromText('" + envelope + "')), ST_Envelope(ST_GeometryFromText('" + otherEnvelope + "'))))", VARCHAR, intersection);
     }
 
     @Test
@@ -431,20 +456,6 @@ public class TestGeoFunctions
         assertFunction("ST_AsText(ST_SymDifference(ST_GeometryFromText('MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))'), ST_GeometryFromText('MULTILINESTRING ((3 4, 6 4), (5 0, 5 4))')))", VARCHAR, "MULTILINESTRING ((5 0, 5 1), (1 1, 5 1), (5 1, 5 4), (2 4, 3 4), (4 4, 5 4), (5 4, 6 4))");
         assertFunction("ST_AsText(ST_SymDifference(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_GeometryFromText('POLYGON ((2 2, 2 5, 5 5, 5 2))')))", VARCHAR, "MULTIPOLYGON (((1 1, 4 1, 4 2, 2 2, 2 4, 1 4, 1 1)), ((4 2, 5 2, 5 5, 2 5, 2 4, 4 4, 4 2)))");
         assertFunction("ST_AsText(ST_SymDifference(ST_GeometryFromText('MULTIPOLYGON (((0 0 , 0 2, 2 2, 2 0)), ((2 2, 2 4, 4 4, 4 2)))'), ST_GeometryFromText('POLYGON ((0 0, 0 3, 3 3, 3 0))')))", VARCHAR, "MULTIPOLYGON (((2 0, 3 0, 3 2, 2 2, 2 0)), ((0 2, 2 2, 2 3, 0 3, 0 2)), ((3 2, 4 2, 4 4, 2 4, 2 3, 3 3, 3 2)))");
-    }
-
-    @Test
-    public void testDeserializeEnvelope()
-    {
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("POINT (1 2)"))), new Envelope(1, 2, 1, 2));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("MULTIPOINT (20 20, 25 25)"))), new Envelope(20, 20, 25, 25));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("LINESTRING (20 20, 30 30)"))), new Envelope(20, 20, 30, 30));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))"))), new Envelope(1, 1, 5, 4));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("POLYGON ((0 0, 0 4, 4 0))"))), new Envelope(0, 0, 4, 4));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("MULTIPOLYGON (((0 0 , 0 2, 2 2, 2 0)), ((2 2, 2 4, 4 4, 4 2)))"))), new Envelope(0, 0, 4, 4));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("GEOMETRYCOLLECTION (POINT (3 7), LINESTRING (4 6, 7 10))"))), new Envelope(3, 6, 7, 10));
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("POLYGON EMPTY"))), null);
-        assertEquals(deserializeEnvelope(stGeometryFromText(Slices.utf8Slice("POINT EMPTY"))), null);
     }
 
     @Test
@@ -475,6 +486,9 @@ public class TestGeoFunctions
         assertFunction("ST_Crosses(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_GeometryFromText('POLYGON ((2 2, 2 5, 5 5, 5 2))'))", BOOLEAN, false);
         assertFunction("ST_Crosses(ST_GeometryFromText('MULTIPOLYGON (((0 0 , 0 2, 2 2, 2 0)), ((2 2, 2 4, 4 4, 4 2)))'), ST_GeometryFromText('POLYGON ((2 2, 2 3, 3 3, 3 2))'))", BOOLEAN, false);
         assertFunction("ST_Crosses(ST_GeometryFromText('LINESTRING (-2 -2, 6 6)'), ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'))", BOOLEAN, true);
+        assertFunction("ST_Crosses(ST_GeometryFromText('POINT (20 20)'), ST_GeometryFromText('POINT (20 20)'))", BOOLEAN, false);
+        assertFunction("ST_Crosses(ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'), ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'))", BOOLEAN, false);
+        assertFunction("ST_Crosses(ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'), ST_GeometryFromText('LINESTRING (0 0, 0 4, 4 4, 4 0)'))", BOOLEAN, false);
     }
 
     @Test
@@ -483,6 +497,8 @@ public class TestGeoFunctions
         assertFunction("ST_Disjoint(ST_GeometryFromText('POINT (50 100)'), ST_GeometryFromText('POINT (150 150)'))", BOOLEAN, true);
         assertFunction("ST_Disjoint(ST_GeometryFromText('MULTIPOINT (50 100, 50 200)'), ST_GeometryFromText('POINT (50 100)'))", BOOLEAN, false);
         assertFunction("ST_Disjoint(ST_GeometryFromText('LINESTRING (0 0, 0 1)'), ST_GeometryFromText('LINESTRING (1 1, 1 0)'))", BOOLEAN, true);
+        assertFunction("ST_Disjoint(ST_GeometryFromText('LINESTRING (2 1, 1 2)'), ST_GeometryFromText('LINESTRING (3 1, 1 3)'))", BOOLEAN, true);
+        assertFunction("ST_Disjoint(ST_GeometryFromText('LINESTRING (1 1, 3 3)'), ST_GeometryFromText('LINESTRING (3 1, 1 3)'))", BOOLEAN, false);
         assertFunction("ST_Disjoint(ST_GeometryFromText('LINESTRING (50 100, 50 200)'), ST_GeometryFromText('LINESTRING (20 150, 100 150)'))", BOOLEAN, false);
         assertFunction("ST_Disjoint(ST_GeometryFromText('MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))'), ST_GeometryFromText('MULTILINESTRING ((3 4, 6 4), (5 0, 5 4))'))", BOOLEAN, false);
         assertFunction("ST_Disjoint(ST_GeometryFromText('POLYGON ((1 1, 1 3, 3 3, 3 1))'), ST_GeometryFromText('POLYGON ((4 4, 4 5, 5 5, 5 4))'))", BOOLEAN, true);
@@ -520,10 +536,13 @@ public class TestGeoFunctions
     public void testSTOverlaps()
     {
         assertFunction("ST_Overlaps(ST_GeometryFromText('POINT (50 100)'), ST_GeometryFromText('POINT (150 150)'))", BOOLEAN, false);
+        assertFunction("ST_Overlaps(ST_GeometryFromText('POINT (50 100)'), ST_GeometryFromText('POINT (50 100)'))", BOOLEAN, false);
         assertFunction("ST_Overlaps(ST_GeometryFromText('MULTIPOINT (50 100, 50 200)'), ST_GeometryFromText('POINT (50 100)'))", BOOLEAN, false);
         assertFunction("ST_Overlaps(ST_GeometryFromText('LINESTRING (0 0, 0 1)'), ST_GeometryFromText('LINESTRING (1 1, 1 0)'))", BOOLEAN, false);
         assertFunction("ST_Overlaps(ST_GeometryFromText('MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))'), ST_GeometryFromText('MULTILINESTRING ((3 4, 6 4), (5 0, 5 4))'))", BOOLEAN, true);
         assertFunction("ST_Overlaps(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_GeometryFromText('POLYGON ((3 3, 3 5, 5 5, 5 3))'))", BOOLEAN, true);
+        assertFunction("ST_Overlaps(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'))", BOOLEAN, false);
+        assertFunction("ST_Overlaps(ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'), ST_GeometryFromText('LINESTRING (1 1, 4 4)'))", BOOLEAN, false);
         assertFunction("ST_Overlaps(ST_GeometryFromText('POLYGON ((1 1, 1 3, 3 3, 3 1))'), ST_GeometryFromText('POLYGON ((4 4, 4 5, 5 5, 5 4))'))", BOOLEAN, false);
         assertFunction("ST_Overlaps(ST_GeometryFromText('MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1)), ((0 0, 0 2, 2 2, 2 0)))'), ST_GeometryFromText('POLYGON ((0 1, 3 1, 3 3, 0 3))'))", BOOLEAN, true);
     }
@@ -560,7 +579,8 @@ public class TestGeoFunctions
         assertFunction("ST_Within(ST_GeometryFromText('POINT (3 2)'), ST_GeometryFromText('POLYGON ((1 1, 1 4, 4 4, 4 1))'))", BOOLEAN, true);
         assertFunction("ST_Within(ST_GeometryFromText('POLYGON ((1 1, 1 3, 3 3, 3 1))'), ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'))", BOOLEAN, true);
         assertFunction("ST_Within(ST_GeometryFromText('LINESTRING (1 1, 3 3)'), ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'))", BOOLEAN, true);
-        assertFunction("ST_Touches(ST_GeometryFromText('MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1)), ((0 0, 0 2, 2 2, 2 0)))'), ST_GeometryFromText('POLYGON ((0 1, 3 1, 3 3, 0 3))'))", BOOLEAN, false);
+        assertFunction("ST_Within(ST_GeometryFromText('MULTIPOLYGON (((1 1, 1 3, 3 3, 3 1)), ((0 0, 0 2, 2 2, 2 0)))'), ST_GeometryFromText('POLYGON ((0 1, 3 1, 3 3, 0 3))'))", BOOLEAN, false);
+        assertFunction("ST_Within(ST_GeometryFromText('POLYGON ((1 1, 1 5, 5 5, 5 1))'), ST_GeometryFromText('POLYGON ((0 0, 0 4, 4 4, 4 0))'))", BOOLEAN, false);
     }
 
     @Test

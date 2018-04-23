@@ -15,7 +15,6 @@ package com.facebook.presto.type;
 
 import com.facebook.presto.operator.scalar.AbstractTestFunctions;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.function.LiteralParameters;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
@@ -37,7 +36,6 @@ import org.testng.annotations.Test;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.spi.function.OperatorType.HASH_CODE;
@@ -417,7 +415,9 @@ public class TestMapOperators
                         "\"row4\": {\"k2\": null, \"k1\": 3}, " +
                         "\"row5\": null}' " +
                         "AS MAP<VARCHAR, ROW(k1 BIGINT, k2 VARCHAR)>)",
-                mapType(VARCHAR, new RowType(ImmutableList.of(BIGINT, VARCHAR), Optional.of(ImmutableList.of("k1", "k2")))),
+                mapType(VARCHAR, RowType.from(ImmutableList.of(
+                        RowType.field("k1", BIGINT),
+                        RowType.field("k2", VARCHAR)))),
                 asMap(
                         ImmutableList.of("row1", "row2", "row3", "row4", "row5"),
                         asList(
@@ -792,6 +792,8 @@ public class TestMapOperators
         assertFunction("CAST(MAP(ARRAY[1,2], ARRAY[TIMESTAMP '2016-01-02 01:02:03', TIMESTAMP '2016-02-03 03:04:05']) AS MAP(bigint, varchar))", mapType(BIGINT, VARCHAR), ImmutableMap.of(1L, "2016-01-02 01:02:03.000", 2L, "2016-02-03 03:04:05.000"));
         assertFunction("CAST(MAP(ARRAY['123', '456'], ARRAY[1.23456E0, 2.34567E0]) AS MAP(integer, real))", mapType(INTEGER, REAL), ImmutableMap.of(123, 1.23456F, 456, 2.34567F));
         assertFunction("CAST(MAP(ARRAY['123', '456'], ARRAY[1.23456E0, 2.34567E0]) AS MAP(smallint, decimal(6,5)))", mapType(SMALLINT, createDecimalType(6, 5)), ImmutableMap.of((short) 123, SqlDecimal.of("1.23456"), (short) 456, SqlDecimal.of("2.34567")));
+        assertFunction("CAST(MAP(ARRAY[json '1'], ARRAY[1]) AS MAP(bigint, bigint))", mapType(BIGINT, BIGINT), ImmutableMap.of(1L, 1L));
+        assertFunction("CAST(MAP(ARRAY['1'], ARRAY[json '1']) AS MAP(bigint, bigint))", mapType(BIGINT, BIGINT), ImmutableMap.of(1L, 1L));
 
         // null values
         Map<Long, Double> expected = new HashMap<>();
@@ -802,6 +804,7 @@ public class TestMapOperators
         assertFunction("CAST(MAP(ARRAY[0, 1, 2, 3], ARRAY[1,NULL, NULL, 2]) AS MAP<BIGINT, DOUBLE>)", mapType(BIGINT, DOUBLE), expected);
 
         assertInvalidCast("CAST(MAP(ARRAY[1, 2], ARRAY[6, 9]) AS MAP<boolean, bigint>)", "duplicate keys");
+        assertInvalidCast("CAST(MAP(ARRAY[json 'null'], ARRAY[1]) AS MAP<bigint, bigint>)", "map key is null");
     }
 
     @Test
@@ -913,7 +916,7 @@ public class TestMapOperators
     {
         checkArgument(elements.size() % 2 == 0, "the size of elements should be even number");
         MapType mapType = mapType(keyType, valueType);
-        BlockBuilder mapArrayBuilder = mapType.createBlockBuilder(new BlockBuilderStatus(), 1);
+        BlockBuilder mapArrayBuilder = mapType.createBlockBuilder(null, 1);
         BlockBuilder singleMapWriter = mapArrayBuilder.beginBlockEntry();
         for (int i = 0; i < elements.size(); i += 2) {
             appendToBlockBuilder(keyType, elements.get(i), singleMapWriter);
@@ -932,6 +935,6 @@ public class TestMapOperators
 
     private static Type entryType(Type keyType, Type valueType)
     {
-        return new ArrayType(new RowType(ImmutableList.of(keyType, valueType), Optional.empty()));
+        return new ArrayType(RowType.anonymous(ImmutableList.of(keyType, valueType)));
     }
 }

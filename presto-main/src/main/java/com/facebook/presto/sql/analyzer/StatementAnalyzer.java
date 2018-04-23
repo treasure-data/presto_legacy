@@ -452,12 +452,7 @@ class StatementAnalyzer
             QualifiedObjectName viewName = createQualifiedObjectName(session, node, node.getName());
 
             // analyze the query that creates the view
-            StatementAnalyzer analyzer = new StatementAnalyzer(
-                    analysis,
-                    metadata,
-                    sqlParser,
-                    new ViewAccessControl(accessControl),
-                    session);
+            StatementAnalyzer analyzer = new StatementAnalyzer(analysis, metadata, sqlParser, accessControl, session);
 
             Scope queryScope = analyzer.analyze(node.getQuery(), scope);
 
@@ -1944,7 +1939,7 @@ class StatementAnalyzer
                 // run view as view owner if set; otherwise, run as session user
                 Identity identity;
                 AccessControl viewAccessControl;
-                if (owner.isPresent()) {
+                if (owner.isPresent() && !owner.get().equals(session.getIdentity().getUser())) {
                     identity = new Identity(owner.get(), Optional.empty());
                     viewAccessControl = new ViewAccessControl(accessControl);
                 }

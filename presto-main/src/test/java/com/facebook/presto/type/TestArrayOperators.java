@@ -18,7 +18,6 @@ import com.facebook.presto.spi.ErrorCode;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.function.LiteralParameters;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
@@ -47,7 +46,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
@@ -119,11 +117,9 @@ public class TestArrayOperators
         writeBlock(actualSliceOutput, actualBlock);
 
         Block expectedBlock = new ArrayType(BIGINT)
-                .createBlockBuilder(new BlockBuilderStatus(), 3)
-                .writeObject(BIGINT.createBlockBuilder(new BlockBuilderStatus(), 2).writeLong(1).closeEntry().writeLong(2).closeEntry().build())
-                .closeEntry()
-                .writeObject(BIGINT.createBlockBuilder(new BlockBuilderStatus(), 1).writeLong(3).closeEntry().build())
-                .closeEntry()
+                .createBlockBuilder(null, 3)
+                .appendStructure(BIGINT.createBlockBuilder(null, 2).writeLong(1).closeEntry().writeLong(2).closeEntry().build())
+                .appendStructure(BIGINT.createBlockBuilder(null, 1).writeLong(3).closeEntry().build())
                 .build();
         DynamicSliceOutput expectedSliceOutput = new DynamicSliceOutput(100);
         writeBlock(expectedSliceOutput, expectedBlock);
@@ -316,7 +312,9 @@ public class TestArrayOperators
                         "{\"k2\": null, \"k1\": 3}, " +
                         "null]' " +
                         "AS ARRAY<ROW(k1 BIGINT, k2 VARCHAR)>)",
-                new ArrayType(new RowType(ImmutableList.of(BIGINT, VARCHAR), Optional.of(ImmutableList.of("k1", "k2")))),
+                new ArrayType(RowType.from(ImmutableList.of(
+                        RowType.field("k1", BIGINT),
+                        RowType.field("k2", VARCHAR)))),
                 asList(
                         asList(1L, "two"),
                         asList(3L, null),
@@ -789,12 +787,121 @@ public class TestArrayOperators
                 new ArrayType(new ArrayType(INTEGER)),
                 ImmutableList.of(ImmutableList.of(1), ImmutableList.of(2)));
 
+        // with lambda function
+        assertFunction(
+                "ARRAY_SORT(ARRAY[2, 3, 2, null, null, 4, 1], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN x < y THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(INTEGER),
+                asList(null, null, 4, 3, 2, 2, 1));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[2, 3, 2, null, null, 4, 1], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN 1 " +
+                        "WHEN y IS NULL THEN -1 " +
+                        "WHEN x < y THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(INTEGER),
+                asList(4, 3, 2, 2, 1, null, null));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[2, null, BIGINT '3', 4, null, 1], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN x < y THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(BIGINT),
+                asList(null, null, 4L, 3L, 2L, 1L));
+        assertFunction(
+                "ARRAY_SORT(ARRAY['bc', null, 'ab', 'dc', null], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN x < y THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(createVarcharType(2)),
+                asList(null, null, "dc", "bc", "ab"));
+        assertFunction(
+                "ARRAY_SORT(ARRAY['a', null, 'abcd', null, 'abc', 'zx'], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN length(x) < length(y) THEN 1 " +
+                        "WHEN length(x) = length(y) THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(createVarcharType(4)),
+                asList(null, null, "abcd", "abc", "zx", "a"));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[TRUE, null, FALSE, TRUE, null, FALSE, TRUE], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "WHEN x THEN -1 " +
+                        "ELSE 1 END)",
+                new ArrayType(BOOLEAN),
+                asList(null, null, true, true, true, false, false));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[22.1E0, null, null, 11.1E0, 1.1E0, 44.1E0], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN x < y THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(DOUBLE),
+                asList(null, null, 44.1, 22.1, 11.1, 1.1));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[from_unixtime(100), null, from_unixtime(1), null, from_unixtime(200)], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN date_diff('millisecond', y, x) < 0 THEN 1 " +
+                        "WHEN date_diff('millisecond', y, x) = 0 THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(TIMESTAMP),
+                asList(null, null, sqlTimestamp(200 * 1000), sqlTimestamp(100 * 1000), sqlTimestamp(1000)));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[ARRAY[2, 3, 1], null, ARRAY[4, null, 2, 1, 4], ARRAY[1, 2], null], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN cardinality(x) < cardinality(y) THEN 1 " +
+                        "WHEN cardinality(x) = cardinality(y) THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(new ArrayType(INTEGER)),
+                asList(null, null, asList(4, null, 2, 1, 4), asList(2, 3, 1), asList(1, 2)));
+        assertFunction(
+                "ARRAY_SORT(ARRAY[2.3, null, 2.1, null, 2.2], (x, y) -> CASE " +
+                        "WHEN x IS NULL THEN -1 " +
+                        "WHEN y IS NULL THEN 1 " +
+                        "WHEN x < y THEN 1 " +
+                        "WHEN x = y THEN 0 " +
+                        "ELSE -1 END)",
+                new ArrayType(createDecimalType(2, 1)),
+                asList(null, null, decimal("2.3"), decimal("2.2"), decimal("2.1")));
+
         // with null in the array, should be in nulls-last order
         List<Integer> expected = asList(-1, 0, 1, null, null);
         assertFunction("ARRAY_SORT(ARRAY[1, null, 0, null, -1])", new ArrayType(INTEGER), expected);
         assertFunction("ARRAY_SORT(ARRAY[1, null, null, -1, 0])", new ArrayType(INTEGER), expected);
 
+        // invalid functions
         assertInvalidFunction("ARRAY_SORT(ARRAY[color('red'), color('blue')])", FUNCTION_NOT_FOUND);
+        assertInvalidFunction(
+                "ARRAY_SORT(ARRAY[2, 1, 2, 4], (x, y) -> y - x)",
+                INVALID_FUNCTION_ARGUMENT,
+                "Lambda comparator must return either -1, 0, or 1");
+        assertInvalidFunction(
+                "ARRAY_SORT(ARRAY[1, 2], (x, y) -> x / COALESCE(y, 0))",
+                INVALID_FUNCTION_ARGUMENT,
+                "Lambda comparator must return either -1, 0, or 1");
+        assertInvalidFunction(
+                "ARRAY_SORT(ARRAY[2, 3, 2, 4, 1], (x, y) -> IF(x > y, NULL, IF(x = y, 0, -1)))",
+                INVALID_FUNCTION_ARGUMENT,
+                "Lambda comparator must return either -1, 0, or 1");
+        assertInvalidFunction(
+                "ARRAY_SORT(ARRAY[1, null], (x, y) -> x / COALESCE(y, 0))",
+                INVALID_FUNCTION_ARGUMENT,
+                "Lambda comparator must return either -1, 0, or 1");
 
         assertCachedInstanceHasBoundedRetainedSize("ARRAY_SORT(ARRAY[2, 3, 4, 1])");
     }
@@ -1553,8 +1660,8 @@ public class TestArrayOperators
     private void assertArrayHashOperator(String inputArray, Type elementType, List<Object> elements)
     {
         ArrayType arrayType = new ArrayType(elementType);
-        BlockBuilder arrayArrayBuilder = arrayType.createBlockBuilder(new BlockBuilderStatus(), 1);
-        BlockBuilder arrayBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), elements.size());
+        BlockBuilder arrayArrayBuilder = arrayType.createBlockBuilder(null, 1);
+        BlockBuilder arrayBuilder = elementType.createBlockBuilder(null, elements.size());
         for (Object element : elements) {
             appendToBlockBuilder(elementType, element, arrayBuilder);
         }

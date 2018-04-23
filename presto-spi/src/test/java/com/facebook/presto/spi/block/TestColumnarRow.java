@@ -112,22 +112,22 @@ public class TestColumnarRow
 
     public static BlockBuilder createBlockBuilderWithValues(Slice[][] expectedValues)
     {
-        BlockBuilder blockBuilder = createBlockBuilder(new BlockBuilderStatus(), 100, 100);
+        BlockBuilder blockBuilder = createBlockBuilder(null, 100, 100);
         for (Slice[] expectedValue : expectedValues) {
             if (expectedValue == null) {
                 blockBuilder.appendNull();
             }
             else {
-                BlockBuilder elementBlockBuilder = VARCHAR.createBlockBuilder(new BlockBuilderStatus(), expectedValue.length);
+                BlockBuilder entryBuilder = blockBuilder.beginBlockEntry();
                 for (Slice v : expectedValue) {
                     if (v == null) {
-                        elementBlockBuilder.appendNull();
+                        entryBuilder.appendNull();
                     }
                     else {
-                        VARCHAR.writeSlice(elementBlockBuilder, v);
+                        VARCHAR.writeSlice(entryBuilder, v);
                     }
                 }
-                blockBuilder.writeObject(elementBlockBuilder.build()).closeEntry();
+                blockBuilder.closeEntry();
             }
         }
         return blockBuilder;

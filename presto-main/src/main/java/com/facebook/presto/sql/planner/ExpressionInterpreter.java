@@ -23,15 +23,13 @@ import com.facebook.presto.operator.scalar.ScalarFunctionImplementation;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.block.BlockBuilderStatus;
 import com.facebook.presto.spi.block.RowBlockBuilder;
 import com.facebook.presto.spi.function.OperatorType;
 import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.RowType;
-import com.facebook.presto.spi.type.RowType.RowField;
+import com.facebook.presto.spi.type.RowType.Field;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
@@ -55,8 +53,6 @@ import com.facebook.presto.sql.tree.DefaultTraversalVisitor;
 import com.facebook.presto.sql.tree.DereferenceExpression;
 import com.facebook.presto.sql.tree.ExistsPredicate;
 import com.facebook.presto.sql.tree.Expression;
-import com.facebook.presto.sql.tree.ExpressionRewriter;
-import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
 import com.facebook.presto.sql.tree.FieldReference;
 import com.facebook.presto.sql.tree.FunctionCall;
 import com.facebook.presto.sql.tree.Identifier;
@@ -106,10 +102,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.facebook.presto.SystemSessionProperties.isLegacyRowFieldOrdinalAccessEnabled;
 import static com.facebook.presto.operator.scalar.ScalarFunctionImplementation.NullConvention.RETURN_NULL_ON_NULL;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
@@ -124,6 +122,7 @@ import static com.facebook.presto.sql.planner.LiteralInterpreter.toExpressions;
 import static com.facebook.presto.sql.planner.iterative.rule.CanonicalizeExpressionRewriter.canonicalizeExpression;
 import static com.facebook.presto.type.LikeFunctions.isLikePattern;
 import static com.facebook.presto.type.LikeFunctions.unescapeLiteralLikePattern;
+import static com.facebook.presto.util.LegacyRowFieldOrdinalAccessUtil.parseAnonymousRowFieldOrdinalAccess;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Predicates.instanceOf;
@@ -140,6 +139,7 @@ public class ExpressionInterpreter
     private final boolean optimize;
     private final Map<NodeRef<Expression>, Type> expressionTypes;
     private final FunctionInvoker functionInvoker;
+    private final boolean legacyRowFieldOrdinalAccess;
 
     private final Visitor visitor;
 
@@ -181,13 +181,15 @@ public class ExpressionInterpreter
                 .putAll(analyzer.getExpressionCoercions())
                 .put(NodeRef.of(expression), expectedType)
                 .build();
-        return evaluateConstantExpression(expression, coercions, metadata, session, ImmutableSet.of(), parameters);
+        return evaluateConstantExpression(expression, coercions, analyzer.getTypeOnlyCoercions(), metadata, session, ImmutableSet.of(), parameters);
     }
 
-    public static Object evaluateConstantExpression(
+    private static Object evaluateConstantExpression(
             Expression expression,
             Map<NodeRef<Expression>, Type> coercions,
-            Metadata metadata, Session session,
+            Set<NodeRef<Expression>> typeOnlyCoercions,
+            Metadata metadata,
+            Session session,
             Set<NodeRef<Expression>> columnReferences,
             List<Expression> parameters)
     {
@@ -196,23 +198,7 @@ public class ExpressionInterpreter
         verifyExpressionIsConstant(columnReferences, expression);
 
         // add coercions
-        Expression rewrite = ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
-        {
-            @Override
-            public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
-
-                // cast expression if coercion is registered
-                Type coerceToType = coercions.get(NodeRef.of(node));
-
-                if (coerceToType != null) {
-                    rewrittenExpression = new Cast(rewrittenExpression, coerceToType.getTypeSignature().toString());
-                }
-
-                return rewrittenExpression;
-            }
-        }, expression);
+        Expression rewrite = Coercer.addCoercions(expression, coercions, typeOnlyCoercions);
 
         // redo the analysis since above expression rewriter might create new expressions which do not have entries in the type map
         ExpressionAnalyzer analyzer = createConstantAnalyzer(metadata, session, parameters);
@@ -250,6 +236,7 @@ public class ExpressionInterpreter
         verify((expressionTypes.containsKey(NodeRef.of(expression))));
         this.optimize = optimize;
         this.functionInvoker = new FunctionInvoker(metadata.getFunctionRegistry());
+        this.legacyRowFieldOrdinalAccess = isLegacyRowFieldOrdinalAccessEnabled(session);
 
         this.visitor = new Visitor();
     }
@@ -352,33 +339,7 @@ public class ExpressionInterpreter
                     throw new UnsupportedOperationException("not yet implemented");
                 }
             }
-            else if (context instanceof RecordCursor) {
-                RecordCursor cursor = (RecordCursor) context;
-                if (cursor.isNull(channel)) {
-                    return null;
-                }
-
-                Class<?> javaType = type.getJavaType();
-                if (javaType == boolean.class) {
-                    return cursor.getBoolean(channel);
-                }
-                else if (javaType == long.class) {
-                    return cursor.getLong(channel);
-                }
-                else if (javaType == double.class) {
-                    return cursor.getDouble(channel);
-                }
-                else if (javaType == Slice.class) {
-                    return cursor.getSlice(channel);
-                }
-                else if (javaType == Block.class) {
-                    return cursor.getObject(channel);
-                }
-                else {
-                    throw new UnsupportedOperationException("not yet implemented");
-                }
-            }
-            throw new UnsupportedOperationException("Inputs or cursor must be set");
+            throw new UnsupportedOperationException("Inputs must be set");
         }
 
         @Override
@@ -403,15 +364,24 @@ public class ExpressionInterpreter
             RowType rowType = (RowType) type;
             Block row = (Block) base;
             Type returnType = type(node);
-            List<RowField> fields = rowType.getFields();
+            String fieldName = node.getField().getValue();
+            List<Field> fields = rowType.getFields();
             int index = -1;
             for (int i = 0; i < fields.size(); i++) {
-                RowField field = fields.get(i);
-                if (field.getName().isPresent() && field.getName().get().equalsIgnoreCase(node.getField().getValue())) {
+                Field field = fields.get(i);
+                if (field.getName().isPresent() && field.getName().get().equalsIgnoreCase(fieldName)) {
                     checkArgument(index < 0, "Ambiguous field %s in type %s", field, rowType.getDisplayName());
                     index = i;
                 }
             }
+
+            if (legacyRowFieldOrdinalAccess && index < 0) {
+                OptionalInt rowIndex = parseAnonymousRowFieldOrdinalAccess(fieldName, fields);
+                if (rowIndex.isPresent()) {
+                    index = rowIndex.getAsInt();
+                }
+            }
+
             checkState(index >= 0, "could not find field name: %s", node.getField());
             if (row.isNull(index)) {
                 return null;
@@ -901,11 +871,16 @@ public class ExpressionInterpreter
         protected Object visitLogicalBinaryExpression(LogicalBinaryExpression node, Object context)
         {
             Object left = process(node.getLeft(), context);
-            Object right = process(node.getRight(), context);
+            Object right;
 
             switch (node.getType()) {
                 case AND: {
-                    // if either left or right is false, result is always false regardless of nulls
+                    if (Boolean.FALSE.equals(left)) {
+                        return false;
+                    }
+
+                    right = process(node.getRight(), context);
+
                     if (Boolean.FALSE.equals(left) || Boolean.TRUE.equals(right)) {
                         return left;
                     }
@@ -916,7 +891,12 @@ public class ExpressionInterpreter
                     break;
                 }
                 case OR: {
-                    // if either left or right is true, result is always true regardless of nulls
+                    if (Boolean.TRUE.equals(left)) {
+                        return true;
+                    }
+
+                    right = process(node.getRight(), context);
+
                     if (Boolean.TRUE.equals(left) || Boolean.FALSE.equals(right)) {
                         return left;
                     }
@@ -926,6 +906,8 @@ public class ExpressionInterpreter
                     }
                     break;
                 }
+                default:
+                    throw new IllegalStateException("Unknown LogicalBinaryExpression#Type");
             }
 
             if (left == null && right == null) {
@@ -1165,7 +1147,7 @@ public class ExpressionInterpreter
         protected Object visitArrayConstructor(ArrayConstructor node, Object context)
         {
             Type elementType = ((ArrayType) type(node)).getElementType();
-            BlockBuilder arrayBlockBuilder = elementType.createBlockBuilder(new BlockBuilderStatus(), node.getValues().size());
+            BlockBuilder arrayBlockBuilder = elementType.createBlockBuilder(null, node.getValues().size());
 
             for (Expression expression : node.getValues()) {
                 Object value = process(expression, context);
@@ -1194,7 +1176,7 @@ public class ExpressionInterpreter
                 return new Row(toExpressions(values, parameterTypes));
             }
             else {
-                BlockBuilder blockBuilder = new RowBlockBuilder(parameterTypes, new BlockBuilderStatus(), 1);
+                BlockBuilder blockBuilder = new RowBlockBuilder(parameterTypes, null, 1);
                 BlockBuilder singleRowBlockWriter = blockBuilder.beginBlockEntry();
                 for (int i = 0; i < cardinality; ++i) {
                     writeNativeValue(parameterTypes.get(i), singleRowBlockWriter, values.get(i));

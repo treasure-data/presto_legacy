@@ -108,13 +108,13 @@ public class TestColumnarArray
 
     public static BlockBuilder createBlockBuilderWithValues(Slice[][] expectedValues)
     {
-        BlockBuilder blockBuilder = new ArrayBlockBuilder(VARCHAR, new BlockBuilderStatus(), 100, 100);
+        BlockBuilder blockBuilder = new ArrayBlockBuilder(VARCHAR, null, 100, 100);
         for (Slice[] expectedValue : expectedValues) {
             if (expectedValue == null) {
                 blockBuilder.appendNull();
             }
             else {
-                BlockBuilder elementBlockBuilder = VARCHAR.createBlockBuilder(new BlockBuilderStatus(), expectedValue.length);
+                BlockBuilder elementBlockBuilder = VARCHAR.createBlockBuilder(null, expectedValue.length);
                 for (Slice v : expectedValue) {
                     if (v == null) {
                         elementBlockBuilder.appendNull();
@@ -123,7 +123,7 @@ public class TestColumnarArray
                         VARCHAR.writeSlice(elementBlockBuilder, v);
                     }
                 }
-                blockBuilder.writeObject(elementBlockBuilder.build()).closeEntry();
+                blockBuilder.appendStructure(elementBlockBuilder.build());
             }
         }
         return blockBuilder;

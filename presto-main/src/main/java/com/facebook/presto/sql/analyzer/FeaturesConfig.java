@@ -59,6 +59,7 @@ public class FeaturesConfig
     private boolean distributedIndexJoinsEnabled;
     private boolean distributedJoinsEnabled = true;
     private boolean colocatedJoinsEnabled;
+    private boolean groupedExecutionForAggregationEnabled;
     private boolean spatialJoinsEnabled = true;
     private boolean fastInequalityJoins = true;
     private boolean reorderJoins = true;
@@ -74,7 +75,9 @@ public class FeaturesConfig
     private boolean legacyOrderBy;
     private boolean legacyTimestamp = true;
     private boolean legacyMapSubscript;
+    private boolean legacyRoundNBigint;
     private boolean legacyJoinUsing;
+    private boolean legacyRowFieldOrdinalAccess;
     private boolean optimizeMixedDistinctAggregations;
     private boolean forceSingleNodeOutput = true;
     private boolean pagesIndexEagerCompactionEnabled;
@@ -157,6 +160,18 @@ public class FeaturesConfig
         return distributedJoinsEnabled;
     }
 
+    @Config("deprecated.legacy-round-n-bigint")
+    public FeaturesConfig setLegacyRoundNBigint(boolean legacyRoundNBigint)
+    {
+        this.legacyRoundNBigint = legacyRoundNBigint;
+        return this;
+    }
+
+    public boolean isLegacyRoundNBigint()
+    {
+        return legacyRoundNBigint;
+    }
+
     @Config("deprecated.legacy-join-using")
     public FeaturesConfig setLegacyJoinUsing(boolean value)
     {
@@ -167,6 +182,18 @@ public class FeaturesConfig
     public boolean isLegacyJoinUsing()
     {
         return legacyJoinUsing;
+    }
+
+    @Config("deprecated.legacy-row-field-ordinal-access")
+    public FeaturesConfig setLegacyRowFieldOrdinalAccess(boolean value)
+    {
+        this.legacyRowFieldOrdinalAccess = value;
+        return this;
+    }
+
+    public boolean isLegacyRowFieldOrdinalAccess()
+    {
+        return legacyRowFieldOrdinalAccess;
     }
 
     @Config("deprecated.legacy-array-agg")
@@ -221,6 +248,19 @@ public class FeaturesConfig
     public FeaturesConfig setDistributedJoinsEnabled(boolean distributedJoinsEnabled)
     {
         this.distributedJoinsEnabled = distributedJoinsEnabled;
+        return this;
+    }
+
+    public boolean isGroupedExecutionForAggregationEnabled()
+    {
+        return groupedExecutionForAggregationEnabled;
+    }
+
+    @Config("grouped-execution-for-aggregation-enabled")
+    @ConfigDescription("Experimental: Use grouped execution for aggregation when possible")
+    public FeaturesConfig setGroupedExecutionForAggregationEnabled(boolean groupedExecutionForAggregationEnabled)
+    {
+        this.groupedExecutionForAggregationEnabled = groupedExecutionForAggregationEnabled;
         return this;
     }
 

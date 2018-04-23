@@ -297,7 +297,7 @@ public abstract class AbstractTestDistributedQueries
         assertExplainAnalyze("EXPLAIN ANALYZE VERBOSE SELECT rank() OVER (PARTITION BY orderkey ORDER BY clerk DESC) FROM orders WHERE orderkey < 0");
     }
 
-    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "EXPLAIN ANALYZE only supported for statements that are queries")
+    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "EXPLAIN ANALYZE doesn't support statement type: DropTable")
     public void testExplainAnalyzeDDL()
     {
         computeActual("EXPLAIN ANALYZE DROP TABLE orders");
@@ -880,23 +880,22 @@ public abstract class AbstractTestDistributedQueries
                 .setSchema(getSession().getSchema().get())
                 .build();
 
-        // verify creation of view over a table requires special view creation privileges for the table
-        assertAccessDenied(
-                viewOwnerSession,
-                "CREATE VIEW test_view_access AS SELECT * FROM orders",
-                "Cannot select from table .*.orders.*",
-                privilege("orders", CREATE_VIEW_WITH_SELECT_TABLE));
-
-        // create the view
+        // view creation permissions are only checked at query time, not at creation
         assertAccessAllowed(
                 viewOwnerSession,
                 "CREATE VIEW test_view_access AS SELECT * FROM orders",
-                privilege("bogus", "bogus privilege to disable security", SELECT_TABLE));
+                privilege("orders", CREATE_VIEW_WITH_SELECT_TABLE));
 
         // verify selecting from a view over a table requires the view owner to have special view creation privileges for the table
         assertAccessDenied(
                 "SELECT * FROM test_view_access",
                 "Cannot select from table .*.orders.*",
+                privilege(viewOwnerSession.getUser(), "orders", CREATE_VIEW_WITH_SELECT_TABLE));
+
+        // verify the view owner can select from the view even without special view creation privileges
+        assertAccessAllowed(
+                viewOwnerSession,
+                "SELECT * FROM test_view_access",
                 privilege(viewOwnerSession.getUser(), "orders", CREATE_VIEW_WITH_SELECT_TABLE));
 
         // verify selecting from a view over a table does not require the session user to have SELECT privileges on the underlying table
@@ -913,18 +912,11 @@ public abstract class AbstractTestDistributedQueries
                 .setSchema(getSession().getSchema().get())
                 .build();
 
-        // verify creation of view over a view requires special view creation privileges for the view
-        assertAccessDenied(
-                nestedViewOwnerSession,
-                "CREATE VIEW test_nested_view_access AS SELECT * FROM test_view_access",
-                "Cannot select from view .*.test_view_access.*",
-                privilege("test_view_access", CREATE_VIEW_WITH_SELECT_VIEW));
-
-        // create the nested view
+        // view creation permissions are only checked at query time, not at creation
         assertAccessAllowed(
                 nestedViewOwnerSession,
                 "CREATE VIEW test_nested_view_access AS SELECT * FROM test_view_access",
-                privilege("bogus", "bogus privilege to disable security", SELECT_TABLE));
+                privilege("test_view_access", CREATE_VIEW_WITH_SELECT_VIEW));
 
         // verify selecting from a view over a view requires the view owner of the outer view to have special view creation privileges for the inner view
         assertAccessDenied(
