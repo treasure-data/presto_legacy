@@ -13,36 +13,38 @@
  */
 package com.facebook.presto.geospatial;
 
+import io.airlift.slice.Slice;
+
+import static io.airlift.slice.Slices.utf8Slice;
 import static java.util.Objects.requireNonNull;
 
 public enum GeometryType
 {
-    POINT(0, false),
-    MULTI_POINT(1, true),
-    LINE_STRING(2, false),
-    MULTI_LINE_STRING(3, true),
-    POLYGON(4, false),
-    MULTI_POLYGON(5, true),
-    GEOMETRY_COLLECTION(6, true),
-    ENVELOPE(7, false);
+    POINT(false, utf8Slice("ST_Point")),
+    MULTI_POINT(true, utf8Slice("ST_MultiPoint")),
+    LINE_STRING(false, utf8Slice("ST_LineString")),
+    MULTI_LINE_STRING(true, utf8Slice("ST_MultiLineString")),
+    POLYGON(false, utf8Slice("ST_Polygon")),
+    MULTI_POLYGON(true, utf8Slice("ST_MultiPolygon")),
+    GEOMETRY_COLLECTION(true, utf8Slice("ST_GeomCollection"));
 
-    private final int code;
     private final boolean multitype;
+    private final Slice standardName;
 
-    GeometryType(int code, boolean multitype)
+    GeometryType(boolean multitype, Slice standardName)
     {
-        this.code = code;
         this.multitype = multitype;
-    }
-
-    public int code()
-    {
-        return code;
+        this.standardName = standardName;
     }
 
     public boolean isMultitype()
     {
         return multitype;
+    }
+
+    public Slice standardName()
+    {
+        return standardName;
     }
 
     public static GeometryType getForEsriGeometryType(String type)
@@ -75,30 +77,6 @@ public enum GeometryType
                 return GEOMETRY_COLLECTION;
             default:
                 throw new IllegalArgumentException("Invalid Geometry Type: " + type);
-        }
-    }
-
-    public static GeometryType getForCode(int code)
-    {
-        switch (code) {
-            case 0:
-                return POINT;
-            case 1:
-                return MULTI_POINT;
-            case 2:
-                return LINE_STRING;
-            case 3:
-                return MULTI_LINE_STRING;
-            case 4:
-                return POLYGON;
-            case 5:
-                return MULTI_POLYGON;
-            case 6:
-                return GEOMETRY_COLLECTION;
-            case 7:
-                return ENVELOPE;
-            default:
-                throw new IllegalArgumentException("Invalid type code: " + code);
         }
     }
 }

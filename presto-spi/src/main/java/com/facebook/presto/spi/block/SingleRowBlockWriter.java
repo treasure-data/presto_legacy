@@ -63,7 +63,7 @@ public class SingleRowBlockWriter
     }
 
     @Override
-    protected Block getFieldBlock(int fieldIndex)
+    protected Block getRawFieldBlock(int fieldIndex)
     {
         return fieldBlockBuilders[fieldIndex];
     }
@@ -196,7 +196,7 @@ public class SingleRowBlockWriter
     }
 
     @Override
-    public BlockEncoding getEncoding()
+    public String getEncodingName()
     {
         throw new UnsupportedOperationException();
     }

@@ -19,13 +19,16 @@ import com.esri.core.geometry.MultiVertexGeometry;
 import com.esri.core.geometry.Point;
 import com.esri.core.geometry.Polygon;
 import com.esri.core.geometry.ogc.OGCGeometry;
+import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlType;
+import com.facebook.presto.spi.type.RowType;
 import com.facebook.presto.spi.type.StandardTypes;
+import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
 
 import java.util.HashSet;
@@ -33,8 +36,8 @@ import java.util.Set;
 
 import static com.esri.core.geometry.GeometryEngine.contains;
 import static com.esri.core.geometry.GeometryEngine.disjoint;
-import static com.facebook.presto.geospatial.GeometrySerde.deserialize;
-import static com.facebook.presto.geospatial.GeometrySerde.serialize;
+import static com.facebook.presto.geospatial.serde.GeometrySerde.deserialize;
+import static com.facebook.presto.geospatial.serde.GeometrySerde.serialize;
 import static com.facebook.presto.plugin.geospatial.BingTile.MAX_ZOOM_LEVEL;
 import static com.facebook.presto.plugin.geospatial.GeometryType.GEOMETRY_TYPE_NAME;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
@@ -95,16 +98,33 @@ public class BingTileFunctions
 
     @Description("Given a Bing tile, returns XY coordinates of the tile")
     @ScalarFunction("bing_tile_coordinates")
-    @SqlType("row(x integer,y integer)")
-    public static Block bingTileCoordinates(@SqlType(BingTileType.NAME) long input)
+    public static final class BingTileCoordinatesFunction
     {
-        BingTile tile = BingTile.decode(input);
+        private static final RowType BING_TILE_COORDINATES_ROW_TYPE = RowType.anonymous(ImmutableList.of(INTEGER, INTEGER));
 
-        BlockBuilder tileBlockBuilder = INTEGER.createBlockBuilder(null, 2);
-        INTEGER.writeLong(tileBlockBuilder, tile.getX());
-        INTEGER.writeLong(tileBlockBuilder, tile.getY());
+        private final PageBuilder pageBuilder;
 
-        return tileBlockBuilder.build();
+        public BingTileCoordinatesFunction()
+        {
+            pageBuilder = new PageBuilder(ImmutableList.of(BING_TILE_COORDINATES_ROW_TYPE));
+        }
+
+        @SqlType("row(x integer,y integer)")
+        public Block bingTileCoordinates(@SqlType(BingTileType.NAME) long input)
+        {
+            if (pageBuilder.isFull()) {
+                pageBuilder.reset();
+            }
+            BlockBuilder blockBuilder = pageBuilder.getBlockBuilder(0);
+            BingTile tile = BingTile.decode(input);
+            BlockBuilder tileBlockBuilder = blockBuilder.beginBlockEntry();
+            INTEGER.writeLong(tileBlockBuilder, tile.getX());
+            INTEGER.writeLong(tileBlockBuilder, tile.getY());
+            blockBuilder.closeEntry();
+            pageBuilder.declarePosition();
+
+            return BING_TILE_COORDINATES_ROW_TYPE.getObject(blockBuilder, blockBuilder.getPositionCount() - 1);
+        }
     }
 
     @Description("Given a Bing tile, returns zoom level of the tile")
