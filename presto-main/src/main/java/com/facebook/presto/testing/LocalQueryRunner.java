@@ -167,7 +167,6 @@ import com.facebook.presto.transaction.TransactionManager;
 import com.facebook.presto.transaction.TransactionManagerConfig;
 import com.facebook.presto.type.TypeRegistry;
 import com.facebook.presto.util.FinalizerService;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -180,6 +179,7 @@ import org.weakref.jmx.MBeanExporter;
 import org.weakref.jmx.testing.TestingMBeanServer;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -251,6 +251,7 @@ public class LocalQueryRunner
     private final PageFunctionCompiler pageFunctionCompiler;
     private final ExpressionCompiler expressionCompiler;
     private final JoinFilterFunctionCompiler joinFilterFunctionCompiler;
+    private final JoinCompiler joinCompiler;
     private final ConnectorManager connectorManager;
     private final PluginManager pluginManager;
     private final ImmutableMap<Class<? extends Statement>, DataDefinitionTask<?>> dataDefinitionTask;
@@ -309,7 +310,6 @@ public class LocalQueryRunner
         this.nodeManager = new InMemoryNodeManager();
         this.typeRegistry = new TypeRegistry();
         this.pageSorter = new PagesIndexPageSorter(new PagesIndex.TestingFactory(false));
-        this.pageIndexerFactory = new GroupByHashPageIndexerFactory(new JoinCompiler());
         this.indexManager = new IndexManager();
         NodeScheduler nodeScheduler = new NodeScheduler(
                 new LegacyNetworkTopology(),
@@ -335,6 +335,8 @@ public class LocalQueryRunner
                 new SchemaPropertyManager(),
                 new TablePropertyManager(),
                 transactionManager);
+        this.joinCompiler = new JoinCompiler(metadata, featuresConfig);
+        this.pageIndexerFactory = new GroupByHashPageIndexerFactory(joinCompiler);
         this.statsCalculator = new SelectingStatsCalculator(
                 new CoefficientBasedStatsCalculator(metadata),
                 ServerMainModule.createNewStatsCalculator(metadata));
@@ -651,7 +653,7 @@ public class LocalQueryRunner
             return builder.get().build();
         }
         catch (IOException e) {
-            throw Throwables.propagate(e);
+            throw new UncheckedIOException(e);
         }
         finally {
             lock.readLock().unlock();
@@ -703,7 +705,7 @@ public class LocalQueryRunner
                 partitioningSpillerFactory,
                 blockEncodingManager,
                 new PagesIndex.TestingFactory(false),
-                new JoinCompiler(),
+                joinCompiler,
                 new LookupJoinOperators());
 
         // plan query

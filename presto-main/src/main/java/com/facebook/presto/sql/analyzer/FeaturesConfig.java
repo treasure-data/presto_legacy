@@ -74,6 +74,7 @@ public class FeaturesConfig
     private boolean legacyArrayAgg;
     private boolean legacyLogFunction;
     private boolean legacyOrderBy;
+    private boolean groupByUsesEqualTo;
     private boolean legacyTimestamp = true;
     private boolean legacyMapSubscript;
     private boolean legacyRoundNBigint;
@@ -102,6 +103,7 @@ public class FeaturesConfig
     private double memoryRevokingThreshold = 0.9;
     private boolean parseDecimalLiteralsAsDouble;
     private boolean useMarkDistinct = true;
+    private boolean preferPartialAggregation = true;
 
     private Duration iterativeOptimizerTimeout = new Duration(3, MINUTES); // by default let optimizer wait a long time in case it retrieves some data from ConnectorMetadata
 
@@ -231,6 +233,18 @@ public class FeaturesConfig
     public boolean isLegacyOrderBy()
     {
         return legacyOrderBy;
+    }
+
+    @Config("deprecated.group-by-uses-equal")
+    public FeaturesConfig setGroupByUsesEqualTo(boolean value)
+    {
+        this.groupByUsesEqualTo = value;
+        return this;
+    }
+
+    public boolean isGroupByUsesEqualTo()
+    {
+        return groupByUsesEqualTo;
     }
 
     @Config("deprecated.legacy-timestamp")
@@ -388,6 +402,18 @@ public class FeaturesConfig
     public FeaturesConfig setUseMarkDistinct(boolean value)
     {
         this.useMarkDistinct = value;
+        return this;
+    }
+
+    public boolean isPreferPartialAggregation()
+    {
+        return preferPartialAggregation;
+    }
+
+    @Config("optimizer.prefer-partial-aggregation")
+    public FeaturesConfig setPreferPartialAggregation(boolean value)
+    {
+        this.preferPartialAggregation = value;
         return this;
     }
 

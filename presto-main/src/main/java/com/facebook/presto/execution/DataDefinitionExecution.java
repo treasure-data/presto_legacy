@@ -25,7 +25,6 @@ import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
-import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -43,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static java.util.Objects.requireNonNull;
 
 public class DataDefinitionExecution<T extends Statement>
@@ -93,6 +93,12 @@ public class DataDefinitionExecution<T extends Statement>
     }
 
     @Override
+    public long getTotalMemoryReservation()
+    {
+        return 0;
+    }
+
+    @Override
     public Duration getTotalCpuTime()
     {
         return new Duration(0, TimeUnit.SECONDS);
@@ -132,9 +138,7 @@ public class DataDefinitionExecution<T extends Statement>
         }
         catch (Throwable e) {
             fail(e);
-            if (!(e instanceof RuntimeException)) {
-                throw Throwables.propagate(e);
-            }
+            throwIfInstanceOf(e, Error.class);
         }
     }
 

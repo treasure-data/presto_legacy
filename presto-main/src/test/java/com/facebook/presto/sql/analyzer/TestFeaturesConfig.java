@@ -60,6 +60,7 @@ public class TestFeaturesConfig
                 .setPushTableWriteThroughUnion(true)
                 .setDictionaryAggregation(false)
                 .setLegacyArrayAgg(false)
+                .setGroupByUsesEqualTo(false)
                 .setLegacyMapSubscript(false)
                 .setRegexLibrary(JONI)
                 .setRe2JDfaStatesLimit(Integer.MAX_VALUE)
@@ -90,6 +91,7 @@ public class TestFeaturesConfig
                 .setFilterAndProjectMinOutputPageSize(new DataSize(25, KILOBYTE))
                 .setFilterAndProjectMinOutputPageRowCount(256)
                 .setUseMarkDistinct(true)
+                .setPreferPartialAggregation(true)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.NEW)
                 .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW));
     }
@@ -106,6 +108,7 @@ public class TestFeaturesConfig
                 .put("experimental.enable-new-stats-calculator", "true")
                 .put("deprecated.legacy-array-agg", "true")
                 .put("deprecated.legacy-log-function", "true")
+                .put("deprecated.group-by-uses-equal", "true")
                 .put("deprecated.legacy-order-by", "true")
                 .put("deprecated.legacy-map-subscript", "true")
                 .put("deprecated.legacy-round-n-bigint", "true")
@@ -148,6 +151,7 @@ public class TestFeaturesConfig
                 .put("histogram.implementation", "LEGACY")
                 .put("arrayagg.implementation", "LEGACY")
                 .put("optimizer.use-mark-distinct", "false")
+                .put("optimizer.prefer-partial-aggregation", "false")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -174,6 +178,7 @@ public class TestFeaturesConfig
                 .setDictionaryAggregation(true)
                 .setPushAggregationThroughJoin(false)
                 .setLegacyArrayAgg(true)
+                .setGroupByUsesEqualTo(true)
                 .setLegacyMapSubscript(true)
                 .setRegexLibrary(RE2J)
                 .setRe2JDfaStatesLimit(42)
@@ -199,6 +204,7 @@ public class TestFeaturesConfig
                 .setFilterAndProjectMinOutputPageSize(new DataSize(1, MEGABYTE))
                 .setFilterAndProjectMinOutputPageRowCount(2048)
                 .setUseMarkDistinct(false)
+                .setPreferPartialAggregation(false)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.LEGACY)
                 .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY);
         assertFullMapping(properties, expected);

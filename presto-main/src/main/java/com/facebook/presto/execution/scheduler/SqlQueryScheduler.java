@@ -40,7 +40,6 @@ import com.facebook.presto.sql.planner.PartitioningHandle;
 import com.facebook.presto.sql.planner.StageExecutionPlan;
 import com.facebook.presto.sql.planner.plan.PlanFragmentId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -426,6 +425,13 @@ public class SqlQueryScheduler
                 .sum();
     }
 
+    public long getTotalMemoryReservation()
+    {
+        return stages.values().stream()
+                .mapToLong(SqlStageExecution::getTotalMemoryReservation)
+                .sum();
+    }
+
     public Duration getTotalCpuTime()
     {
         long millis = stages.values().stream()
@@ -514,7 +520,7 @@ public class SqlQueryScheduler
         }
         catch (Throwable t) {
             queryStateMachine.transitionToFailed(t);
-            throw Throwables.propagate(t);
+            throw t;
         }
         finally {
             RuntimeException closeError = new RuntimeException();

@@ -110,6 +110,7 @@ import com.facebook.presto.operator.scalar.Re2JRegexpReplaceLambdaFunction;
 import com.facebook.presto.operator.scalar.RepeatFunction;
 import com.facebook.presto.operator.scalar.ScalarFunctionImplementation;
 import com.facebook.presto.operator.scalar.SequenceFunction;
+import com.facebook.presto.operator.scalar.SessionFunctions;
 import com.facebook.presto.operator.scalar.SplitToMapFunction;
 import com.facebook.presto.operator.scalar.StringFunctions;
 import com.facebook.presto.operator.scalar.TryFunction;
@@ -172,7 +173,6 @@ import com.facebook.presto.type.setdigest.SetDigestFunctions;
 import com.facebook.presto.type.setdigest.SetDigestOperators;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -330,6 +330,7 @@ import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
@@ -445,6 +446,7 @@ public class FunctionRegistry
                 .aggregates(BitwiseAndAggregation.class)
                 .scalar(RepeatFunction.class)
                 .scalars(SequenceFunction.class)
+                .scalars(SessionFunctions.class)
                 .scalars(StringFunctions.class)
                 .scalars(WordStemFunction.class)
                 .scalars(SplitToMapFunction.class)
@@ -680,12 +682,10 @@ public class FunctionRegistry
 
             // lookup the type
             Type type = typeManager.getType(parseTypeSignature(typeName));
-            requireNonNull(type, format("Type %s not registered", typeName));
 
             // verify we have one parameter of the proper type
             checkArgument(parameterTypes.size() == 1, "Expected one argument to literal function, but got %s", parameterTypes);
             Type parameterType = typeManager.getType(parameterTypes.get(0).getTypeSignature());
-            requireNonNull(parameterType, format("Type %s not found", parameterTypes.get(0)));
 
             return getMagicLiteralFunctionSignature(type);
         }
@@ -881,7 +881,8 @@ public class FunctionRegistry
             return specializedWindowCache.getUnchecked(getSpecializedFunctionKey(signature));
         }
         catch (UncheckedExecutionException e) {
-            throw Throwables.propagate(e.getCause());
+            throwIfInstanceOf(e.getCause(), PrestoException.class);
+            throw e;
         }
     }
 
@@ -894,7 +895,8 @@ public class FunctionRegistry
             return specializedAggregationCache.getUnchecked(getSpecializedFunctionKey(signature));
         }
         catch (UncheckedExecutionException e) {
-            throw Throwables.propagate(e.getCause());
+            throwIfInstanceOf(e.getCause(), PrestoException.class);
+            throw e;
         }
     }
 
@@ -907,7 +909,8 @@ public class FunctionRegistry
             return specializedScalarCache.getUnchecked(getSpecializedFunctionKey(signature));
         }
         catch (UncheckedExecutionException e) {
-            throw Throwables.propagate(e.getCause());
+            throwIfInstanceOf(e.getCause(), PrestoException.class);
+            throw e;
         }
     }
 
@@ -917,7 +920,8 @@ public class FunctionRegistry
             return specializedFunctionKeyCache.getUnchecked(signature);
         }
         catch (UncheckedExecutionException e) {
-            throw Throwables.propagate(e.getCause());
+            throwIfInstanceOf(e.getCause(), PrestoException.class);
+            throw e;
         }
     }
 
@@ -972,7 +976,6 @@ public class FunctionRegistry
 
             // lookup the type
             Type type = typeManager.getType(parseTypeSignature(typeName));
-            requireNonNull(type, format("Type %s not registered", typeName));
 
             // verify we have one parameter of the proper type
             checkArgument(parameterTypes.size() == 1, "Expected one argument to literal function, but got %s", parameterTypes);

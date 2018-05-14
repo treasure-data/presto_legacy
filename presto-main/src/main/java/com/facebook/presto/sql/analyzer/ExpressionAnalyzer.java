@@ -46,6 +46,7 @@ import com.facebook.presto.sql.tree.CharLiteral;
 import com.facebook.presto.sql.tree.CoalesceExpression;
 import com.facebook.presto.sql.tree.ComparisonExpression;
 import com.facebook.presto.sql.tree.CurrentTime;
+import com.facebook.presto.sql.tree.CurrentUser;
 import com.facebook.presto.sql.tree.DecimalLiteral;
 import com.facebook.presto.sql.tree.DereferenceExpression;
 import com.facebook.presto.sql.tree.DoubleLiteral;
@@ -686,8 +687,11 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitGenericLiteral(GenericLiteral node, StackableAstVisitorContext<Context> context)
         {
-            Type type = typeManager.getType(parseTypeSignature(node.getType()));
-            if (type == null) {
+            Type type;
+            try {
+                type = typeManager.getType(parseTypeSignature(node.getType()));
+            }
+            catch (IllegalArgumentException e) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Unknown type: " + node.getType());
             }
 
@@ -881,6 +885,12 @@ public class ExpressionAnalyzer
         }
 
         @Override
+        protected Type visitCurrentUser(CurrentUser node, StackableAstVisitorContext<Context> context)
+        {
+            return setExpressionType(node, VARCHAR);
+        }
+
+        @Override
         protected Type visitParameter(Parameter node, StackableAstVisitorContext<Context> context)
         {
             if (isDescribe) {
@@ -939,8 +949,11 @@ public class ExpressionAnalyzer
         @Override
         public Type visitCast(Cast node, StackableAstVisitorContext<Context> context)
         {
-            Type type = typeManager.getType(parseTypeSignature(node.getType()));
-            if (type == null) {
+            Type type;
+            try {
+                type = typeManager.getType(parseTypeSignature(node.getType()));
+            }
+            catch (IllegalArgumentException e) {
                 throw new SemanticException(TYPE_MISMATCH, node, "Unknown type: " + node.getType());
             }
 
