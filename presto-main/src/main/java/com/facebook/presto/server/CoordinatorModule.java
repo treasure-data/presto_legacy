@@ -130,7 +130,8 @@ public class CoordinatorModule
     @Override
     protected void setup(Binder binder)
     {
-        httpServerBinder(binder).bindResource("/", "webapp").withWelcomeFile("index.html");
+        httpServerBinder(binder).bindResource("/ui", "webapp").withWelcomeFile("index.html");
+        httpServerBinder(binder).bindResource("/tableau", "webapp/tableau");
 
         // presto coordinator announcement
         discoveryBinder(binder).bindHttpAnnouncement("presto-coordinator");
@@ -141,8 +142,8 @@ public class CoordinatorModule
         jsonCodecBinder(binder).bindJsonCodec(QueryResults.class);
         jaxrsBinder(binder).bind(StatementResource.class);
 
-        // query execution visualizer
-        jaxrsBinder(binder).bind(QueryExecutionResource.class);
+        // resource for serving static content
+        jaxrsBinder(binder).bind(WebUiResource.class);
 
         // query manager
         jaxrsBinder(binder).bind(QueryResource.class);

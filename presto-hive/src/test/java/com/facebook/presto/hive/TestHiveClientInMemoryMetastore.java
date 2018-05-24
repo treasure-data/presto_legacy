@@ -14,16 +14,31 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
-import com.facebook.presto.hive.metastore.thrift.TestingHiveMetastore;
+import com.facebook.presto.hive.metastore.thrift.BridgingHiveMetastore;
+import com.facebook.presto.hive.metastore.thrift.InMemoryHiveMetastore;
 
 import java.io.File;
 
-public class TestHiveClientTestingMetastore
+public class TestHiveClientInMemoryMetastore
         extends AbstractTestHiveClientLocal
 {
     @Override
     protected ExtendedHiveMetastore createMetastore(File tempDir)
     {
-        return new TestingHiveMetastore(new File(tempDir, "metastore"));
+        File baseDir = new File(tempDir, "metastore");
+        InMemoryHiveMetastore hiveMetastore = new InMemoryHiveMetastore(baseDir);
+        return new BridgingHiveMetastore(hiveMetastore);
+    }
+
+    @Override
+    public void testMetadataDelete()
+    {
+        // InMemoryHiveMetastore ignores "removeData" flag in dropPartition
+    }
+
+    @Override
+    public void testTransactionDeleteInsert()
+    {
+        // InMemoryHiveMetastore does not check whether partition exist in createPartition and dropPartition
     }
 }

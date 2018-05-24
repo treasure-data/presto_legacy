@@ -72,6 +72,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static com.facebook.presto.SystemSessionProperties.isExchangeCompressionEnabled;
 import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.facebook.presto.util.Failures.toFailure;
+import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static io.airlift.concurrent.MoreFutures.addTimeout;
@@ -248,7 +249,7 @@ class Query
         return clearTransactionId;
     }
 
-    public synchronized ListenableFuture<QueryResults> waitForResults(OptionalLong token, UriInfo uriInfo, Duration wait)
+    public synchronized ListenableFuture<QueryResults> waitForResults(OptionalLong token, UriInfo uriInfo, String scheme, Duration wait)
     {
         // before waiting, check if this request has already been processed and cached
         if (token.isPresent()) {
@@ -266,7 +267,7 @@ class Query
                 timeoutExecutor);
 
         // when state changes, fetch the next result
-        return Futures.transform(futureStateChange, ignored -> getNextResult(token, uriInfo), resultsProcessorExecutor);
+        return Futures.transform(futureStateChange, ignored -> getNextResult(token, uriInfo, scheme), resultsProcessorExecutor);
     }
 
     private synchronized ListenableFuture<?> getFutureStateChange()
@@ -306,7 +307,7 @@ class Query
         return Optional.empty();
     }
 
-    private synchronized QueryResults getNextResult(OptionalLong token, UriInfo uriInfo)
+    private synchronized QueryResults getNextResult(OptionalLong token, UriInfo uriInfo, String scheme)
     {
         // check if the result for the token have already been created
         if (token.isPresent()) {
@@ -375,8 +376,14 @@ class Query
         // only return a next if the query is not done or there is more data to send (due to buffering)
         URI nextResultsUri = null;
         if (!queryInfo.isFinalQueryInfo() || !exchangeClient.isClosed()) {
-            nextResultsUri = createNextResultsUri(uriInfo);
+            nextResultsUri = createNextResultsUri(scheme, uriInfo);
         }
+
+        URI queryHtmlUri = uriInfo.getRequestUriBuilder()
+                .scheme(scheme)
+                .replacePath("ui/query.html")
+                .replaceQuery(queryId.toString())
+                .build();
 
         // update catalog and schema
         setCatalog = queryInfo.getSetCatalog();
@@ -397,7 +404,7 @@ class Query
         // first time through, self is null
         QueryResults queryResults = new QueryResults(
                 queryId.toString(),
-                uriInfo.getRequestUriBuilder().replaceQuery(queryId.toString()).replacePath("query.html").build(),
+                queryHtmlUri,
                 findCancelableLeafStage(queryInfo),
                 nextResultsUri,
                 columns,
@@ -461,9 +468,15 @@ class Query
         return Futures.transformAsync(queryManager.getStateChange(queryId, currentState), this::queryDoneFuture);
     }
 
-    private synchronized URI createNextResultsUri(UriInfo uriInfo)
+    private synchronized URI createNextResultsUri(String scheme, UriInfo uriInfo)
     {
-        return uriInfo.getBaseUriBuilder().replacePath("/v1/statement").path(queryId.toString()).path(String.valueOf(resultId.incrementAndGet())).replaceQuery("").build();
+        return uriInfo.getBaseUriBuilder()
+                .scheme(scheme)
+                .replacePath("/v1/statement")
+                .path(queryId.toString())
+                .path(String.valueOf(resultId.incrementAndGet()))
+                .replaceQuery("")
+                .build();
     }
 
     private static StatementStats toStatementStats(QueryInfo queryInfo)
@@ -595,7 +608,7 @@ class Query
             log.warn("Failed query %s has no error code", queryInfo.getQueryId());
         }
         return new QueryError(
-                failure.getMessage(),
+                firstNonNull(failure.getMessage(), "Internal error"),
                 null,
                 errorCode.getCode(),
                 errorCode.getName(),

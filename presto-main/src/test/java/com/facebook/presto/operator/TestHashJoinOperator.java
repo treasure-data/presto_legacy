@@ -420,7 +420,7 @@ public class TestHashJoinOperator
                 runDriverInThread(executor, buildDriver);
             }
 
-            ValuesOperatorFactory valuesOperatorFactory = new ValuesOperatorFactory(17, new PlanNodeId("values"), probePages.getTypes(), probePages.build());
+            ValuesOperatorFactory valuesOperatorFactory = new ValuesOperatorFactory(17, new PlanNodeId("values"), probePages.build());
 
             PageBuffer pageBuffer = new PageBuffer(10);
             PageBufferOperatorFactory pageBufferOperatorFactory = new PageBufferOperatorFactory(18, new PlanNodeId("pageBuffer"), pageBuffer);
@@ -459,7 +459,7 @@ public class TestHashJoinOperator
                     .row("33", 123_003L, "33", 303L)
                     .build();
 
-            assertEqualsIgnoreOrder(getProperColumns(joinOperator, probePages, actualPages).getMaterializedRows(), expected.getMaterializedRows());
+            assertEqualsIgnoreOrder(getProperColumns(joinOperator, concat(probePages.getTypes(), buildPages.getTypes()), probePages, actualPages).getMaterializedRows(), expected.getMaterializedRows());
         }
         finally {
             joinOperatorFactory.noMoreOperators();
@@ -514,9 +514,8 @@ public class TestHashJoinOperator
         return result;
     }
 
-    private static MaterializedResult getProperColumns(Operator joinOperator, RowPagesBuilder probePages, List<Page> actualPages)
+    private static MaterializedResult getProperColumns(Operator joinOperator, List<Type> types, RowPagesBuilder probePages, List<Page> actualPages)
     {
-        List<Type> types = joinOperator.getTypes();
         if (probePages.getHashChannel().isPresent()) {
             List<Integer> hashChannels = ImmutableList.of(probePages.getHashChannel().get());
             actualPages = dropChannel(actualPages, hashChannels);
@@ -1227,7 +1226,7 @@ public class TestHashJoinOperator
 
         // collect input data into the partitioned exchange
         DriverContext collectDriverContext = taskContext.addPipelineContext(0, true, true).addDriverContext();
-        ValuesOperatorFactory valuesOperatorFactory = new ValuesOperatorFactory(0, new PlanNodeId("values"), buildPages.getTypes(), buildPages.build());
+        ValuesOperatorFactory valuesOperatorFactory = new ValuesOperatorFactory(0, new PlanNodeId("values"), buildPages.build());
         LocalExchangeSinkOperatorFactory sinkOperatorFactory = new LocalExchangeSinkOperatorFactory(localExchangeFactory, 1, new PlanNodeId("sink"), localExchangeSinkFactoryId, Function.identity());
         Driver sourceDriver = Driver.createDriver(collectDriverContext,
                 valuesOperatorFactory.createOperator(collectDriverContext),
@@ -1255,7 +1254,6 @@ public class TestHashJoinOperator
         HashBuilderOperatorFactory buildOperatorFactory = new HashBuilderOperatorFactory(
                 1,
                 new PlanNodeId("build"),
-                buildPages.getTypes(),
                 lookupSourceFactoryManager,
                 rangeList(buildPages.getTypes().size()),
                 hashChannels,

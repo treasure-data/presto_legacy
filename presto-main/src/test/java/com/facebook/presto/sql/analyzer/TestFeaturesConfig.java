@@ -77,7 +77,7 @@ public class TestFeaturesConfig
                 .setLegacyOrderBy(false)
                 .setIterativeOptimizerEnabled(true)
                 .setIterativeOptimizerTimeout(new Duration(3, MINUTES))
-                .setEnableNewStatsCalculator(false)
+                .setEnableNewStatsCalculator(true)
                 .setExchangeCompressionEnabled(false)
                 .setLegacyTimestamp(true)
                 .setLegacyRoundNBigint(false)
@@ -88,12 +88,13 @@ public class TestFeaturesConfig
                 .setParseDecimalLiteralsAsDouble(false)
                 .setForceSingleNodeOutput(true)
                 .setPagesIndexEagerCompactionEnabled(false)
-                .setFilterAndProjectMinOutputPageSize(new DataSize(25, KILOBYTE))
+                .setFilterAndProjectMinOutputPageSize(new DataSize(500, KILOBYTE))
                 .setFilterAndProjectMinOutputPageRowCount(256)
                 .setUseMarkDistinct(true)
                 .setPreferPartialAggregation(true)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.NEW)
-                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW));
+                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW)
+                .setMaxGroupingSets(2048));
     }
 
     @Test
@@ -105,7 +106,7 @@ public class TestFeaturesConfig
                 .put("network-cost-weight", "0.2")
                 .put("experimental.iterative-optimizer-enabled", "false")
                 .put("experimental.iterative-optimizer-timeout", "10s")
-                .put("experimental.enable-new-stats-calculator", "true")
+                .put("experimental.enable-new-stats-calculator", "false")
                 .put("deprecated.legacy-array-agg", "true")
                 .put("deprecated.legacy-log-function", "true")
                 .put("deprecated.group-by-uses-equal", "true")
@@ -152,6 +153,7 @@ public class TestFeaturesConfig
                 .put("arrayagg.implementation", "LEGACY")
                 .put("optimizer.use-mark-distinct", "false")
                 .put("optimizer.prefer-partial-aggregation", "false")
+                .put("analyzer.max-grouping-sets", "2047")
                 .build();
 
         FeaturesConfig expected = new FeaturesConfig()
@@ -160,7 +162,7 @@ public class TestFeaturesConfig
                 .setNetworkCostWeight(0.2)
                 .setIterativeOptimizerEnabled(false)
                 .setIterativeOptimizerTimeout(new Duration(10, SECONDS))
-                .setEnableNewStatsCalculator(true)
+                .setEnableNewStatsCalculator(false)
                 .setDistributedIndexJoinsEnabled(true)
                 .setDistributedJoinsEnabled(false)
                 .setGroupedExecutionForAggregationEnabled(true)
@@ -206,7 +208,8 @@ public class TestFeaturesConfig
                 .setUseMarkDistinct(false)
                 .setPreferPartialAggregation(false)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.LEGACY)
-                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY);
+                .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY)
+                .setMaxGroupingSets(2047);
         assertFullMapping(properties, expected);
     }
 

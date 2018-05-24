@@ -13,35 +13,21 @@
  */
 package com.facebook.presto.operator;
 
-import com.facebook.presto.spi.type.Type;
-import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.util.concurrent.Futures.transformAsync;
+import static io.airlift.concurrent.MoreFutures.addSuccessCallback;
 import static java.util.Objects.requireNonNull;
 
 public final class NestedLoopJoinPagesSupplier
 {
-    private final List<Type> types;
     private final SettableFuture<NestedLoopJoinPages> pagesFuture = SettableFuture.create();
     private final AtomicInteger referenceCount = new AtomicInteger(0);
-
-    public NestedLoopJoinPagesSupplier(List<Type> types)
-    {
-        this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
-    }
-
-    public List<Type> getTypes()
-    {
-        return types;
-    }
 
     public ListenableFuture<NestedLoopJoinPages> getPagesFuture()
     {
@@ -64,20 +50,7 @@ public final class NestedLoopJoinPagesSupplier
     {
         if (referenceCount.decrementAndGet() == 0) {
             // We own the shared pageSource, so we need to free their memory
-            Futures.addCallback(pagesFuture, new FutureCallback<NestedLoopJoinPages>()
-            {
-                @Override
-                public void onSuccess(NestedLoopJoinPages result)
-                {
-                    result.freeMemory();
-                }
-
-                @Override
-                public void onFailure(Throwable t)
-                {
-                    // ignored
-                }
-            });
+            addSuccessCallback(pagesFuture, result -> result.freeMemory());
         }
     }
 }

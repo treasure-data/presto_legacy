@@ -14,14 +14,19 @@
 package com.facebook.presto.plugin.geospatial;
 
 import com.esri.core.geometry.Envelope;
+import com.esri.core.geometry.GeometryCursor;
 import com.esri.core.geometry.MultiPath;
 import com.esri.core.geometry.MultiPoint;
 import com.esri.core.geometry.MultiVertexGeometry;
+import com.esri.core.geometry.NonSimpleResult;
+import com.esri.core.geometry.NonSimpleResult.Reason;
+import com.esri.core.geometry.OperatorSimplifyOGC;
 import com.esri.core.geometry.Point;
 import com.esri.core.geometry.Polygon;
 import com.esri.core.geometry.Polyline;
 import com.esri.core.geometry.SpatialReference;
 import com.esri.core.geometry.ogc.OGCGeometry;
+import com.esri.core.geometry.ogc.OGCGeometryCollection;
 import com.esri.core.geometry.ogc.OGCLineString;
 import com.esri.core.geometry.ogc.OGCMultiPolygon;
 import com.esri.core.geometry.ogc.OGCPoint;
@@ -37,16 +42,23 @@ import com.facebook.presto.spi.function.SqlNullable;
 import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.linearref.LengthIndexedLine;
-import org.locationtech.jts.operation.valid.IsValidOp;
-import org.locationtech.jts.operation.valid.TopologyValidationError;
 
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import static com.esri.core.geometry.NonSimpleResult.Reason.Clustering;
+import static com.esri.core.geometry.NonSimpleResult.Reason.Cracking;
+import static com.esri.core.geometry.NonSimpleResult.Reason.CrossOver;
+import static com.esri.core.geometry.NonSimpleResult.Reason.DegenerateSegments;
+import static com.esri.core.geometry.NonSimpleResult.Reason.OGCDisconnectedInterior;
+import static com.esri.core.geometry.NonSimpleResult.Reason.OGCPolygonSelfTangency;
+import static com.esri.core.geometry.NonSimpleResult.Reason.OGCPolylineSelfTangency;
 import static com.esri.core.geometry.ogc.OGCGeometry.createFromEsriGeometry;
 import static com.facebook.presto.geospatial.GeometryType.LINE_STRING;
 import static com.facebook.presto.geospatial.GeometryType.MULTI_LINE_STRING;
@@ -54,6 +66,7 @@ import static com.facebook.presto.geospatial.GeometryType.MULTI_POINT;
 import static com.facebook.presto.geospatial.GeometryType.MULTI_POLYGON;
 import static com.facebook.presto.geospatial.GeometryType.POINT;
 import static com.facebook.presto.geospatial.GeometryType.POLYGON;
+import static com.facebook.presto.geospatial.GeometryUtils.getPointCount;
 import static com.facebook.presto.geospatial.serde.GeometrySerde.deserialize;
 import static com.facebook.presto.geospatial.serde.GeometrySerde.deserializeEnvelope;
 import static com.facebook.presto.geospatial.serde.GeometrySerde.deserializeType;
@@ -61,6 +74,7 @@ import static com.facebook.presto.geospatial.serde.GeometrySerde.serialize;
 import static com.facebook.presto.plugin.geospatial.GeometryType.GEOMETRY_TYPE_NAME;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static com.facebook.presto.spi.type.StandardTypes.DOUBLE;
+import static com.facebook.presto.spi.type.StandardTypes.INTEGER;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static java.lang.Math.atan2;
@@ -77,6 +91,15 @@ public final class GeoFunctions
     private static final Slice EMPTY_POLYGON = serialize(new OGCPolygon(new Polygon(), null));
     private static final Slice EMPTY_MULTIPOINT = serialize(createFromEsriGeometry(new MultiPoint(), null, true));
     private static final double EARTH_RADIUS_KM = 6371.01;
+    private static final Map<Reason, String> NON_SIMPLE_REASONS = ImmutableMap.<Reason, String>builder()
+            .put(DegenerateSegments, "Degenerate segments")
+            .put(Clustering, "Repeated points")
+            .put(Cracking, "Intersecting or overlapping segments")
+            .put(CrossOver, "Self-intersection")
+            .put(OGCPolylineSelfTangency, "Self-tangency")
+            .put(OGCPolygonSelfTangency, "Self-tangency")
+            .put(OGCDisconnectedInterior, "Disconnected interior")
+            .build();
 
     private GeoFunctions() {}
 
@@ -198,6 +221,35 @@ public final class GeoFunctions
         return serialize(createFromEsriGeometry(centroid, geometry.getEsriSpatialReference()));
     }
 
+    @Description("Returns the minimum convex geometry that encloses all input geometries")
+    @ScalarFunction("ST_ConvexHull")
+    @SqlType(GEOMETRY_TYPE_NAME)
+    public static Slice stConvexHull(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
+    {
+        OGCGeometry geometry = deserialize(input);
+        validateType("ST_ConvexHull", geometry, EnumSet.of(POINT, MULTI_POINT, LINE_STRING, MULTI_LINE_STRING, POLYGON, MULTI_POLYGON));
+        if (geometry.isEmpty()) {
+            return input;
+        }
+        if (GeometryType.getForEsriGeometryType(geometry.geometryType()) == POINT) {
+            return input;
+        }
+        OGCGeometry convexHull = geometry.convexHull();
+        if (convexHull.isEmpty()) {
+            // This happens for a single-point multi-point because of a bug in ESRI library - https://github.com/Esri/geometry-api-java/issues/172
+            return serialize(createFromEsriGeometry(((MultiVertexGeometry) geometry.getEsriGeometry()).getPoint(0), null));
+        }
+        if (GeometryType.getForEsriGeometryType(convexHull.geometryType()) == MULTI_POLYGON) {
+            MultiVertexGeometry multiVertex = (MultiVertexGeometry) convexHull.getEsriGeometry();
+            if (multiVertex.getPointCount() == 2) {
+                // This happens when all points of the input geometry are on the same line because of a bug in ESRI library - https://github.com/Esri/geometry-api-java/issues/172
+                OGCGeometry linestring = createFromEsriGeometry(new Polyline(multiVertex.getPoint(0), multiVertex.getPoint(1)), null);
+                return serialize(linestring);
+            }
+        }
+        return serialize(convexHull);
+    }
+
     @Description("Return the coordinate dimension of the Geometry")
     @ScalarFunction("ST_CoordDim")
     @SqlType(StandardTypes.TINYINT)
@@ -257,7 +309,17 @@ public final class GeoFunctions
     @SqlType(StandardTypes.BOOLEAN)
     public static boolean stIsValid(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
-        return JtsGeometrySerde.deserialize(input).isValid();
+        GeometryCursor cursor = deserialize(input).getEsriGeometryCursor();
+        while (true) {
+            com.esri.core.geometry.Geometry geometry = cursor.next();
+            if (geometry == null) {
+                return true;
+            }
+
+            if (!OperatorSimplifyOGC.local().isSimpleOGC(geometry, null, true, null, null)) {
+                return false;
+            }
+        }
     }
 
     @Description("Returns the reason for why the input geometry is not valid. Returns null if the input is valid.")
@@ -266,17 +328,36 @@ public final class GeoFunctions
     @SqlNullable
     public static Slice invalidReason(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
-        Geometry geometry = JtsGeometrySerde.deserialize(input);
-        if (geometry == null) {
-            return null;
-        }
+        GeometryCursor cursor = deserialize(input).getEsriGeometryCursor();
+        NonSimpleResult result = new NonSimpleResult();
+        while (true) {
+            com.esri.core.geometry.Geometry geometry = cursor.next();
+            if (geometry == null) {
+                return null;
+            }
 
-        TopologyValidationError error = new IsValidOp(geometry).getValidationError();
-        if (error == null) {
-            return null;
-        }
+            if (!OperatorSimplifyOGC.local().isSimpleOGC(geometry, null, true, result, null)) {
+                String reasonText = NON_SIMPLE_REASONS.getOrDefault(result.m_reason, result.m_reason.name());
 
-        return utf8Slice(error.toString());
+                if (!(geometry instanceof MultiVertexGeometry)) {
+                    return utf8Slice(reasonText);
+                }
+
+                MultiVertexGeometry multiVertexGeometry = (MultiVertexGeometry) geometry;
+                if (result.m_vertexIndex1 >= 0 && result.m_vertexIndex2 >= 0) {
+                    Point point1 = multiVertexGeometry.getPoint(result.m_vertexIndex1);
+                    Point point2 = multiVertexGeometry.getPoint(result.m_vertexIndex2);
+                    return utf8Slice(format("%s at or near (%s %s) and (%s %s)", reasonText, point1.getX(), point1.getY(), point2.getX(), point2.getY()));
+                }
+
+                if (result.m_vertexIndex1 >= 0) {
+                    Point point = multiVertexGeometry.getPoint(result.m_vertexIndex1);
+                    return utf8Slice(format("%s at or near (%s %s)", reasonText, point.getX(), point.getY()));
+                }
+
+                return utf8Slice(reasonText);
+            }
+        }
     }
 
     @Description("Returns the length of a LineString or Multi-LineString using Euclidean measurement on a 2D plane (based on spatial ref) in projected units")
@@ -312,7 +393,7 @@ public final class GeoFunctions
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, format("Second argument to line_locate_point must be a Point. Got: %s", point.getGeometryType()));
         }
 
-        return new LengthIndexedLine(line).indexOf(point.getCoordinate());
+        return new LengthIndexedLine(line).indexOf(point.getCoordinate()) / line.getLength();
     }
 
     @SqlNullable
@@ -381,19 +462,53 @@ public final class GeoFunctions
         return Long.valueOf(((OGCPolygon) geometry).numInteriorRing());
     }
 
+    @Description("Returns the cardinality of the geometry collection")
+    @ScalarFunction("ST_NumGeometries")
+    @SqlType(StandardTypes.INTEGER)
+    public static long stNumGeometries(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
+    {
+        OGCGeometry geometry = deserialize(input);
+        if (geometry.isEmpty()) {
+            return 0;
+        }
+        GeometryType type = GeometryType.getForEsriGeometryType(geometry.geometryType());
+        if (!type.isMultitype()) {
+            return 1;
+        }
+        return ((OGCGeometryCollection) geometry).numGeometries();
+    }
+
+    @SqlNullable
+    @Description("Returns the geometry element at the specified index (indices started with 1)")
+    @ScalarFunction("ST_GeometryN")
+    @SqlType(GEOMETRY_TYPE_NAME)
+    public static Slice stGeometryN(@SqlType(GEOMETRY_TYPE_NAME) Slice input, @SqlType(INTEGER) long index)
+    {
+        OGCGeometry geometry = deserialize(input);
+        if (geometry.isEmpty()) {
+            return null;
+        }
+        GeometryType type = GeometryType.getForEsriGeometryType(geometry.geometryType());
+        if (!type.isMultitype()) {
+            if (index == 1) {
+                return input;
+            }
+            return null;
+        }
+        OGCGeometryCollection geometryCollection = ((OGCGeometryCollection) geometry);
+        if (index < 1 || index > geometryCollection.numGeometries()) {
+            return null;
+        }
+        OGCGeometry ogcGeometry = geometryCollection.geometryN((int) index - 1);
+        return serialize(ogcGeometry);
+    }
+
     @Description("Returns the number of points in a Geometry")
     @ScalarFunction("ST_NumPoints")
     @SqlType(StandardTypes.BIGINT)
     public static long stNumPoints(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
-        OGCGeometry geometry = deserialize(input);
-        if (geometry.getEsriGeometry().isEmpty()) {
-            return 0;
-        }
-        else if (GeometryType.getForEsriGeometryType(geometry.geometryType()) == GeometryType.POINT) {
-            return 1;
-        }
-        return ((MultiVertexGeometry) geometry.getEsriGeometry()).getPointCount();
+        return getPointCount(deserialize(input));
     }
 
     @SqlNullable
@@ -495,7 +610,7 @@ public final class GeoFunctions
     public static Slice stBoundary(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         OGCGeometry geometry = deserialize(input);
-        if (geometry.isEmpty() && GeometryType.getForEsriGeometryType(geometry.geometryType()) == GeometryType.LINE_STRING) {
+        if (geometry.isEmpty() && GeometryType.getForEsriGeometryType(geometry.geometryType()) == LINE_STRING) {
             // OCGGeometry#boundary crashes with NPE for LINESTRING EMPTY
             return EMPTY_MULTIPOINT;
         }

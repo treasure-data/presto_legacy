@@ -105,6 +105,7 @@ import com.facebook.presto.operator.scalar.MapSubscriptOperator;
 import com.facebook.presto.operator.scalar.MapValues;
 import com.facebook.presto.operator.scalar.MathFunctions;
 import com.facebook.presto.operator.scalar.MathFunctions.LegacyLogFunction;
+import com.facebook.presto.operator.scalar.MultimapFromEntriesFunction;
 import com.facebook.presto.operator.scalar.Re2JRegexpFunctions;
 import com.facebook.presto.operator.scalar.Re2JRegexpReplaceLambdaFunction;
 import com.facebook.presto.operator.scalar.RepeatFunction;
@@ -117,6 +118,7 @@ import com.facebook.presto.operator.scalar.TryFunction;
 import com.facebook.presto.operator.scalar.TypeOfFunction;
 import com.facebook.presto.operator.scalar.UrlFunctions;
 import com.facebook.presto.operator.scalar.VarbinaryFunctions;
+import com.facebook.presto.operator.scalar.WilsonInterval;
 import com.facebook.presto.operator.scalar.WordStemFunction;
 import com.facebook.presto.operator.window.CumulativeDistributionFunction;
 import com.facebook.presto.operator.window.DenseRankFunction;
@@ -531,6 +533,7 @@ public class FunctionRegistry
                 .scalar(MapEqualOperator.class)
                 .scalar(MapEntriesFunction.class)
                 .scalar(MapFromEntriesFunction.class)
+                .scalar(MultimapFromEntriesFunction.class)
                 .scalar(MapNotEqualOperator.class)
                 .scalar(MapKeys.class)
                 .scalar(MapValues.class)
@@ -590,7 +593,8 @@ public class FunctionRegistry
                 .aggregate(MergeSetDigestAggregation.class)
                 .aggregate(BuildSetDigestAggregation.class)
                 .scalars(SetDigestFunctions.class)
-                .scalars(SetDigestOperators.class);
+                .scalars(SetDigestOperators.class)
+                .scalars(WilsonInterval.class);
 
         switch (featuresConfig.getRegexLibrary()) {
             case JONI:

@@ -97,7 +97,7 @@ public class FeaturesConfig
     private int spillerThreads = 4;
     private double spillMaxUsedSpaceThreshold = 0.9;
     private boolean iterativeOptimizerEnabled = true;
-    private boolean enableNewStatsCalculator;
+    private boolean enableNewStatsCalculator = true;
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
@@ -107,8 +107,9 @@ public class FeaturesConfig
 
     private Duration iterativeOptimizerTimeout = new Duration(3, MINUTES); // by default let optimizer wait a long time in case it retrieves some data from ConnectorMetadata
 
-    private DataSize filterAndProjectMinOutputPageSize = new DataSize(25, KILOBYTE);
+    private DataSize filterAndProjectMinOutputPageSize = new DataSize(500, KILOBYTE);
     private int filterAndProjectMinOutputPageRowCount = 256;
+    private int maxGroupingSets = 2048;
 
     public double getCpuCostWeight()
     {
@@ -756,6 +757,18 @@ public class FeaturesConfig
     public FeaturesConfig setArrayAggGroupImplementation(ArrayAggGroupImplementation groupByMode)
     {
         this.arrayAggGroupImplementation = groupByMode;
+        return this;
+    }
+
+    public int getMaxGroupingSets()
+    {
+        return maxGroupingSets;
+    }
+
+    @Config("analyzer.max-grouping-sets")
+    public FeaturesConfig setMaxGroupingSets(int maxGroupingSets)
+    {
+        this.maxGroupingSets = maxGroupingSets;
         return this;
     }
 }

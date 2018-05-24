@@ -133,6 +133,11 @@ Accessors
 
     Returns the point value that is the mathematical centroid of a geometry.
 
+.. function:: ST_ConvexHull(Geometry) -> Geometry
+
+    Returns the minimum convex geometry that encloses all input geometries.
+    This function doesn't support geometry collections.
+
 .. function:: ST_CoordDim(Geometry) -> bigint
 
     Return the coordinate dimension of the geometry.
@@ -146,6 +151,17 @@ Accessors
 
     Returns the 2-dimensional cartesian minimum distance (based on spatial ref)
     between two geometries in projected units.
+
+.. function:: ST_GeometryN(Geometry, index) -> Geometry
+
+    Returns the geometry element at a given index (indices start at 1).
+    If the geometry is a collection of geometries (e.g., GEOMETRYCOLLECTION or MULTI*),
+    returns the geometry at a given index.
+    If the given index is less than 1 or greater than the total number of elements in the collection,
+    returns ``NULL``.
+    Use :func:``ST_NumGeometries`` to find out the total number of elements.
+    Singular geometries (e.g., POINT, LINESTRING, POLYGON), are treated as collections of one element.
+    Empty geometries are treated as empty collections.
 
 .. function:: ST_GeometryType(Geometry) -> varchar
 
@@ -214,6 +230,14 @@ Accessors
 
     Return the Y coordinate of the point.
 
+.. function:: ST_NumGeometries(Geometry) -> bigint
+
+    Returns the number of geometries in the collection.
+    If the geometry is a collection of geometries (e.g., GEOMETRYCOLLECTION or MULTI*),
+    returns the number of geometries,
+    for single geometries returns 1,
+    for empty geometries returns 0.
+
 .. function:: ST_NumPoints(Geometry) -> bigint
 
     Returns the number of points in a geometry. This is an extension to the SQL/MM
@@ -228,7 +252,7 @@ Accessors
     Returns a float between 0 and 1 representing the location of the closest point on
     the LineString to the given Point, as a fraction of total 2d line length.
 
-    Returns ``null`` if a LineString or a Point is empty of ``null``.
+    Returns ``null`` if a LineString or a Point is empty or ``null``.
 
 .. function:: geometry_invalid_reason(Geometry) -> varchar
 
@@ -259,6 +283,11 @@ These functions convert between geometries and
     Returns a Bing tile at a given zoom level containing a point at a given latitude
     and longitude. Latitude must be within ``[-85.05112878, 85.05112878]`` range.
     Longitude must be within ``[-180, 180]`` range. Zoom levels from 1 to 23 are supported.
+
+.. function:: bing_tiles_around(latitude, longitude, zoom_level) -> array<BingTile>
+
+    Returns a collection of Bing tiles that surround the point specified
+    by the latitude and longitude arguments at a given zoom level.
 
 .. function:: bing_tile_coordinates(tile) -> row<x, y>
 

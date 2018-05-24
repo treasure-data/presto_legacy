@@ -63,7 +63,6 @@ import com.facebook.presto.sql.tree.ShowTables;
 import com.facebook.presto.sql.tree.SortItem;
 import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.sql.tree.StringLiteral;
-import com.facebook.presto.sql.tree.Table;
 import com.facebook.presto.sql.tree.TableElement;
 import com.facebook.presto.sql.tree.Values;
 import com.google.common.base.Joiner;
@@ -362,18 +361,7 @@ final class ShowQueriesRewrite
             }
 
             QualifiedObjectName partitionsTable = new QualifiedObjectName(table.getCatalogName(), table.getSchemaName(), table.getObjectName() + "$partitions");
-            if (!metadata.getTableHandle(session, partitionsTable).isPresent()) {
-                throw new SemanticException(NOT_SUPPORTED, showPartitions, "Table does not have partition columns: %s", table);
-            }
-
-            return simpleQuery(
-                    selectList(new AllColumns()),
-                    new Table(createQualifiedName(partitionsTable)),
-                    showPartitions.getWhere(),
-                    Optional.empty(),
-                    Optional.empty(),
-                    orderBy(showPartitions.getOrderBy()),
-                    showPartitions.getLimit());
+            throw new SemanticException(NOT_SUPPORTED, showPartitions, "SHOW PARTITIONS no longer exists. Use this instead: SELECT * FROM \"%s\"", partitionsTable);
         }
 
         @Override
@@ -529,8 +517,7 @@ final class ShowQueriesRewrite
             }
 
             // add bogus row so we can support empty sessions
-            StringLiteral empty = new StringLiteral("");
-            rows.add(row(empty, empty, empty, empty, empty, FALSE_LITERAL));
+            rows.add(row(new StringLiteral(""), new StringLiteral(""), new StringLiteral(""), new StringLiteral(""), new StringLiteral(""), FALSE_LITERAL));
 
             return simpleQuery(
                     selectList(

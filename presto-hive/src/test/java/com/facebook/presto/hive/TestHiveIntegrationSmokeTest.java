@@ -89,6 +89,7 @@ import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -1050,9 +1051,11 @@ public class TestHiveIntegrationSmokeTest
         assertEquals(tableMetadata.getMetadata().getProperties().get(STORAGE_FORMAT_PROPERTY), storageFormat);
         assertEquals(tableMetadata.getMetadata().getProperties().get(PARTITIONED_BY_PROPERTY), ImmutableList.of("ship_priority", "order_status"));
 
+        String partitionsTable = "\"test_insert_partitioned_table$partitions\"";
+
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM test_insert_partitioned_table",
+                "SELECT * FROM " + partitionsTable,
                 "SELECT shippriority, orderstatus FROM orders LIMIT 0");
 
         // Hive will reorder the partition keys, so we must insert into the table assuming the partition keys have been moved to the end
@@ -1072,21 +1075,21 @@ public class TestHiveIntegrationSmokeTest
 
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM test_insert_partitioned_table",
+                "SELECT * FROM " + partitionsTable,
                 "SELECT DISTINCT shippriority, orderstatus FROM orders");
 
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM test_insert_partitioned_table ORDER BY order_status LIMIT 2",
+                "SELECT * FROM " + partitionsTable + " ORDER BY order_status LIMIT 2",
                 "SELECT DISTINCT shippriority, orderstatus FROM orders ORDER BY orderstatus LIMIT 2");
 
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM test_insert_partitioned_table WHERE order_status = 'O'",
+                "SELECT * FROM " + partitionsTable + " WHERE order_status = 'O'",
                 "SELECT DISTINCT shippriority, orderstatus FROM orders WHERE orderstatus = 'O'");
 
-        assertQueryFails(session, "SHOW PARTITIONS FROM test_insert_partitioned_table WHERE no_such_column = 1", "line \\S*: Column 'no_such_column' cannot be resolved");
-        assertQueryFails(session, "SHOW PARTITIONS FROM test_insert_partitioned_table WHERE orderkey = 1", "line \\S*: Column 'orderkey' cannot be resolved");
+        assertQueryFails(session, "SELECT * FROM " + partitionsTable + " WHERE no_such_column = 1", "line \\S*: Column 'no_such_column' cannot be resolved");
+        assertQueryFails(session, "SELECT * FROM " + partitionsTable + " WHERE orderkey = 1", "line \\S*: Column 'orderkey' cannot be resolved");
 
         assertUpdate(session, "DROP TABLE test_insert_partitioned_table");
 
@@ -1179,6 +1182,7 @@ public class TestHiveIntegrationSmokeTest
     private void testPartitionPerScanLimit(Session session, HiveStorageFormat storageFormat)
     {
         String tableName = "test_partition_per_scan_limit";
+        String partitionsTable = "\"" + tableName + "$partitions\"";
 
         @Language("SQL") String createTable = "" +
                 "CREATE TABLE " + tableName + " " +
@@ -1213,24 +1217,17 @@ public class TestHiveIntegrationSmokeTest
         // we are not constrained by hive.max-partitions-per-scan when listing partitions
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM " + tableName + " WHERE part > 490 and part <= 500",
+                "SELECT * FROM " + partitionsTable + " WHERE part > 490 and part <= 500",
                 "VALUES 491, 492, 493, 494, 495, 496, 497, 498, 499, 500");
 
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM " + tableName + " WHERE part < 0",
+                "SELECT * FROM " + partitionsTable + " WHERE part < 0",
                 "SELECT null WHERE false");
 
         assertQuery(
                 session,
-                "SHOW PARTITIONS FROM " + tableName,
-                "VALUES " + LongStream.range(0, 1200)
-                        .mapToObj(String::valueOf)
-                        .collect(joining(",")));
-
-        assertQuery(
-                session,
-                "SELECT * FROM \"" + tableName + "$partitions\"",
+                "SELECT * FROM " + partitionsTable,
                 "VALUES " + LongStream.range(0, 1200)
                         .mapToObj(String::valueOf)
                         .collect(joining(",")));
@@ -1304,12 +1301,10 @@ public class TestHiveIntegrationSmokeTest
     }
 
     @Test
-    public void testShowPartitionsFromPartitionsSystemTable()
+    public void testPartitionsTableInvalidAccess()
     {
-        String tableName = "test_show_partitions_from_partitions";
-
         @Language("SQL") String createTable = "" +
-                "CREATE TABLE " + tableName + " " +
+                "CREATE TABLE test_partitions_invalid " +
                 "(" +
                 "  foo VARCHAR," +
                 "  part1 BIGINT," +
@@ -1323,13 +1318,13 @@ public class TestHiveIntegrationSmokeTest
 
         assertQueryFails(
                 getSession(),
-                "SHOW PARTITIONS FROM \"" + tableName + "$partitions\"",
-                ".*Table does not have partition columns: .*\\.tpch.test_show_partitions_from_partitions\\$partitions");
+                "SELECT * FROM \"test_partitions_invalid$partitions$partitions\"",
+                ".*Table .*\\.tpch\\.test_partitions_invalid\\$partitions\\$partitions does not exist");
 
         assertQueryFails(
                 getSession(),
-                "SHOW PARTITIONS FROM \"non_existent$partitions\"",
-                ".*Table '.*\\.tpch\\.non_existent\\$partitions' does not exist");
+                "SELECT * FROM \"non_existent$partitions\"",
+                ".*Table .*\\.tpch\\.non_existent\\$partitions does not exist");
     }
 
     @Test
@@ -1667,18 +1662,18 @@ public class TestHiveIntegrationSmokeTest
 
             assertEquals(computeActual("SELECT count(DISTINCT \"$path\") FROM scale_writers_small").getOnlyValue(), 1L);
 
-            // large table that will scale writers to all machines
+            // large table that will scale writers to multiple machines
             assertUpdate(
                     Session.builder(getSession())
                             .setSystemProperty("scale_writers", "true")
-                            .setSystemProperty("writer_min_size", "4MB")
+                            .setSystemProperty("writer_min_size", "1MB")
                             .build(),
-                    "CREATE TABLE scale_writers_large WITH (format = 'RCBINARY') AS SELECT * FROM tpch.sf2.orders",
-                    (long) computeActual("SELECT count(*) FROM tpch.sf2.orders").getOnlyValue());
+                    "CREATE TABLE scale_writers_large WITH (format = 'RCBINARY') AS SELECT * FROM tpch.sf1.orders",
+                    (long) computeActual("SELECT count(*) FROM tpch.sf1.orders").getOnlyValue());
 
-            assertEquals(
-                    computeActual("SELECT count(DISTINCT \"$path\") FROM scale_writers_large"),
-                    computeActual("SELECT count(*) FROM system.runtime.nodes"));
+            long files = (long) computeScalar("SELECT count(DISTINCT \"$path\") FROM scale_writers_large");
+            long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
+            assertThat(files).isBetween(2L, workers);
         }
         finally {
             assertUpdate("DROP TABLE IF EXISTS scale_writers_large");
@@ -1717,10 +1712,13 @@ public class TestHiveIntegrationSmokeTest
                         "   c5 double COMMENT 'comment test5'\n)\n" +
                         "COMMENT 'test'\n" +
                         "WITH (\n" +
+                        "   bucket_count = 5,\n" +
+                        "   bucketed_by = ARRAY['c1','c 2'],\n" +
                         "   format = 'ORC',\n" +
                         "   orc_bloom_filter_columns = ARRAY['c1','c2'],\n" +
                         "   orc_bloom_filter_fpp = 7E-1,\n" +
-                        "   partitioned_by = ARRAY['c4','c5']\n" +
+                        "   partitioned_by = ARRAY['c4','c5'],\n" +
+                        "   sorted_by = ARRAY['c1','c 2 DESC']\n" +
                         ")",
                 getSession().getCatalog().get(),
                 getSession().getSchema().get(),

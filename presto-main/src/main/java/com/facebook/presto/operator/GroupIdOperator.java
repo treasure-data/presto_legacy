@@ -55,12 +55,6 @@ public class GroupIdOperator
         }
 
         @Override
-        public List<Type> getTypes()
-        {
-            return outputTypes;
-        }
-
-        @Override
         public Operator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
@@ -138,12 +132,6 @@ public class GroupIdOperator
     public OperatorContext getOperatorContext()
     {
         return operatorContext;
-    }
-
-    @Override
-    public List<Type> getTypes()
-    {
-        return types;
     }
 
     @Override

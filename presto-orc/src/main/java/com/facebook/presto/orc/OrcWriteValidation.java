@@ -27,6 +27,7 @@ import com.facebook.presto.orc.metadata.statistics.IntegerStatisticsBuilder;
 import com.facebook.presto.orc.metadata.statistics.LongDecimalStatisticsBuilder;
 import com.facebook.presto.orc.metadata.statistics.ShortDecimalStatisticsBuilder;
 import com.facebook.presto.orc.metadata.statistics.StatisticsBuilder;
+import com.facebook.presto.orc.metadata.statistics.StatisticsHasher;
 import com.facebook.presto.orc.metadata.statistics.StringStatistics;
 import com.facebook.presto.orc.metadata.statistics.StringStatisticsBuilder;
 import com.facebook.presto.orc.metadata.statistics.StripeStatistics;
@@ -35,16 +36,19 @@ import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.ColumnarMap;
 import com.facebook.presto.spi.block.ColumnarRow;
+import com.facebook.presto.spi.type.AbstractLongType;
 import com.facebook.presto.spi.type.CharType;
 import com.facebook.presto.spi.type.DecimalType;
+import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.VarcharType;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.airlift.slice.XxHash64;
+import org.openjdk.jol.info.ClassLayout;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -52,9 +56,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.SortedMap;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
+import static com.facebook.presto.orc.OrcWriteValidation.OrcWriteValidationMode.BOTH;
+import static com.facebook.presto.orc.OrcWriteValidation.OrcWriteValidationMode.DETAILED;
+import static com.facebook.presto.orc.OrcWriteValidation.OrcWriteValidationMode.HASHED;
 import static com.facebook.presto.orc.metadata.DwrfMetadataWriter.STATIC_METADATA;
 import static com.facebook.presto.orc.metadata.OrcMetadataReader.maxStringTruncateToValidRange;
 import static com.facebook.presto.orc.metadata.OrcMetadataReader.minStringTruncateToValidRange;
@@ -75,13 +83,19 @@ import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.TinyintType.TINYINT;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
+import static java.util.function.Function.identity;
 
 public class OrcWriteValidation
 {
+    public enum OrcWriteValidationMode {
+        HASHED, DETAILED, BOTH
+    }
+
     private final List<Integer> version;
     private final CompressionKind compression;
     private final int rowGroupMaxRowCount;
@@ -219,17 +233,37 @@ public class OrcWriteValidation
         }
 
         for (int rowGroupIndex = 0; rowGroupIndex < expectedRowGroupStatistics.size(); rowGroupIndex++) {
-            Map<Integer, ColumnStatistics> expectedStatistics = expectedRowGroupStatistics.get(rowGroupIndex).getColumnStatistics();
-            if (!expectedStatistics.keySet().equals(actualRowGroupStatistics.keySet())) {
-                throw new OrcCorruptionException(orcDataSourceId, "Unexpected column in row group %s in stripe at offset %s", stripeOffset);
+            RowGroupStatistics expectedRowGroup = expectedRowGroupStatistics.get(rowGroupIndex);
+            if (expectedRowGroup.getValidationMode() != HASHED) {
+                Map<Integer, ColumnStatistics> expectedStatistics = expectedRowGroup.getColumnStatistics();
+                if (!expectedStatistics.keySet().equals(actualRowGroupStatistics.keySet())) {
+                    throw new OrcCorruptionException(orcDataSourceId, "Unexpected column in row group %s in stripe at offset %s", rowGroupIndex, stripeOffset);
+                }
+                for (Entry<Integer, ColumnStatistics> entry : expectedStatistics.entrySet()) {
+                    int columnIndex = entry.getKey();
+                    List<RowGroupIndex> actualRowGroup = actualRowGroupStatistics.get(columnIndex);
+                    ColumnStatistics actual = actualRowGroup.get(rowGroupIndex).getColumnStatistics();
+                    ColumnStatistics expected = entry.getValue();
+                    validateColumnStatisticsEquivalent(orcDataSourceId, "Row group " + rowGroupIndex + " in stripe at offset " + stripeOffset, actual, expected);
+                }
             }
-            for (Entry<Integer, ColumnStatistics> entry : expectedStatistics.entrySet()) {
-                int columnIndex = entry.getKey();
-                ColumnStatistics actual = actualRowGroupStatistics.get(columnIndex).get(rowGroupIndex).getColumnStatistics();
-                ColumnStatistics expected = entry.getValue();
-                validateColumnStatisticsEquivalent(orcDataSourceId, "Row group " + rowGroupIndex + " in stripe at offset " + stripeOffset, actual, expected);
+
+            if (expectedRowGroup.getValidationMode() != DETAILED) {
+                RowGroupStatistics actualRowGroup = buildActualRowGroupStatistics(rowGroupIndex, actualRowGroupStatistics);
+                if (expectedRowGroup.getHash() != actualRowGroup.getHash()) {
+                    throw new OrcCorruptionException(orcDataSourceId, "Checksum mismatch for row group %s in stripe at offset %s", rowGroupIndex, stripeOffset);
+                }
             }
         }
+    }
+
+    private static RowGroupStatistics buildActualRowGroupStatistics(int rowGroupIndex, Map<Integer, List<RowGroupIndex>> actualRowGroupStatistics)
+    {
+        return new RowGroupStatistics(
+                        BOTH,
+                        IntStream.range(1, actualRowGroupStatistics.size() + 1)
+                                .boxed()
+                                .collect(toImmutableMap(identity(), columnIndex -> actualRowGroupStatistics.get(columnIndex).get(rowGroupIndex).getColumnStatistics())));
     }
 
     public void validateRowGroupStatistics(
@@ -246,15 +280,27 @@ public class OrcWriteValidation
         if (rowGroups.size() <= rowGroupIndex) {
             throw new OrcCorruptionException(orcDataSourceId, "Unexpected row group %s in stripe at offset %s", rowGroupIndex, stripeOffset);
         }
-        Map<Integer, ColumnStatistics> expectedByColumnIndex = rowGroups.get(rowGroupIndex).getColumnStatistics();
 
-        // new writer does not write row group stats for column zero (table row column)
-        List<ColumnStatistics> expected = IntStream.range(1, actual.size())
-                .mapToObj(expectedByColumnIndex::get)
-                .collect(toImmutableList());
-        actual = actual.subList(1, actual.size());
+        RowGroupStatistics expectedRowGroup = rowGroups.get(rowGroupIndex);
+        RowGroupStatistics actualRowGroup = new RowGroupStatistics(BOTH, IntStream.range(1, actual.size()).boxed().collect(toImmutableMap(identity(), actual::get)));
 
-        validateColumnStatisticsEquivalent(orcDataSourceId, "Row group " + rowGroupIndex + " in stripe at offset " + stripeOffset, actual, expected);
+        if (expectedRowGroup.getValidationMode() != HASHED) {
+            Map<Integer, ColumnStatistics> expectedByColumnIndex = expectedRowGroup.getColumnStatistics();
+
+            // new writer does not write row group stats for column zero (table row column)
+            List<ColumnStatistics> expected = IntStream.range(1, actual.size())
+                    .mapToObj(expectedByColumnIndex::get)
+                    .collect(toImmutableList());
+            actual = actual.subList(1, actual.size());
+
+            validateColumnStatisticsEquivalent(orcDataSourceId, "Row group " + rowGroupIndex + " in stripe at offset " + stripeOffset, actual, expected);
+        }
+
+        if (expectedRowGroup.getValidationMode() != DETAILED) {
+            if (expectedRowGroup.getHash() != actualRowGroup.getHash()) {
+                throw new OrcCorruptionException(orcDataSourceId, "Checksum mismatch for row group %s in stripe at offset %s", rowGroupIndex, stripeOffset);
+            }
+        }
     }
 
     public StatisticsValidation createWriteStatisticsBuilder(Map<Integer, Type> readColumns)
@@ -495,6 +541,16 @@ public class OrcWriteValidation
                 return hash;
             }
 
+            if (type.getTypeSignature().getBase().equals(StandardTypes.TIMESTAMP)) {
+                // A flaw in ORC encoding makes it impossible to represent timestamp
+                // between 1969-12-31 23:59:59.000, exclusive, and 1970-01-01 00:00:00.000, exclusive.
+                // Therefore, such data won't round trip. The data read back is expected to be 1 second later than the original value.
+                long mills = TIMESTAMP.getLong(block, position);
+                if (mills > -1000 && mills < 0) {
+                    return AbstractLongType.hash(mills + 1000);
+                }
+            }
+
             return type.hash(block, position);
         }
 
@@ -708,21 +764,68 @@ public class OrcWriteValidation
 
     private static class RowGroupStatistics
     {
-        private final Map<Integer, ColumnStatistics> columnStatistics;
+        private static final int INSTANCE_SIZE = ClassLayout.parseClass(RowGroupStatistics.class).instanceSize();
 
-        public RowGroupStatistics(Map<Integer, ColumnStatistics> columnStatistics)
+        private final OrcWriteValidationMode validationMode;
+        private final SortedMap<Integer, ColumnStatistics> columnStatistics;
+        private final long hash;
+
+        public RowGroupStatistics(OrcWriteValidationMode validationMode, Map<Integer, ColumnStatistics> columnStatistics)
         {
-            this.columnStatistics = ImmutableMap.copyOf(requireNonNull(columnStatistics, "columnStatistics is null"));
+            this.validationMode = validationMode;
+
+            requireNonNull(columnStatistics, "columnStatistics is null");
+            if (validationMode == HASHED) {
+                this.columnStatistics = ImmutableSortedMap.of();
+                hash = hashColumnStatistics(ImmutableSortedMap.copyOf(columnStatistics));
+            }
+            else if (validationMode == DETAILED) {
+                this.columnStatistics = ImmutableSortedMap.copyOf(columnStatistics);
+                hash = 0;
+            }
+            else if (validationMode == BOTH) {
+                this.columnStatistics = ImmutableSortedMap.copyOf(columnStatistics);
+                hash = hashColumnStatistics(this.columnStatistics);
+            }
+            else {
+                throw new IllegalArgumentException("Unsupported validation mode");
+            }
+        }
+
+        private static long hashColumnStatistics(SortedMap<Integer, ColumnStatistics> columnStatistics)
+        {
+            StatisticsHasher statisticsHasher = new StatisticsHasher();
+            statisticsHasher.putInt(columnStatistics.size());
+            for (Entry<Integer, ColumnStatistics> entry : columnStatistics.entrySet()) {
+                statisticsHasher.putInt(entry.getKey())
+                        .putOptionalHashable(entry.getValue());
+            }
+            return statisticsHasher.hash();
+        }
+
+        public OrcWriteValidationMode getValidationMode()
+        {
+            return validationMode;
         }
 
         public Map<Integer, ColumnStatistics> getColumnStatistics()
         {
+            verify(validationMode != HASHED, "columnStatistics are not available in HASHED mode");
             return columnStatistics;
+        }
+
+        public long getHash()
+        {
+            return hash;
         }
     }
 
     public static class OrcWriteValidationBuilder
     {
+        private static final int INSTANCE_SIZE = ClassLayout.parseClass(OrcWriteValidationBuilder.class).instanceSize();
+
+        private final OrcWriteValidationMode validationMode;
+
         private List<Integer> version;
         private CompressionKind compression;
         private int rowGroupMaxRowCount;
@@ -734,10 +837,17 @@ public class OrcWriteValidation
         private final Map<Long, List<RowGroupStatistics>> rowGroupStatisticsByStripe = new HashMap<>();
         private final Map<Long, StripeStatistics> stripeStatistics = new HashMap<>();
         private List<ColumnStatistics> fileStatistics;
+        private long retainedSize = INSTANCE_SIZE;
 
-        public OrcWriteValidationBuilder(List<Type> types)
+        public OrcWriteValidationBuilder(OrcWriteValidationMode validationMode, List<Type> types)
         {
+            this.validationMode = validationMode;
             this.checksum = new WriteChecksumBuilder(types);
+        }
+
+        public long getRetainedSize()
+        {
+            return retainedSize;
         }
 
         public OrcWriteValidationBuilder setVersion(List<Integer> version)
@@ -788,7 +898,15 @@ public class OrcWriteValidation
 
         public void addRowGroupStatistics(Map<Integer, ColumnStatistics> columnStatistics)
         {
-            currentRowGroupStatistics.add(new RowGroupStatistics(columnStatistics));
+            RowGroupStatistics rowGroupStatistics = new RowGroupStatistics(validationMode, columnStatistics);
+            currentRowGroupStatistics.add(rowGroupStatistics);
+
+            retainedSize += RowGroupStatistics.INSTANCE_SIZE;
+            if (validationMode != HASHED) {
+                for (ColumnStatistics statistics : rowGroupStatistics.getColumnStatistics().values()) {
+                    retainedSize += Integer.BYTES + statistics.getRetainedSizeInBytes();
+                }
+            }
         }
 
         public void addStripeStatistics(long stripStartOffset, StripeStatistics columnStatistics)
