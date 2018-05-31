@@ -13,10 +13,13 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.Lifespan;
 import com.facebook.presto.operator.NestedLoopBuildOperator.NestedLoopBuildOperatorFactory;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.testing.TestingTaskContext;
+import com.google.common.collect.ImmutableList;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -27,6 +30,7 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.block.BlockAssertions.createLongSequenceBlock;
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
@@ -59,12 +63,18 @@ public class TestNestedLoopBuildOperator
             throws Exception
     {
         TaskContext taskContext = createTaskContext();
-        NestedLoopBuildOperatorFactory nestedLoopBuildOperatorFactory = new NestedLoopBuildOperatorFactory(3, new PlanNodeId("test"));
+        List<Type> buildTypes = ImmutableList.of(BIGINT);
+        JoinBridgeDataManager<NestedLoopJoinPagesBridge> nestedLoopJoinPagesSupplierManager = JoinBridgeDataManager.nestedLoop(
+                PipelineExecutionStrategy.UNGROUPED_EXECUTION,
+                PipelineExecutionStrategy.UNGROUPED_EXECUTION,
+                lifespan -> new NestedLoopJoinPagesSupplier(),
+                buildTypes);
+        NestedLoopBuildOperatorFactory nestedLoopBuildOperatorFactory = new NestedLoopBuildOperatorFactory(3, new PlanNodeId("test"), nestedLoopJoinPagesSupplierManager);
         DriverContext driverContext = taskContext.addPipelineContext(0, true, true).addDriverContext();
         NestedLoopBuildOperator nestedLoopBuildOperator = (NestedLoopBuildOperator) nestedLoopBuildOperatorFactory.createOperator(driverContext);
-        NestedLoopJoinPagesSupplier nestedLoopJoinPagesSupplier = nestedLoopBuildOperatorFactory.getNestedLoopJoinPagesSupplier();
+        NestedLoopJoinPagesBridge nestedLoopJoinPagesBridge = nestedLoopJoinPagesSupplierManager.forLifespan(Lifespan.taskWide());
 
-        assertFalse(nestedLoopJoinPagesSupplier.getPagesFuture().isDone());
+        assertFalse(nestedLoopJoinPagesBridge.getPagesFuture().isDone());
 
         // build pages
         Page buildPage1 = new Page(3, createLongSequenceBlock(11, 14));
@@ -76,8 +86,8 @@ public class TestNestedLoopBuildOperator
         nestedLoopBuildOperator.addInput(buildPage2);
         nestedLoopBuildOperator.finish();
 
-        assertTrue(nestedLoopJoinPagesSupplier.getPagesFuture().isDone());
-        List<Page> buildPages = nestedLoopJoinPagesSupplier.getPagesFuture().get().getPages();
+        assertTrue(nestedLoopJoinPagesBridge.getPagesFuture().isDone());
+        List<Page> buildPages = nestedLoopJoinPagesBridge.getPagesFuture().get().getPages();
 
         assertEquals(buildPages.get(0), buildPage1);
         assertEquals(buildPages.get(1), buildPage2);
@@ -89,12 +99,18 @@ public class TestNestedLoopBuildOperator
             throws Exception
     {
         TaskContext taskContext = createTaskContext();
-        NestedLoopBuildOperatorFactory nestedLoopBuildOperatorFactory = new NestedLoopBuildOperatorFactory(3, new PlanNodeId("test"));
+        List<Type> buildTypes = ImmutableList.of();
+        JoinBridgeDataManager<NestedLoopJoinPagesBridge> nestedLoopJoinPagesSupplierManager = JoinBridgeDataManager.nestedLoop(
+                PipelineExecutionStrategy.UNGROUPED_EXECUTION,
+                PipelineExecutionStrategy.UNGROUPED_EXECUTION,
+                lifespan -> new NestedLoopJoinPagesSupplier(),
+                buildTypes);
+        NestedLoopBuildOperatorFactory nestedLoopBuildOperatorFactory = new NestedLoopBuildOperatorFactory(3, new PlanNodeId("test"), nestedLoopJoinPagesSupplierManager);
         DriverContext driverContext = taskContext.addPipelineContext(0, true, true).addDriverContext();
         NestedLoopBuildOperator nestedLoopBuildOperator = (NestedLoopBuildOperator) nestedLoopBuildOperatorFactory.createOperator(driverContext);
-        NestedLoopJoinPagesSupplier nestedLoopJoinPagesSupplier = nestedLoopBuildOperatorFactory.getNestedLoopJoinPagesSupplier();
+        NestedLoopJoinPagesBridge nestedLoopJoinPagesBridge = nestedLoopJoinPagesSupplierManager.forLifespan(Lifespan.taskWide());
 
-        assertFalse(nestedLoopJoinPagesSupplier.getPagesFuture().isDone());
+        assertFalse(nestedLoopJoinPagesBridge.getPagesFuture().isDone());
 
         // build pages
         Page buildPage1 = new Page(3);
@@ -106,8 +122,8 @@ public class TestNestedLoopBuildOperator
         nestedLoopBuildOperator.addInput(buildPage2);
         nestedLoopBuildOperator.finish();
 
-        assertTrue(nestedLoopJoinPagesSupplier.getPagesFuture().isDone());
-        List<Page> buildPages = nestedLoopJoinPagesSupplier.getPagesFuture().get().getPages();
+        assertTrue(nestedLoopJoinPagesBridge.getPagesFuture().isDone());
+        List<Page> buildPages = nestedLoopJoinPagesBridge.getPagesFuture().get().getPages();
 
         assertEquals(buildPages.get(0), buildPage1);
         assertEquals(buildPages.get(1), buildPage2);

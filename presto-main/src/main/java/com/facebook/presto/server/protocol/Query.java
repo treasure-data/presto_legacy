@@ -42,9 +42,12 @@ import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.transaction.TransactionId;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.AbstractFuture;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.log.Logger;
@@ -75,6 +78,8 @@ import static com.facebook.presto.util.Failures.toFailure;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
+import static io.airlift.concurrent.MoreFutures.addSuccessCallback;
 import static io.airlift.concurrent.MoreFutures.addTimeout;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static java.lang.String.format;
@@ -96,10 +101,16 @@ class Query
     private final ScheduledExecutorService timeoutExecutor;
 
     @GuardedBy("this")
-    private final PagesSerde serde;
+    private PagesSerde serde;
 
     private final AtomicLong resultId = new AtomicLong();
-    private final Session session;
+
+    private final QuerySubmissionFuture submissionFuture;
+    private final SessionPropertyManager sessionPropertyManager;
+    private final BlockEncodingSerde blockEncodingSerde;
+
+    @GuardedBy("this")
+    private Session session;
 
     @GuardedBy("this")
     private QueryResults lastResult;
@@ -114,25 +125,25 @@ class Query
     private List<Type> types;
 
     @GuardedBy("this")
-    private Optional<String> setCatalog;
+    private Optional<String> setCatalog = Optional.empty();
 
     @GuardedBy("this")
-    private Optional<String> setSchema;
+    private Optional<String> setSchema = Optional.empty();
 
     @GuardedBy("this")
-    private Map<String, String> setSessionProperties;
+    private Map<String, String> setSessionProperties = ImmutableMap.of();
 
     @GuardedBy("this")
-    private Set<String> resetSessionProperties;
+    private Set<String> resetSessionProperties = ImmutableSet.of();
 
     @GuardedBy("this")
-    private Map<String, String> addedPreparedStatements;
+    private Map<String, String> addedPreparedStatements = ImmutableMap.of();
 
     @GuardedBy("this")
-    private Set<String> deallocatedPreparedStatements;
+    private Set<String> deallocatedPreparedStatements = ImmutableSet.of();
 
     @GuardedBy("this")
-    private Optional<TransactionId> startedTransactionId;
+    private Optional<TransactionId> startedTransactionId = Optional.empty();
 
     @GuardedBy("this")
     private boolean clearTransactionId;
@@ -152,13 +163,16 @@ class Query
     {
         Query result = new Query(sessionContext, query, queryManager, sessionPropertyManager, exchangeClient, dataProcessorExecutor, timeoutExecutor, blockEncodingSerde);
 
-        result.queryManager.addOutputInfoListener(result.getQueryId(), result::setQueryOutputInfo);
+        // register listeners after submission finishes
+        addSuccessCallback(result.submissionFuture, () -> {
+            result.queryManager.addOutputInfoListener(result.getQueryId(), result::setQueryOutputInfo);
 
-        result.queryManager.addStateChangeListener(result.getQueryId(), state -> {
-            if (state.isDone()) {
-                QueryInfo queryInfo = queryManager.getQueryInfo(result.getQueryId());
-                result.closeExchangeClientIfNecessary(queryInfo);
-            }
+            result.queryManager.addStateChangeListener(result.getQueryId(), state -> {
+                if (state.isDone()) {
+                    QueryInfo queryInfo = queryManager.getQueryInfo(result.getQueryId());
+                    result.closeExchangeClientIfNecessary(queryInfo);
+                }
+            });
         });
 
         return result;
@@ -177,25 +191,37 @@ class Query
         requireNonNull(sessionContext, "sessionContext is null");
         requireNonNull(query, "query is null");
         requireNonNull(queryManager, "queryManager is null");
+        requireNonNull(sessionPropertyManager, "sessionPropertyManager is null");
         requireNonNull(exchangeClient, "exchangeClient is null");
         requireNonNull(resultsProcessorExecutor, "resultsProcessorExecutor is null");
         requireNonNull(timeoutExecutor, "timeoutExecutor is null");
+        requireNonNull(blockEncodingSerde, "serde is null");
 
         this.queryManager = queryManager;
+        this.sessionPropertyManager = sessionPropertyManager;
 
-        QueryInfo queryInfo = queryManager.createQuery(sessionContext, query);
-        queryId = queryInfo.getQueryId();
-        session = queryInfo.getSession().toSession(sessionPropertyManager);
+        queryId = queryManager.createQueryId();
+        submissionFuture = new QuerySubmissionFuture(queryId, query, sessionContext, queryManager);
         this.exchangeClient = exchangeClient;
         this.resultsProcessorExecutor = resultsProcessorExecutor;
         this.timeoutExecutor = timeoutExecutor;
-        requireNonNull(blockEncodingSerde, "serde is null");
-        this.serde = new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session)).createPagesSerde();
+        this.blockEncodingSerde = blockEncodingSerde;
+    }
+
+    public boolean isSubmissionFinished()
+    {
+        return submissionFuture.isDone();
     }
 
     public void cancel()
     {
-        queryManager.cancelQuery(queryId);
+        // if submission is not finished, send cancel after it is finished
+        if (submissionFuture.isDone()) {
+            submissionFuture.addListener(() -> queryManager.cancelQuery(queryId), resultsProcessorExecutor);
+        }
+        else {
+            queryManager.cancelQuery(queryId);
+        }
         dispose();
     }
 
@@ -272,6 +298,14 @@ class Query
 
     private synchronized ListenableFuture<?> getFutureStateChange()
     {
+        // ensure the query has been submitted
+        submissionFuture.submitQuery();
+
+        // if query query submission has not finished, wait for it to finish
+        if (!submissionFuture.isDone()) {
+            return submissionFuture;
+        }
+
         // if the exchange client is open, wait for data
         if (!exchangeClient.isClosed()) {
             return exchangeClient.isBlocked();
@@ -287,10 +321,12 @@ class Query
     {
         // is the a repeated request for the last results?
         String requestedPath = uriInfo.getAbsolutePath().getPath();
-        if (lastResultPath != null && requestedPath.equals(lastResultPath)) {
-            // tell query manager we are still interested in the query
-            queryManager.getQueryInfo(queryId);
-            queryManager.recordHeartbeat(queryId);
+        if (requestedPath.equals(lastResultPath)) {
+            if (submissionFuture.isDone()) {
+                // tell query manager we are still interested in the query
+                queryManager.getQueryInfo(queryId);
+                queryManager.recordHeartbeat(queryId);
+            }
             return Optional.of(lastResult);
         }
 
@@ -307,7 +343,7 @@ class Query
         return Optional.empty();
     }
 
-    private synchronized QueryResults getNextResult(OptionalLong token, UriInfo uriInfo, String scheme)
+    public synchronized QueryResults getNextResult(OptionalLong token, UriInfo uriInfo, String scheme)
     {
         // check if the result for the token have already been created
         if (token.isPresent()) {
@@ -315,6 +351,39 @@ class Query
             if (cachedResult.isPresent()) {
                 return cachedResult.get();
             }
+        }
+
+        URI queryHtmlUri = uriInfo.getRequestUriBuilder()
+                .scheme(scheme)
+                .replacePath("ui/query.html")
+                .replaceQuery(queryId.toString())
+                .build();
+
+        // if query query submission has not finished, return simple empty result
+        if (!submissionFuture.isDone()) {
+            QueryResults queryResults = new QueryResults(
+                    queryId.toString(),
+                    queryHtmlUri,
+                    null,
+                    createNextResultsUri(scheme, uriInfo),
+                    null,
+                    null,
+                    StatementStats.builder()
+                            .setState(QueryState.QUEUED.toString())
+                            .setQueued(true)
+                            .setScheduled(false)
+                            .build(),
+                    null,
+                    null,
+                    null);
+
+            cacheLastResults(queryResults);
+            return queryResults;
+        }
+
+        if (session == null) {
+            session = queryManager.getQueryInfo(queryId).getSession().toSession(sessionPropertyManager);
+            serde = new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session)).createPagesSerde();
         }
 
         // Remove as many pages as possible from the exchange until just greater than DESIRED_RESULT_BYTES
@@ -379,12 +448,6 @@ class Query
             nextResultsUri = createNextResultsUri(scheme, uriInfo);
         }
 
-        URI queryHtmlUri = uriInfo.getRequestUriBuilder()
-                .scheme(scheme)
-                .replacePath("ui/query.html")
-                .replaceQuery(queryId.toString())
-                .build();
-
         // update catalog and schema
         setCatalog = queryInfo.getSetCatalog();
         setSchema = queryInfo.getSetSchema();
@@ -414,6 +477,12 @@ class Query
                 queryInfo.getUpdateType(),
                 updateCount);
 
+        cacheLastResults(queryResults);
+        return queryResults;
+    }
+
+    private synchronized void cacheLastResults(QueryResults queryResults)
+    {
         // cache the last results
         if (lastResult != null && lastResult.getNextUri() != null) {
             lastResultPath = lastResult.getNextUri().getPath();
@@ -422,7 +491,6 @@ class Query
             lastResultPath = null;
         }
         lastResult = queryResults;
-        return queryResults;
     }
 
     private synchronized void closeExchangeClientIfNecessary(QueryInfo queryInfo)
@@ -615,5 +683,54 @@ class Query
                 errorCode.getType().toString(),
                 failure.getErrorLocation(),
                 failure);
+    }
+
+    private static class QuerySubmissionFuture
+            extends AbstractFuture<QueryInfo>
+    {
+        private final QueryId queryId;
+        private final String query;
+        private final SessionContext sessionContext;
+        private final QueryManager queryManager;
+
+        @GuardedBy("this")
+        private ListenableFuture<?> querySubmissionFuture;
+
+        public QuerySubmissionFuture(QueryId queryId, String query, SessionContext sessionContext, QueryManager queryManager)
+        {
+            this.queryId = requireNonNull(queryId, "queryId is null");
+            this.query = requireNonNull(query, "query is null");
+            this.sessionContext = requireNonNull(sessionContext, "sessionContext is null");
+            this.queryManager = requireNonNull(queryManager, "queryManager is null");
+        }
+
+        private synchronized void submitQuery()
+        {
+            if (querySubmissionFuture != null) {
+                return;
+            }
+
+            querySubmissionFuture = queryManager.createQuery(queryId, sessionContext, this.query);
+            Futures.addCallback(querySubmissionFuture, new FutureCallback<Object>() {
+                @Override
+                public void onSuccess(Object result)
+                {
+                    set(null);
+                }
+
+                @Override
+                public void onFailure(Throwable t)
+                {
+                    setException(t);
+                }
+            }, directExecutor());
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning)
+        {
+            // query submission can not be canceled
+            return false;
+        }
     }
 }

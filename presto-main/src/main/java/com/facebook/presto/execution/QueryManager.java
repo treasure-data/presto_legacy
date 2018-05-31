@@ -45,7 +45,9 @@ public interface QueryManager
 
     void recordHeartbeat(QueryId queryId);
 
-    QueryInfo createQuery(SessionContext sessionContext, String query);
+    QueryId createQueryId();
+
+    ListenableFuture<?> createQuery(QueryId queryId, SessionContext sessionContext, String query);
 
     void failQuery(QueryId queryId, Throwable cause);
 
