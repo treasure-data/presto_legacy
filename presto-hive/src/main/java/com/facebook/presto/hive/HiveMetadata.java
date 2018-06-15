@@ -145,9 +145,13 @@ import static com.facebook.presto.hive.HiveUtil.getPartitionKeyColumnHandles;
 import static com.facebook.presto.hive.HiveUtil.hiveColumnHandles;
 import static com.facebook.presto.hive.HiveUtil.schemaTableName;
 import static com.facebook.presto.hive.HiveUtil.toPartitionValues;
+import static com.facebook.presto.hive.HiveUtil.verifyPartitionTypeSupported;
 import static com.facebook.presto.hive.HiveWriteUtils.checkTableIsWritable;
 import static com.facebook.presto.hive.HiveWriteUtils.initializeSerializer;
 import static com.facebook.presto.hive.HiveWriteUtils.isWritableType;
+import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.APPEND;
+import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.NEW;
+import static com.facebook.presto.hive.PartitionUpdate.UpdateMode.OVERWRITE;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.toHivePrivilege;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.getHiveSchema;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.getProtectMode;
@@ -606,6 +610,13 @@ public class HiveMetadata
 
         hiveStorageFormat.validateColumns(columnHandles);
 
+        Map<String, HiveColumnHandle> columnHandlesByName = Maps.uniqueIndex(columnHandles, HiveColumnHandle::getName);
+        List<Column> partitionColumns = partitionedBy.stream()
+                .map(columnHandlesByName::get)
+                .map(column -> new Column(column.getName(), column.getHiveType(), column.getComment()))
+                .collect(toList());
+        checkPartitionTypesSupported(partitionColumns);
+
         Path targetPath;
         boolean external;
         String externalLocation = getExternalLocation(tableMetadata.getProperties());
@@ -675,6 +686,14 @@ public class HiveMetadata
         }
         catch (IllegalArgumentException | IOException e) {
             throw new PrestoException(INVALID_TABLE_PROPERTY, "External location is not a valid file system URI", e);
+        }
+    }
+
+    private void checkPartitionTypesSupported(List<Column> partitionColumns)
+    {
+        for (Column partitionColumn : partitionColumns) {
+            Type partitionType = typeManager.getType(partitionColumn.getType().getTypeSignature());
+            verifyPartitionTypeSupported(partitionColumn.getName(), partitionType);
         }
     }
 
@@ -824,6 +843,13 @@ public class HiveMetadata
         HiveStorageFormat actualStorageFormat = partitionedBy.isEmpty() ? tableStorageFormat : partitionStorageFormat;
         actualStorageFormat.validateColumns(columnHandles);
 
+        Map<String, HiveColumnHandle> columnHandlesByName = Maps.uniqueIndex(columnHandles, HiveColumnHandle::getName);
+        List<Column> partitionColumns = partitionedBy.stream()
+                .map(columnHandlesByName::get)
+                .map(column -> new Column(column.getName(), column.getHiveType(), column.getComment()))
+                .collect(toList());
+        checkPartitionTypesSupported(partitionColumns);
+
         LocationHandle locationHandle = locationService.forNewTable(metastore, session, schemaName, tableName);
         HiveOutputTableHandle result = new HiveOutputTableHandle(
                 schemaName,
@@ -929,7 +955,7 @@ public class HiveMetadata
                     partitionUpdate);
             partitionUpdatesForMissingBucketsBuilder.add(new PartitionUpdate(
                     partitionUpdate.getName(),
-                    partitionUpdate.isNew(),
+                    partitionUpdate.getUpdateMode(),
                     partitionUpdate.getWritePath(),
                     partitionUpdate.getTargetPath(),
                     fileNamesForMissingBuckets,
@@ -1089,7 +1115,7 @@ public class HiveMetadata
                         partitionUpdate.getFileNames(),
                         partitionUpdate.getStatistics());
             }
-            else if (!partitionUpdate.isNew()) {
+            else if (partitionUpdate.getUpdateMode() == APPEND) {
                 // insert into existing partition
                 metastore.finishInsertIntoExistingPartition(
                         session,
@@ -1100,13 +1126,20 @@ public class HiveMetadata
                         partitionUpdate.getFileNames(),
                         partitionUpdate.getStatistics());
             }
-            else {
-                // insert into new partition
+            else if (partitionUpdate.getUpdateMode() == NEW || partitionUpdate.getUpdateMode() == OVERWRITE) {
+                // insert into new partition or overwrite existing partition
                 Partition partition = buildPartitionObject(session, table.get(), partitionUpdate);
                 if (!partition.getStorage().getStorageFormat().getInputFormat().equals(handle.getPartitionStorageFormat().getInputFormat()) && isRespectTableFormat(session)) {
                     throw new PrestoException(HIVE_CONCURRENT_MODIFICATION_DETECTED, "Partition format changed during insert");
                 }
+
+                if (partitionUpdate.getUpdateMode() == OVERWRITE) {
+                    metastore.dropPartition(session, handle.getSchemaName(), handle.getTableName(), partition.getValues());
+                }
                 metastore.addPartition(session, handle.getSchemaName(), handle.getTableName(), partition, partitionUpdate.getWritePath());
+            }
+            else {
+                throw new IllegalArgumentException(format("Unsupported update mode: %s", partitionUpdate.getUpdateMode()));
             }
         }
 

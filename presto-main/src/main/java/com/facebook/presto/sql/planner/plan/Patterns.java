@@ -50,6 +50,11 @@ public class Patterns
         return typeOf(ExchangeNode.class);
     }
 
+    public static Pattern<EnforceSingleRowNode> enforceSingleRow()
+    {
+        return typeOf(EnforceSingleRowNode.class);
+    }
+
     public static Pattern<FilterNode> filter()
     {
         return typeOf(FilterNode.class);
@@ -178,6 +183,11 @@ public class Patterns
         public static Property<LateralJoinNode, List<Symbol>> correlation()
         {
             return property("correlation", LateralJoinNode::getCorrelation);
+        }
+
+        public static Property<LateralJoinNode, PlanNode> subquery()
+        {
+            return property("subquery", LateralJoinNode::getSubquery);
         }
     }
 

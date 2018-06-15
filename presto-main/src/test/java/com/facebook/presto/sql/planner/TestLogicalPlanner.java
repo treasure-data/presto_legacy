@@ -13,8 +13,10 @@
  */
 package com.facebook.presto.sql.planner;
 
+import com.facebook.presto.Session;
 import com.facebook.presto.spi.predicate.Domain;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
+import com.facebook.presto.sql.planner.assertions.PlanMatchPattern;
 import com.facebook.presto.sql.planner.optimizations.AddLocalExchanges;
 import com.facebook.presto.sql.planner.optimizations.CheckSubqueryNodesAreRewritten;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
@@ -22,12 +24,14 @@ import com.facebook.presto.sql.planner.plan.AggregationNode;
 import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
+import com.facebook.presto.sql.planner.plan.ExchangeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
 import com.facebook.presto.sql.planner.plan.LateralJoinNode;
 import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
+import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.tests.QueryTemplate;
@@ -39,8 +43,12 @@ import org.testng.annotations.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import static com.facebook.presto.SystemSessionProperties.DISTRIBUTED_JOIN;
+import static com.facebook.presto.SystemSessionProperties.FORCE_SINGLE_NODE_OUTPUT;
+import static com.facebook.presto.SystemSessionProperties.OPTIMIZE_HASH_GENERATION;
 import static com.facebook.presto.spi.predicate.Domain.singleValue;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.createVarcharType;
@@ -52,11 +60,11 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.apply;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.constrainedTableScan;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.constrainedTableScanWithTableLayout;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.equiJoinClause;
+import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.exchange;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.expression;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.filter;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.functionCall;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.join;
-import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.lateral;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.node;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.output;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.project;
@@ -65,6 +73,12 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.strict
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.tableScan;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.values;
 import static com.facebook.presto.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
+import static com.facebook.presto.sql.planner.plan.ExchangeNode.Scope.REMOTE;
+import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.GATHER;
+import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.REPARTITION;
+import static com.facebook.presto.sql.planner.plan.ExchangeNode.Type.REPLICATE;
+import static com.facebook.presto.sql.planner.plan.JoinNode.DistributionType.PARTITIONED;
+import static com.facebook.presto.sql.planner.plan.JoinNode.DistributionType.REPLICATED;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.INNER;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.LEFT;
 import static com.facebook.presto.tests.QueryTemplate.queryTemplate;
@@ -335,15 +349,10 @@ public class TestLogicalPlanner
         assertPlan(
                 "SELECT orderkey FROM orders WHERE 3 = (SELECT orderkey)",
                 LogicalPlanner.Stage.OPTIMIZED,
-                anyTree(
-                        filter("BIGINT '3' = X",
-                                lateral(
-                                        ImmutableList.of("X"),
-                                        tableScan("orders", ImmutableMap.of("X", "orderkey")),
-                                        node(EnforceSingleRowNode.class,
-                                                project(
-                                                        node(ValuesNode.class)))))),
-                MorePredicates.<PlanOptimizer>isInstanceOfAny(AddLocalExchanges.class, CheckSubqueryNodesAreRewritten.class).negate());
+                any(
+                        filter(
+                                "X = BIGINT '3'",
+                                tableScan("orders", ImmutableMap.of("X", "orderkey")))));
     }
 
     /**
@@ -396,13 +405,10 @@ public class TestLogicalPlanner
                                                 tableScan("orders", ImmutableMap.of(
                                                         "O", "orderkey",
                                                         "C", "custkey"))),
-                                        anyTree(
-                                                lateral(
-                                                        ImmutableList.of("L"),
-                                                        tableScan("lineitem", ImmutableMap.of("L", "orderkey")),
-                                                        node(EnforceSingleRowNode.class,
-                                                                project(
-                                                                        node(ValuesNode.class)))))))),
+                                        project(
+                                                any(
+                                                        any(
+                                                                tableScan("lineitem", ImmutableMap.of("L", "orderkey")))))))),
                 MorePredicates.<PlanOptimizer>isInstanceOfAny(AddLocalExchanges.class, CheckSubqueryNodesAreRewritten.class).negate());
     }
 
@@ -466,5 +472,109 @@ public class TestLogicalPlanner
                 output(
                         filter("orderkey = BIGINT '5'",
                                 constrainedTableScanWithTableLayout("orders", filterConstraint, ImmutableMap.of("orderkey", "orderkey")))));
+    }
+
+    @Test
+    public void testBroadcastCorrelatedSubqueryAvoidsRemoteExchangeBeforeAggregation()
+    {
+        Session broadcastJoin = Session.builder(this.getQueryRunner().getDefaultSession())
+                .setSystemProperty(DISTRIBUTED_JOIN, Boolean.toString(false))
+                .setSystemProperty(FORCE_SINGLE_NODE_OUTPUT, Boolean.toString(false))
+                .build();
+
+        // make sure there is remote exchange in build side
+        PlanMatchPattern joinBuildSideWithRemoteExchange =
+                anyTree(
+                        node(JoinNode.class,
+                                anyTree(
+                                        node(TableScanNode.class)),
+                                anyTree(
+                                        exchange(REMOTE, ExchangeNode.Type.REPLICATE,
+                                                anyTree(
+                                                        node(TableScanNode.class))))));
+
+        // validates that there exists only one remote exchange
+        Consumer<Plan> validateSingleRemoteExchange = plan -> assertEquals(
+                countOfMatchingNodes(
+                        plan,
+                        node -> node instanceof ExchangeNode && ((ExchangeNode) node).getScope() == REMOTE),
+                1);
+
+        // region is unpartitioned, AssignUniqueId should provide satisfying partitioning for count(*) after LEFT JOIN
+        assertPlanWithSession(
+                "SELECT (SELECT count(*) FROM region r2 WHERE r2.regionkey > r1.regionkey) FROM region r1",
+                broadcastJoin,
+                false,
+                joinBuildSideWithRemoteExchange,
+                validateSingleRemoteExchange);
+
+        // orders is naturally partitioned, AssignUniqueId should not overwrite its natural partitioning
+        assertPlanWithSession(
+                "SELECT count(count) " +
+                        "FROM (SELECT o1.orderkey orderkey, (SELECT count(*) FROM orders o2 WHERE o2.orderkey > o1.orderkey) count FROM orders o1) " +
+                        "GROUP BY orderkey",
+                broadcastJoin,
+                false,
+                joinBuildSideWithRemoteExchange,
+                validateSingleRemoteExchange);
+    }
+
+    @Test
+    public void testUsesDistributedJoinIfNaturallyPartitionedOnProbeSymbols()
+    {
+        Session broadcastJoin = Session.builder(this.getQueryRunner().getDefaultSession())
+                .setSystemProperty(DISTRIBUTED_JOIN, Boolean.toString(false))
+                .setSystemProperty(FORCE_SINGLE_NODE_OUTPUT, Boolean.toString(false))
+                .setSystemProperty(OPTIMIZE_HASH_GENERATION, Boolean.toString(false))
+                .build();
+
+        // replicated join with naturally partitioned and distributed probe side is rewritten to partitioned join
+        assertPlanWithSession(
+                "SELECT r1.regionkey FROM (SELECT regionkey FROM region GROUP BY regionkey) r1, region r2 WHERE r2.regionkey = r1.regionkey",
+                broadcastJoin,
+                false,
+                anyTree(
+                        join(INNER, ImmutableList.of(equiJoinClause("LEFT_REGIONKEY", "RIGHT_REGIONKEY")), Optional.empty(), Optional.of(PARTITIONED),
+                                // the only remote exchange in probe side should be below aggregation
+                                aggregation(ImmutableMap.of(),
+                                        anyTree(
+                                                exchange(REMOTE, REPARTITION,
+                                                        anyTree(
+                                                                tableScan("region", ImmutableMap.of("LEFT_REGIONKEY", "regionkey")))))),
+                                anyTree(
+                                        exchange(REMOTE, REPARTITION,
+                                                tableScan("region", ImmutableMap.of("RIGHT_REGIONKEY", "regionkey")))))),
+                plan -> // make sure there are only two remote exchanges (one in probe and one in build side)
+                        assertEquals(
+                                countOfMatchingNodes(
+                                        plan,
+                                        node -> node instanceof ExchangeNode && ((ExchangeNode) node).getScope() == REMOTE),
+                                2));
+
+        // replicated join is preserved if probe side is single node
+        assertPlanWithSession(
+                "SELECT * FROM (SELECT * FROM (VALUES 1) t(a)) t, region r WHERE r.regionkey = t.a",
+                broadcastJoin,
+                false,
+                anyTree(
+                        node(JoinNode.class,
+                                anyTree(
+                                        node(ValuesNode.class)),
+                                anyTree(
+                                        exchange(REMOTE, GATHER,
+                                                node(TableScanNode.class))))));
+
+        // replicated join is preserved if there are no equality criteria
+        assertPlanWithSession(
+                "SELECT * FROM (SELECT regionkey FROM region GROUP BY regionkey) r1, region r2 WHERE r2.regionkey > r1.regionkey",
+                broadcastJoin,
+                false,
+                anyTree(
+                        join(INNER, ImmutableList.of(), Optional.empty(), Optional.of(REPLICATED),
+                                anyTree(
+                                        node(TableScanNode.class)),
+                                anyTree(
+                                        exchange(REMOTE, REPLICATE,
+                                                node(TableScanNode.class))))));
     }
 }

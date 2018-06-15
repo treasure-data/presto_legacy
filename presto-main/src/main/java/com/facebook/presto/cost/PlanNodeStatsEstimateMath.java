@@ -110,9 +110,11 @@ public class PlanNodeStatsEstimateMath
         double newRowCount = left.getOutputRowCount() + right.getOutputRowCount();
 
         Stream.concat(left.getSymbolsWithKnownStatistics().stream(), right.getSymbolsWithKnownStatistics().stream())
+                .distinct()
                 .forEach(symbol -> {
                     statsBuilder.addSymbolStatistics(symbol,
-                            addColumnStats(left.getSymbolStatistics(symbol),
+                            addColumnStats(
+                                    left.getSymbolStatistics(symbol),
                                     left.getOutputRowCount(),
                                     right.getSymbolStatistics(symbol),
                                     right.getOutputRowCount(),

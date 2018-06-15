@@ -22,8 +22,10 @@ import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.client.ServerInfo;
 import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.connector.system.SystemConnectorModule;
+import com.facebook.presto.cost.AggregationStatsRule;
 import com.facebook.presto.cost.CoefficientBasedStatsCalculator;
 import com.facebook.presto.cost.ComposableStatsCalculator;
+import com.facebook.presto.cost.ComposableStatsCalculator.Rule;
 import com.facebook.presto.cost.CostCalculator;
 import com.facebook.presto.cost.CostCalculator.EstimatedExchanges;
 import com.facebook.presto.cost.CostCalculatorUsingExchanges;
@@ -40,9 +42,12 @@ import com.facebook.presto.cost.ProjectStatsRule;
 import com.facebook.presto.cost.ScalarStatsCalculator;
 import com.facebook.presto.cost.SelectingStatsCalculator;
 import com.facebook.presto.cost.SelectingStatsCalculator.New;
+import com.facebook.presto.cost.SemiJoinStatsRule;
+import com.facebook.presto.cost.SimpleFilterProjectSemiJoinStatsRule;
 import com.facebook.presto.cost.StatsCalculator;
 import com.facebook.presto.cost.StatsNormalizer;
 import com.facebook.presto.cost.TableScanStatsRule;
+import com.facebook.presto.cost.UnionStatsRule;
 import com.facebook.presto.cost.ValuesStatsRule;
 import com.facebook.presto.event.query.QueryMonitor;
 import com.facebook.presto.event.query.QueryMonitorConfig;
@@ -206,7 +211,8 @@ public class ServerMainModule
 
     public ServerMainModule(SqlParserOptions sqlParserOptions)
     {
-        this.sqlParserOptions = requireNonNull(sqlParserOptions, "sqlParserOptions is null");
+        requireNonNull(sqlParserOptions, "sqlParserOptions is null");
+        this.sqlParserOptions = SqlParserOptions.copyOf(sqlParserOptions);
     }
 
     @Override
@@ -247,6 +253,7 @@ public class ServerMainModule
 
         binder.bind(SqlParser.class).in(Scopes.SINGLETON);
         binder.bind(SqlParserOptions.class).toInstance(sqlParserOptions);
+        sqlParserOptions.useEnhancedErrorHandler(serverConfig.isEnhancedErrorReporting());
 
         bindFailureDetector(binder, serverConfig.isCoordinator());
 
@@ -513,9 +520,10 @@ public class ServerMainModule
         ScalarStatsCalculator scalarStatsCalculator = new ScalarStatsCalculator(metadata);
         FilterStatsCalculator filterStatsCalculator = new FilterStatsCalculator(metadata, scalarStatsCalculator, normalizer);
 
-        ImmutableList.Builder<ComposableStatsCalculator.Rule> rules = ImmutableList.builder();
+        ImmutableList.Builder<Rule<?>> rules = ImmutableList.builder();
         rules.add(new OutputStatsRule());
         rules.add(new TableScanStatsRule(metadata, normalizer));
+        rules.add(new SimpleFilterProjectSemiJoinStatsRule(normalizer, filterStatsCalculator)); // this must be before FilterStatsRule
         rules.add(new FilterStatsRule(filterStatsCalculator));
         rules.add(new ValuesStatsRule(metadata));
         rules.add(new LimitStatsRule(normalizer));
@@ -523,6 +531,9 @@ public class ServerMainModule
         rules.add(new ProjectStatsRule(scalarStatsCalculator, normalizer));
         rules.add(new ExchangeStatsRule(normalizer));
         rules.add(new JoinStatsRule(filterStatsCalculator, normalizer));
+        rules.add(new AggregationStatsRule(normalizer));
+        rules.add(new UnionStatsRule(normalizer));
+        rules.add(new SemiJoinStatsRule());
 
         return new ComposableStatsCalculator(rules.build());
     }

@@ -133,6 +133,9 @@ public class FilterStatsCalculator
         @Override
         protected Optional<PlanNodeStatsEstimate> visitNotExpression(NotExpression node, Void context)
         {
+            if (node.getValue() instanceof IsNullPredicate) {
+                return process(new IsNotNullPredicate(((IsNullPredicate) node.getValue()).getValue()));
+            }
             return process(node.getValue()).map(childStats -> differenceInStats(input, childStats));
         }
 
@@ -253,8 +256,8 @@ public class FilterStatsCalculator
         @Override
         protected Optional<PlanNodeStatsEstimate> visitInPredicate(InPredicate node, Void context)
         {
-            if (!(node.getValue() instanceof SymbolReference) || !(node.getValueList() instanceof InListExpression)) {
-                return visitExpression(node, context);
+            if (!(node.getValueList() instanceof InListExpression)) {
+                return Optional.empty();
             }
 
             InListExpression inList = (InListExpression) node.getValueList();
@@ -263,7 +266,7 @@ public class FilterStatsCalculator
                     .collect(ImmutableList.toImmutableList());
 
             if (!valuesEqualityStats.stream().allMatch(Optional::isPresent)) {
-                return visitExpression(node, context);
+                return Optional.empty();
             }
 
             PlanNodeStatsEstimate statsSum = valuesEqualityStats.stream()
@@ -271,18 +274,25 @@ public class FilterStatsCalculator
                     .reduce(filterForFalseExpression().get(), PlanNodeStatsEstimateMath::addStatsAndSumDistinctValues);
 
             if (isNaN(statsSum.getOutputRowCount())) {
-                return visitExpression(node, context);
+                return Optional.empty();
             }
 
-            Symbol inValueSymbol = Symbol.from(node.getValue());
-            SymbolStatsEstimate symbolStats = input.getSymbolStatistics(inValueSymbol);
-            double notNullValuesBeforeIn = input.getOutputRowCount() * (1 - symbolStats.getNullsFraction());
+            Optional<Symbol> inValueSymbol = asSymbol(node.getValue());
+            SymbolStatsEstimate inValueStats = getExpressionStats(node.getValue());
+            if (Objects.equals(inValueStats, UNKNOWN_STATS)) {
+                return Optional.empty();
+            }
 
-            SymbolStatsEstimate newSymbolStats = statsSum.getSymbolStatistics(inValueSymbol)
-                    .mapDistinctValuesCount(newDistinctValuesCount -> min(newDistinctValuesCount, symbolStats.getDistinctValuesCount()));
+            double notNullValuesBeforeIn = input.getOutputRowCount() * (1 - inValueStats.getNullsFraction());
 
-            return Optional.of(input.mapOutputRowCount(rowCount -> min(statsSum.getOutputRowCount(), notNullValuesBeforeIn))
-                    .mapSymbolColumnStatistics(inValueSymbol, oldSymbolStats -> newSymbolStats));
+            PlanNodeStatsEstimate estimate = input.mapOutputRowCount(rowCount -> min(statsSum.getOutputRowCount(), notNullValuesBeforeIn));
+
+            if (inValueSymbol.isPresent()) {
+                SymbolStatsEstimate newSymbolStats = statsSum.getSymbolStatistics(inValueSymbol.get())
+                        .mapDistinctValuesCount(newDistinctValuesCount -> min(newDistinctValuesCount, inValueStats.getDistinctValuesCount()));
+                estimate = estimate.mapSymbolColumnStatistics(inValueSymbol.get(), oldSymbolStats -> newSymbolStats);
+            }
+            return Optional.of(estimate);
         }
 
         @Override
@@ -320,6 +330,10 @@ public class FilterStatsCalculator
             SymbolStatsEstimate rightStats = getExpressionStats(right);
             if (Objects.equals(rightStats, UNKNOWN_STATS)) {
                 return visitExpression(node, context);
+            }
+
+            if (left instanceof SymbolReference && Objects.equals(left, right)) {
+                return process(new IsNotNullPredicate(left));
             }
 
             if (isSingleValue(rightStats)) {

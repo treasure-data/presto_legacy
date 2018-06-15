@@ -24,15 +24,23 @@ import javax.inject.Inject;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
+import static com.facebook.presto.hive.HiveSessionProperties.InsertExistingPartitionsBehavior.APPEND;
+import static com.facebook.presto.hive.HiveSessionProperties.InsertExistingPartitionsBehavior.ERROR;
 import static com.facebook.presto.spi.session.PropertyMetadata.booleanSessionProperty;
+import static com.facebook.presto.spi.session.PropertyMetadata.doubleSessionProperty;
+import static com.facebook.presto.spi.session.PropertyMetadata.integerSessionProperty;
 import static com.facebook.presto.spi.session.PropertyMetadata.stringSessionProperty;
+import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 
 public final class HiveSessionProperties
 {
     private static final String BUCKET_EXECUTION_ENABLED = "bucket_execution_enabled";
     private static final String FORCE_LOCAL_SCHEDULING = "force_local_scheduling";
+    private static final String INSERT_EXISTING_PARTITIONS_BEHAVIOR = "insert_existing_partitions_behavior";
     private static final String ORC_BLOOM_FILTERS_ENABLED = "orc_bloom_filters_enabled";
     private static final String ORC_MAX_MERGE_DISTANCE = "orc_max_merge_distance";
     private static final String ORC_MAX_BUFFER_SIZE = "orc_max_buffer_size";
@@ -43,8 +51,12 @@ public final class HiveSessionProperties
     private static final String ORC_STRING_STATISTICS_LIMIT = "orc_string_statistics_limit";
     private static final String ORC_OPTIMIZED_WRITER_ENABLED = "orc_optimized_writer_enabled";
     private static final String ORC_OPTIMIZED_WRITER_VALIDATE = "orc_optimized_writer_validate";
+    private static final String ORC_OPTIMIZED_WRITER_VALIDATE_PERCENTAGE = "orc_optimized_writer_validate_percentage";
     private static final String ORC_OPTIMIZED_WRITER_VALIDATE_MODE = "orc_optimized_writer_validate_mode";
+    private static final String ORC_OPTIMIZED_WRITER_MIN_STRIPE_SIZE = "orc_optimized_writer_min_stripe_size";
     private static final String ORC_OPTIMIZED_WRITER_MAX_STRIPE_SIZE = "orc_optimized_writer_max_stripe_size";
+    private static final String ORC_OPTIMIZED_WRITER_MAX_STRIPE_ROWS = "orc_optimized_writer_max_stripe_rows";
+    private static final String ORC_OPTIMIZED_WRITER_MAX_DICTIONARY_MEMORY = "orc_optimized_writer_max_dictionary_memory";
     private static final String HIVE_STORAGE_FORMAT = "hive_storage_format";
     private static final String RESPECT_TABLE_FORMAT = "respect_table_format";
     private static final String PARQUET_PREDICATE_PUSHDOWN_ENABLED = "parquet_predicate_pushdown_enabled";
@@ -58,6 +70,24 @@ public final class HiveSessionProperties
     private static final String STATISTICS_ENABLED = "statistics_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
+
+    public enum InsertExistingPartitionsBehavior
+    {
+        ERROR,
+        APPEND,
+        OVERWRITE,
+        /**/;
+
+        public static InsertExistingPartitionsBehavior valueOf(String value, boolean immutablePartition)
+        {
+            InsertExistingPartitionsBehavior enumValue = valueOf(value.toUpperCase(ENGLISH));
+            if (immutablePartition) {
+                checkArgument(enumValue != APPEND, format("Presto is configured to treat Hive partitions as immutable. %s is not allowed to be set to %s", INSERT_EXISTING_PARTITIONS_BEHAVIOR, APPEND));
+            }
+
+            return enumValue;
+        }
+    }
 
     @Inject
     public HiveSessionProperties(HiveClientConfig hiveClientConfig, OrcFileWriterConfig orcFileWriterConfig)
@@ -73,6 +103,15 @@ public final class HiveSessionProperties
                         "Only schedule splits on workers colocated with data node",
                         hiveClientConfig.isForceLocalScheduling(),
                         false),
+                new PropertyMetadata<>(
+                        INSERT_EXISTING_PARTITIONS_BEHAVIOR,
+                        "Behavior on insert existing partitions; this session property doesn't control behavior on insert existing unpartitioned table",
+                        VARCHAR,
+                        InsertExistingPartitionsBehavior.class,
+                        hiveClientConfig.isImmutablePartitions() ? ERROR : APPEND,
+                        false,
+                        value -> InsertExistingPartitionsBehavior.valueOf((String) value, hiveClientConfig.isImmutablePartitions()),
+                        InsertExistingPartitionsBehavior::toString),
                 booleanSessionProperty(
                         ORC_BLOOM_FILTERS_ENABLED,
                         "ORC: Enable bloom filters for predicate pushdown",
@@ -123,15 +162,35 @@ public final class HiveSessionProperties
                         "Experimental: ORC: Force all validation for files",
                         hiveClientConfig.getOrcWriterValidationPercentage() > 0.0,
                         false),
+                doubleSessionProperty(
+                        ORC_OPTIMIZED_WRITER_VALIDATE_PERCENTAGE,
+                        "Experimental: ORC: sample percentage for validation for files",
+                        hiveClientConfig.getOrcWriterValidationPercentage(),
+                        false),
                 stringSessionProperty(
                         ORC_OPTIMIZED_WRITER_VALIDATE_MODE,
                         "Experimental: ORC: Level of detail in ORC validation",
                         hiveClientConfig.getOrcWriterValidationMode().toString(),
                         false),
                 dataSizeSessionProperty(
+                        ORC_OPTIMIZED_WRITER_MIN_STRIPE_SIZE,
+                        "Experimental: ORC: Min stripe size",
+                        orcFileWriterConfig.getStripeMinSize(),
+                        false),
+                dataSizeSessionProperty(
                         ORC_OPTIMIZED_WRITER_MAX_STRIPE_SIZE,
                         "Experimental: ORC: Max stripe size",
                         orcFileWriterConfig.getStripeMaxSize(),
+                        false),
+                integerSessionProperty(
+                        ORC_OPTIMIZED_WRITER_MAX_STRIPE_ROWS,
+                        "Experimental: ORC: Max stripe row count",
+                        orcFileWriterConfig.getStripeMaxRowCount(),
+                        false),
+                dataSizeSessionProperty(
+                        ORC_OPTIMIZED_WRITER_MAX_DICTIONARY_MEMORY,
+                        "Experimental: ORC: Max dictionary memory",
+                        orcFileWriterConfig.getDictionaryMaxMemory(),
                         false),
                 stringSessionProperty(
                         HIVE_STORAGE_FORMAT,
@@ -205,6 +264,11 @@ public final class HiveSessionProperties
         return session.getProperty(FORCE_LOCAL_SCHEDULING, Boolean.class);
     }
 
+    public static InsertExistingPartitionsBehavior getInsertExistingPartitionsBehavior(ConnectorSession session)
+    {
+        return session.getProperty(INSERT_EXISTING_PARTITIONS_BEHAVIOR, InsertExistingPartitionsBehavior.class);
+    }
+
     public static boolean isParquetOptimizedReaderEnabled(ConnectorSession session)
     {
         return session.getProperty(PARQUET_OPTIMIZED_READER_ENABLED, Boolean.class);
@@ -255,12 +319,13 @@ public final class HiveSessionProperties
         return session.getProperty(ORC_OPTIMIZED_WRITER_ENABLED, Boolean.class);
     }
 
-    public static boolean isOrcOptimizedWriterValidate(ConnectorSession session, double orcWriterValidationPercentage)
+    public static boolean isOrcOptimizedWriterValidate(ConnectorSession session)
     {
         boolean validate = session.getProperty(ORC_OPTIMIZED_WRITER_VALIDATE, Boolean.class);
+        double percentage = session.getProperty(ORC_OPTIMIZED_WRITER_VALIDATE_PERCENTAGE, Double.class);
 
         // if validation sampling is disabled, just use the session property value
-        if (orcWriterValidationPercentage <= 0.0) {
+        if (percentage <= 0.0) {
             return validate;
         }
 
@@ -271,7 +336,7 @@ public final class HiveSessionProperties
 
         // session property can not force validation when sampling is enabled
         // todo change this if session properties support null
-        return ThreadLocalRandom.current().nextDouble() < orcWriterValidationPercentage;
+        return ThreadLocalRandom.current().nextDouble(100) < percentage;
     }
 
     public static OrcWriteValidationMode getOrcOptimizedWriterValidateMode(ConnectorSession session)
@@ -279,9 +344,24 @@ public final class HiveSessionProperties
         return OrcWriteValidationMode.valueOf(session.getProperty(ORC_OPTIMIZED_WRITER_VALIDATE_MODE, String.class).toUpperCase(ENGLISH));
     }
 
+    public static DataSize getOrcOptimizedWriterMinStripeSize(ConnectorSession session)
+    {
+        return session.getProperty(ORC_OPTIMIZED_WRITER_MIN_STRIPE_SIZE, DataSize.class);
+    }
+
     public static DataSize getOrcOptimizedWriterMaxStripeSize(ConnectorSession session)
     {
         return session.getProperty(ORC_OPTIMIZED_WRITER_MAX_STRIPE_SIZE, DataSize.class);
+    }
+
+    public static int getOrcOptimizedWriterMaxStripeRows(ConnectorSession session)
+    {
+        return session.getProperty(ORC_OPTIMIZED_WRITER_MAX_STRIPE_ROWS, Integer.class);
+    }
+
+    public static DataSize getOrcOptimizedWriterMaxDictionaryMemory(ConnectorSession session)
+    {
+        return session.getProperty(ORC_OPTIMIZED_WRITER_MAX_DICTIONARY_MEMORY, DataSize.class);
     }
 
     public static HiveStorageFormat getHiveStorageFormat(ConnectorSession session)

@@ -14,9 +14,13 @@
 package com.facebook.presto.cost;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.cost.ComposableStatsCalculator.Rule;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.Symbol;
+import com.facebook.presto.sql.planner.iterative.Lookup;
+import com.facebook.presto.sql.planner.optimizations.PlanNodeSearcher;
 import com.facebook.presto.sql.planner.plan.PlanNode;
+import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.HashMap;
@@ -63,6 +67,13 @@ public class StatsCalculatorAssertion
         return this;
     }
 
+    public StatsCalculatorAssertion withSourceStats(PlanNodeId planNodeId, PlanNodeStatsEstimate sourceStats)
+    {
+        PlanNode sourceNode = PlanNodeSearcher.searchFrom(planNode).where(node -> node.getId().equals(planNodeId)).findOnlyElement();
+        sourcesStats.put(sourceNode, sourceStats);
+        return this;
+    }
+
     public StatsCalculatorAssertion check(Consumer<PlanNodeStatsAssertion> statisticsAssertionConsumer)
     {
         PlanNodeStatsEstimate statsEstimate = statsCalculator.calculateStats(planNode, this::getSourceStats, noLookup(), session, types);
@@ -70,12 +81,17 @@ public class StatsCalculatorAssertion
         return this;
     }
 
-    public StatsCalculatorAssertion check(ComposableStatsCalculator.Rule rule, Consumer<PlanNodeStatsAssertion> statisticsAssertionConsumer)
+    public StatsCalculatorAssertion check(Rule<?> rule, Consumer<PlanNodeStatsAssertion> statisticsAssertionConsumer)
     {
-        Optional<PlanNodeStatsEstimate> statsEstimate = rule.calculate(planNode, this::getSourceStats, noLookup(), session, types);
+        Optional<PlanNodeStatsEstimate> statsEstimate = calculatedStats(rule, planNode, this::getSourceStats, noLookup(), session, types);
         checkState(statsEstimate.isPresent(), "Expected stats estimates to be present");
         statisticsAssertionConsumer.accept(PlanNodeStatsAssertion.assertThat(statsEstimate.get()));
         return this;
+    }
+
+    private static <T extends PlanNode> Optional<PlanNodeStatsEstimate> calculatedStats(Rule<T> rule, PlanNode node, StatsProvider sourceStats, Lookup lookup, Session session, Map<Symbol, Type> types)
+    {
+        return rule.calculate((T) node, sourceStats, lookup, session, types);
     }
 
     private PlanNodeStatsEstimate getSourceStats(PlanNode sourceNode)

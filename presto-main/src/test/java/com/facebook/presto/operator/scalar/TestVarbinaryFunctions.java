@@ -25,6 +25,7 @@ import java.util.Base64;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
+import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.RealType.REAL;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
@@ -187,6 +188,27 @@ public class TestVarbinaryFunctions
     }
 
     @Test
+    public void testToBigEndian32()
+    {
+        assertFunction("to_big_endian_32(0)", VARBINARY, sqlVarbinaryHex("00000000"));
+        assertFunction("to_big_endian_32(1)", VARBINARY, sqlVarbinaryHex("00000001"));
+        assertFunction("to_big_endian_32(2147483647)", VARBINARY, sqlVarbinaryHex("7FFFFFFF"));
+        assertFunction("to_big_endian_32(-2147483647)", VARBINARY, sqlVarbinaryHex("80000001"));
+    }
+
+    @Test
+    public void testFromBigEndian32()
+    {
+        assertFunction("from_big_endian_32(from_hex('00000000'))", INTEGER, 0);
+        assertFunction("from_big_endian_32(from_hex('00000001'))", INTEGER, 1);
+        assertFunction("from_big_endian_32(from_hex('7FFFFFFF'))", INTEGER, 2147483647);
+        assertFunction("from_big_endian_32(from_hex('80000001'))", INTEGER, -2147483647);
+        assertInvalidFunction("from_big_endian_32(from_hex(''))", INVALID_FUNCTION_ARGUMENT);
+        assertInvalidFunction("from_big_endian_32(from_hex('1111'))", INVALID_FUNCTION_ARGUMENT);
+        assertInvalidFunction("from_big_endian_32(from_hex('000000000000000011'))", INVALID_FUNCTION_ARGUMENT);
+    }
+
+    @Test
     public void testToIEEE754Binary32()
     {
         assertFunction("to_ieee754_32(CAST(0.0 AS REAL))", VARBINARY, sqlVarbinaryHex("00000000"));
@@ -247,6 +269,30 @@ public class TestVarbinaryFunctions
         assertFunction("from_ieee754_64(to_ieee754_64(4.9E-324))", DOUBLE, 4.9E-324);
         assertFunction("from_ieee754_64(to_ieee754_64(-4.9E-324))", DOUBLE, -4.9E-324);
         assertInvalidFunction("from_ieee754_64(from_hex('00000000'))", "Input floating-point value must be exactly 8 bytes long");
+    }
+
+    @Test
+    public void testLpad()
+    {
+        assertFunction("lpad(x'1234',7,x'45')", VARBINARY, sqlVarbinaryHex("45454545451234"));
+        assertFunction("lpad(x'1234',7,x'4524')", VARBINARY, sqlVarbinaryHex("45244524451234"));
+        assertFunction("lpad(x'1234',3,x'4524')", VARBINARY, sqlVarbinaryHex("451234"));
+        assertFunction("lpad(x'1234',0,x'4524')", VARBINARY, sqlVarbinaryHex(""));
+        assertFunction("lpad(x'1234',1,x'4524')", VARBINARY, sqlVarbinaryHex("12"));
+        assertInvalidFunction("lpad(x'2312',-1,x'4524')", "Target length must be in the range [0.." + Integer.MAX_VALUE + "]");
+        assertInvalidFunction("lpad(x'2312',1,x'')", "Padding bytes must not be empty");
+    }
+
+    @Test
+    public void testRpad()
+    {
+        assertFunction("rpad(x'1234',7,x'45')", VARBINARY, sqlVarbinaryHex("12344545454545"));
+        assertFunction("rpad(x'1234',7,x'4524')", VARBINARY, sqlVarbinaryHex("12344524452445"));
+        assertFunction("rpad(x'1234',3,x'4524')", VARBINARY, sqlVarbinaryHex("123445"));
+        assertFunction("rpad(x'23',0,x'4524')", VARBINARY, sqlVarbinaryHex(""));
+        assertFunction("rpad(x'1234',1,x'4524')", VARBINARY, sqlVarbinaryHex("12"));
+        assertInvalidFunction("rpad(x'1234',-1,x'4524')", "Target length must be in the range [0.." + Integer.MAX_VALUE + "]");
+        assertInvalidFunction("rpad(x'1234',1,x'')", "Padding bytes must not be empty");
     }
 
     @Test

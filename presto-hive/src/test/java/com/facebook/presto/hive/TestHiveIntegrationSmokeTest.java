@@ -14,6 +14,8 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.hive.HiveSessionProperties.InsertExistingPartitionsBehavior;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.QualifiedObjectName;
 import com.facebook.presto.metadata.TableHandle;
@@ -21,6 +23,7 @@ import com.facebook.presto.metadata.TableLayout;
 import com.facebook.presto.metadata.TableLayoutResult;
 import com.facebook.presto.metadata.TableMetadata;
 import com.facebook.presto.spi.ColumnMetadata;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.type.Type;
@@ -58,6 +61,7 @@ import static com.facebook.presto.hive.HiveQueryRunner.TPCH_SCHEMA;
 import static com.facebook.presto.hive.HiveQueryRunner.createBucketedSession;
 import static com.facebook.presto.hive.HiveQueryRunner.createQueryRunner;
 import static com.facebook.presto.hive.HiveSessionProperties.RCFILE_OPTIMIZED_WRITER_ENABLED;
+import static com.facebook.presto.hive.HiveSessionProperties.getInsertExistingPartitionsBehavior;
 import static com.facebook.presto.hive.HiveTableProperties.BUCKETED_BY_PROPERTY;
 import static com.facebook.presto.hive.HiveTableProperties.BUCKET_COUNT_PROPERTY;
 import static com.facebook.presto.hive.HiveTableProperties.PARTITIONED_BY_PROPERTY;
@@ -90,6 +94,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -548,6 +553,25 @@ public class TestHiveIntegrationSmokeTest
                 "WITH (partitioned_by = ARRAY['dragonfruit'])");
     }
 
+    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "Unsupported type .* for partition: .*")
+    public void testCreateTableUnsupportedPartitionType()
+    {
+        assertUpdate("" +
+                "CREATE TABLE test_create_table_unsupported_partition_type " +
+                "(foo bigint, bar ARRAY(varchar)) " +
+                "WITH (partitioned_by = ARRAY['bar'])");
+    }
+
+    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "Unsupported type .* for partition: a")
+    public void testCreateTableUnsupportedPartitionTypeAs()
+    {
+        assertUpdate("" +
+                "CREATE TABLE test_create_table_unsupported_partition_type_as " +
+                "WITH (partitioned_by = ARRAY['a']) " +
+                "AS " +
+                "SELECT 123 x, ARRAY ['foo'] a");
+    }
+
     @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = "Unsupported Hive type: varchar\\(65536\\)\\. Supported VARCHAR types: VARCHAR\\(<=65535\\), VARCHAR\\.")
     public void testCreateTableNonSupportedVarcharColumn()
     {
@@ -592,13 +616,10 @@ public class TestHiveIntegrationSmokeTest
 
         verifyPartitionedBucketedTableAsFewRows(storageFormat, tableName);
 
-        try {
-            assertUpdate(session, "INSERT INTO " + tableName + " VALUES ('a0', 'b0', 'c')", 1);
-            fail("expected failure");
-        }
-        catch (Exception e) {
-            assertEquals(e.getMessage(), "Cannot insert into existing partition of bucketed Hive table: partition_key=c");
-        }
+        assertThatThrownBy(() -> assertUpdate(session, "INSERT INTO " + tableName + " VALUES ('a0', 'b0', 'c')", 1))
+                .hasMessage(getExpectedErrorMessageForInsertExistingBucketedTable(
+                        getInsertExistingPartitionsBehavior(getConnectorSession(session)),
+                        "partition_key=c"));
 
         assertUpdate(session, "DROP TABLE " + tableName);
         assertFalse(getQueryRunner().tableExists(session, tableName));
@@ -697,13 +718,10 @@ public class TestHiveIntegrationSmokeTest
                     format("SELECT custkey, custkey, comment, orderstatus FROM orders where custkey = %d", i));
         }
 
-        try {
-            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 1, 'comment', 'O')", 1);
-            fail("expected failure");
-        }
-        catch (Exception e) {
-            assertEquals(e.getMessage(), "Cannot insert into existing partition of bucketed Hive table: orderstatus=O");
-        }
+        assertThatThrownBy(() -> assertUpdate("INSERT INTO " + tableName + " VALUES (1, 1, 'comment', 'O')", 1))
+                .hasMessage(getExpectedErrorMessageForInsertExistingBucketedTable(
+                        getInsertExistingPartitionsBehavior(getConnectorSession(getSession())),
+                        "orderstatus=O"));
     }
 
     @Test
@@ -791,13 +809,10 @@ public class TestHiveIntegrationSmokeTest
 
         verifyPartitionedBucketedTableAsFewRows(storageFormat, tableName);
 
-        try {
-            assertUpdate(session, "INSERT INTO test_insert_partitioned_bucketed_table_few_rows VALUES ('a0', 'b0', 'c')", 1);
-            fail("expected failure");
-        }
-        catch (Exception e) {
-            assertEquals(e.getMessage(), "Cannot insert into existing partition of bucketed Hive table: partition_key=c");
-        }
+        assertThatThrownBy(() -> assertUpdate(session, "INSERT INTO test_insert_partitioned_bucketed_table_few_rows VALUES ('a0', 'b0', 'c')", 1))
+                .hasMessage(getExpectedErrorMessageForInsertExistingBucketedTable(
+                        getInsertExistingPartitionsBehavior(getConnectorSession(session)),
+                        "partition_key=c"));
 
         assertUpdate(session, "DROP TABLE test_insert_partitioned_bucketed_table_few_rows");
         assertFalse(getQueryRunner().tableExists(session, tableName));
@@ -1147,6 +1162,63 @@ public class TestHiveIntegrationSmokeTest
                 "SELECT * from " + tableName,
                 "SELECT orderkey, comment, orderstatus FROM orders");
 
+        assertUpdate(session, "DROP TABLE " + tableName);
+
+        assertFalse(getQueryRunner().tableExists(session, tableName));
+    }
+
+    @Test
+    public void testInsertPartitionedTableOverwriteExistingPartition()
+    {
+        testInsertPartitionedTableOverwriteExistingPartition(
+                Session.builder(getSession())
+                        .setCatalogSessionProperty(catalog, "insert_existing_partitions_behavior", "OVERWRITE")
+                        .build(),
+                HiveStorageFormat.ORC);
+    }
+
+    private void testInsertPartitionedTableOverwriteExistingPartition(Session session, HiveStorageFormat storageFormat)
+    {
+        String tableName = "test_insert_partitioned_table_overwrite_existing_partition";
+
+        @Language("SQL") String createTable = "" +
+                "CREATE TABLE " + tableName + " " +
+                "(" +
+                "  order_key BIGINT," +
+                "  comment VARCHAR," +
+                "  order_status VARCHAR" +
+                ") " +
+                "WITH (" +
+                "format = '" + storageFormat + "', " +
+                "partitioned_by = ARRAY[ 'order_status' ]" +
+                ") ";
+
+        assertUpdate(session, createTable);
+
+        TableMetadata tableMetadata = getTableMetadata(catalog, TPCH_SCHEMA, tableName);
+        assertEquals(tableMetadata.getMetadata().getProperties().get(STORAGE_FORMAT_PROPERTY), storageFormat);
+        assertEquals(tableMetadata.getMetadata().getProperties().get(PARTITIONED_BY_PROPERTY), ImmutableList.of("order_status"));
+
+        for (int i = 0; i < 3; i++) {
+            assertUpdate(
+                    session,
+                    format(
+                            "INSERT INTO " + tableName + " " +
+                                    "SELECT orderkey, comment, orderstatus " +
+                                    "FROM tpch.tiny.orders " +
+                                    "WHERE orderkey %% 3 = %d",
+                            i),
+                    format("SELECT count(*) from orders where orderkey %% 3 = %d", i));
+
+            // verify the partitions
+            List<?> partitions = getPartitions(tableName);
+            assertEquals(partitions.size(), 3);
+
+            assertQuery(
+                    session,
+                    "SELECT * from " + tableName,
+                    format("SELECT orderkey, comment, orderstatus FROM orders where orderkey %% 3 = %d", i));
+        }
         assertUpdate(session, "DROP TABLE " + tableName);
 
         assertFalse(getQueryRunner().tableExists(session, tableName));
@@ -1717,7 +1789,7 @@ public class TestHiveIntegrationSmokeTest
                         "   format = 'ORC',\n" +
                         "   orc_bloom_filter_columns = ARRAY['c1','c2'],\n" +
                         "   orc_bloom_filter_fpp = 7E-1,\n" +
-                        "   partitioned_by = ARRAY['c4','c5'],\n" +
+                        "   partitioned_by = ARRAY['c5'],\n" +
                         "   sorted_by = ARRAY['c1','c 2 DESC']\n" +
                         ")",
                 getSession().getCatalog().get(),
@@ -2339,6 +2411,35 @@ public class TestHiveIntegrationSmokeTest
 
             // cannot be executed in a grouped manner but should still produce correct result
             assertQuery(colocatedOneGroupAtATime, joinUngroupedWithGrouped, expectedJoinUngroupedWithGrouped);
+
+            //
+            // Outer JOIN
+            // ==========
+
+            // Chain on the probe side to test duplicating OperatorFactory
+            @Language("SQL") String chainedOuterJoin =
+                    "SELECT key1, value1, key2, value2, key3, value3\n" +
+                            "FROM\n" +
+                            "  (SELECT * FROM test_grouped_join1 where mod(key1, 2) = 0)\n" +
+                            "RIGHT JOIN\n" +
+                            "  (SELECT * FROM test_grouped_join2 where mod(key2, 3) = 0)\n" +
+                            "ON key1 = key2\n" +
+                            "FULL JOIN\n" +
+                            "  (SELECT * FROM test_grouped_join3 where mod(key3, 5) = 0)\n" +
+                            "ON key2 = key3";
+            @Language("SQL") String expectedChainedOuterJoinResult = "SELECT\n" +
+                    "  CASE WHEN mod(orderkey, 2 * 3) = 0 THEN orderkey END,\n" +
+                    "  CASE WHEN mod(orderkey, 2 * 3) = 0 THEN comment END,\n" +
+                    "  CASE WHEN mod(orderkey, 3) = 0 THEN orderkey END,\n" +
+                    "  CASE WHEN mod(orderkey, 3) = 0 THEN comment END,\n" +
+                    "  CASE WHEN mod(orderkey, 5) = 0 THEN orderkey END,\n" +
+                    "  CASE WHEN mod(orderkey, 5) = 0 THEN comment END\n" +
+                    "FROM ORDERS\n" +
+                    "WHERE mod(orderkey, 3) = 0 OR mod(orderkey, 5) = 0";
+
+            assertQuery(notColocated, chainedOuterJoin, expectedChainedOuterJoinResult);
+            assertQuery(colocatedAllGroupsAtOnce, chainedOuterJoin, expectedChainedOuterJoinResult);
+            assertQuery(colocatedOneGroupAtATime, chainedOuterJoin, expectedChainedOuterJoinResult);
         }
         finally {
             assertUpdate("DROP TABLE IF EXISTS test_grouped_join1");
@@ -2481,6 +2582,22 @@ public class TestHiveIntegrationSmokeTest
     private static class RollbackException
             extends RuntimeException
     {
+    }
+
+    private static String getExpectedErrorMessageForInsertExistingBucketedTable(InsertExistingPartitionsBehavior behavior, String partitionName)
+    {
+        if (behavior == InsertExistingPartitionsBehavior.APPEND) {
+            return "Cannot insert into existing partition of bucketed Hive table: " + partitionName;
+        }
+        if (behavior == InsertExistingPartitionsBehavior.ERROR) {
+            return "Cannot insert into an existing partition of Hive table: " + partitionName;
+        }
+        throw new IllegalArgumentException("Unexpected insertExistingPartitionsBehavior: " + behavior);
+    }
+
+    private static ConnectorSession getConnectorSession(Session session)
+    {
+        return session.toConnectorSession(new ConnectorId(session.getCatalog().get()));
     }
 
     private List<TestingHiveStorageFormat> getAllTestingHiveStorageFormat()

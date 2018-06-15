@@ -97,8 +97,8 @@ public class HiveClientConfig
     private List<String> resourceConfigFiles;
 
     private boolean useParquetColumnNames;
-    private boolean parquetOptimizedReaderEnabled;
-    private boolean parquetPredicatePushdownEnabled;
+    private boolean parquetOptimizedReaderEnabled = true;
+    private boolean parquetPredicatePushdownEnabled = true;
 
     private boolean assumeCanonicalPartitionKeys;
 
@@ -112,7 +112,7 @@ public class HiveClientConfig
     private DataSize orcMaxReadBlockSize = new DataSize(16, MEGABYTE);
     private boolean orcLazyReadSmallRanges = true;
     private boolean orcOptimizedWriterEnabled;
-    private double orcWriterValidationPercentage = 1.0;
+    private double orcWriterValidationPercentage = 100.0;
     private OrcWriteValidationMode orcWriterValidationMode = OrcWriteValidationMode.BOTH;
 
     private boolean rcfileOptimizedWriterEnabled = true;

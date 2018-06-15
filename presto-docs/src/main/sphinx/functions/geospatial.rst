@@ -109,6 +109,11 @@ Operations
 
     Returns the bounding rectangular polygon of a geometry.
 
+.. function:: ST_EnvelopeAsPts(Geometry) -> Geometry
+
+    Returns an array of two points: the lower left and upper right corners of the bounding
+    rectangular polygon of a geometry. Returns null if input geometry is empty.
+
 .. function:: ST_ExteriorRing(Geometry) -> Geometry
 
     Returns a line string representing the exterior ring of the input polygon.
@@ -126,8 +131,11 @@ Accessors
 
 .. function:: ST_Area(Geometry) -> double
 
-    Returns the area of a polygon using Euclidean measurement on a two dimensional
-    plane (based on spatial ref) in projected units.
+    Returns the 2D Euclidean area of a geometry.
+
+    For Point and LineString types, returns 0.0.
+    For GeometryCollection types, returns the sum of the areas of the individual
+    geometries.
 
 .. function:: ST_Centroid(Geometry) -> Geometry
 
