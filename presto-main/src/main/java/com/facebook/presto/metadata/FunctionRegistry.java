@@ -14,7 +14,7 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.presto.block.BlockSerdeUtil;
-import com.facebook.presto.operator.aggregation.ApproximateCountDistinctAggregations;
+import com.facebook.presto.operator.aggregation.ApproximateCountDistinctAggregation;
 import com.facebook.presto.operator.aggregation.ApproximateDoublePercentileAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateDoublePercentileArrayAggregations;
 import com.facebook.presto.operator.aggregation.ApproximateLongPercentileAggregations;
@@ -30,6 +30,7 @@ import com.facebook.presto.operator.aggregation.BooleanOrAggregation;
 import com.facebook.presto.operator.aggregation.CentralMomentsAggregation;
 import com.facebook.presto.operator.aggregation.CountAggregation;
 import com.facebook.presto.operator.aggregation.CountIfAggregation;
+import com.facebook.presto.operator.aggregation.DefaultApproximateCountDistinctAggregation;
 import com.facebook.presto.operator.aggregation.DoubleCorrelationAggregation;
 import com.facebook.presto.operator.aggregation.DoubleCovarianceAggregation;
 import com.facebook.presto.operator.aggregation.DoubleHistogramAggregation;
@@ -410,6 +411,8 @@ public class FunctionRegistry
                 .window(NthValueFunction.class)
                 .window(LagFunction.class)
                 .window(LeadFunction.class)
+                .aggregate(ApproximateCountDistinctAggregation.class)
+                .aggregate(DefaultApproximateCountDistinctAggregation.class)
                 .aggregates(CountAggregation.class)
                 .aggregates(VarianceAggregation.class)
                 .aggregates(CentralMomentsAggregation.class)
@@ -433,7 +436,6 @@ public class FunctionRegistry
                 .aggregates(IntervalYearToMonthAverageAggregation.class)
                 .aggregates(GeometricMeanAggregations.class)
                 .aggregates(RealGeometricMeanAggregations.class)
-                .aggregates(ApproximateCountDistinctAggregations.class)
                 .aggregates(MergeHyperLogLogAggregation.class)
                 .aggregates(ApproximateSetAggregation.class)
                 .aggregates(DoubleHistogramAggregation.class)
@@ -451,7 +453,7 @@ public class FunctionRegistry
                 .scalars(SessionFunctions.class)
                 .scalars(StringFunctions.class)
                 .scalars(WordStemFunction.class)
-                .scalars(SplitToMapFunction.class)
+                .scalar(SplitToMapFunction.class)
                 .scalars(VarbinaryFunctions.class)
                 .scalars(UrlFunctions.class)
                 .scalars(MathFunctions.class)
@@ -538,7 +540,7 @@ public class FunctionRegistry
                 .scalar(MapKeys.class)
                 .scalar(MapValues.class)
                 .scalar(MapCardinalityFunction.class)
-                .scalars(EmptyMapConstructor.class)
+                .scalar(EmptyMapConstructor.class)
                 .scalar(TypeOfFunction.class)
                 .scalar(TryFunction.class)
                 .functions(ZIP_WITH_FUNCTION, MAP_ZIP_WITH_FUNCTION)

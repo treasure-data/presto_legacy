@@ -10,7 +10,7 @@
 
     <groupId>com.facebook.presto</groupId>
     <artifactId>presto-root</artifactId>
-    <version>0.204</version>
+    <version>0.205</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -30,7 +30,7 @@
     <scm>
         <connection>scm:git:git://github.com/facebook/presto.git</connection>
         <url>https://github.com/facebook/presto</url>
-      <tag>0.204</tag>
+      <tag>0.205</tag>
   </scm>
 
     <properties>
@@ -44,7 +44,7 @@
         <air.maven.version>3.3.9</air.maven.version>
 
         <dep.antlr.version>4.6</dep.antlr.version>
-        <dep.airlift.version>0.170</dep.airlift.version>
+        <dep.airlift.version>0.171</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.slice.version>0.35</dep.slice.version>
         <dep.aws-sdk.version>1.11.293</dep.aws-sdk.version>
@@ -118,6 +118,7 @@
         <module>presto-thrift-connector</module>
         <module>presto-matching</module>
         <module>presto-memory-context</module>
+        <module>presto-proxy</module>
     </modules>
 
     <dependencyManagement>
@@ -647,12 +648,6 @@
             </dependency>
 
             <dependency>
-                <groupId>org.iq80.snappy</groupId>
-                <artifactId>snappy</artifactId>
-                <version>0.3</version>
-            </dependency>
-
-            <dependency>
                 <groupId>org.openjdk.jol</groupId>
                 <artifactId>jol-core</artifactId>
                 <version>0.2</version>
@@ -723,7 +718,7 @@
             <dependency>
                 <groupId>jline</groupId>
                 <artifactId>jline</artifactId>
-                <version>2.13</version>
+                <version>2.14.6</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.fusesource.jansi</groupId>
@@ -804,12 +799,6 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-math3</artifactId>
                 <version>3.6.1</version>
-            </dependency>
-
-            <dependency>
-                <groupId>commons-codec</groupId>
-                <artifactId>commons-codec</artifactId>
-                <version>1.10</version>
             </dependency>
 
             <dependency>

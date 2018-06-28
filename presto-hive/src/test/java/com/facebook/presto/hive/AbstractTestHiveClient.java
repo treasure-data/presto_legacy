@@ -80,6 +80,7 @@ import com.facebook.presto.spi.statistics.TableStatistics;
 import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.MapType;
 import com.facebook.presto.spi.type.NamedTypeSignature;
+import com.facebook.presto.spi.type.RowFieldName;
 import com.facebook.presto.spi.type.RowType;
 import com.facebook.presto.spi.type.SqlDate;
 import com.facebook.presto.spi.type.SqlTimestamp;
@@ -144,7 +145,6 @@ import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.HiveColumnHandle.bucketColumnHandle;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_PARTITION_VALUE;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMATCH;
-import static com.facebook.presto.hive.HiveErrorCode.HIVE_UNSUPPORTED_FORMAT;
 import static com.facebook.presto.hive.HiveMetadata.PRESTO_QUERY_ID_NAME;
 import static com.facebook.presto.hive.HiveMetadata.PRESTO_VERSION_NAME;
 import static com.facebook.presto.hive.HiveMetadata.convertToPredicate;
@@ -219,7 +219,6 @@ import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.slice.Slices.utf8Slice;
-import static io.airlift.testing.Assertions.assertContains;
 import static io.airlift.testing.Assertions.assertEqualsIgnoreOrder;
 import static io.airlift.testing.Assertions.assertGreaterThan;
 import static io.airlift.testing.Assertions.assertGreaterThanOrEqual;
@@ -246,7 +245,6 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-@Test(groups = "hive")
 public abstract class AbstractTestHiveClient
 {
     protected static final String TEMPORARY_TABLE_PREFIX = "tmp_presto_test_";
@@ -260,9 +258,9 @@ public abstract class AbstractTestHiveClient
     private static final Type ARRAY_TYPE = arrayType(createUnboundedVarcharType());
     private static final Type MAP_TYPE = mapType(createUnboundedVarcharType(), BIGINT);
     private static final Type ROW_TYPE = rowType(ImmutableList.of(
-            new NamedTypeSignature("f_string", createUnboundedVarcharType().getTypeSignature()),
-            new NamedTypeSignature("f_bigint", BIGINT.getTypeSignature()),
-            new NamedTypeSignature("f_boolean", BOOLEAN.getTypeSignature())));
+            new NamedTypeSignature(Optional.of(new RowFieldName("f_string", false)), createUnboundedVarcharType().getTypeSignature()),
+            new NamedTypeSignature(Optional.of(new RowFieldName("f_bigint", false)), BIGINT.getTypeSignature()),
+            new NamedTypeSignature(Optional.of(new RowFieldName("f_boolean", false)), BOOLEAN.getTypeSignature())));
 
     private static final List<ColumnMetadata> CREATE_TABLE_COLUMNS = ImmutableList.<ColumnMetadata>builder()
             .add(new ColumnMetadata("id", BIGINT))
@@ -333,7 +331,7 @@ public abstract class AbstractTestHiveClient
     private static RowType toRowType(List<ColumnMetadata> columns)
     {
         return rowType(columns.stream()
-                .map(col -> new NamedTypeSignature(format("f_%s", col.getName()), col.getType().getTypeSignature()))
+                .map(col -> new NamedTypeSignature(Optional.of(new RowFieldName(format("f_%s", col.getName()), false)), col.getType().getTypeSignature()))
                 .collect(toList()));
     }
 
@@ -433,7 +431,6 @@ public abstract class AbstractTestHiveClient
     protected SchemaTableName tablePartitionSchemaChange;
     protected SchemaTableName tablePartitionSchemaChangeNonCanonical;
     protected SchemaTableName tableBucketEvolution;
-    protected SchemaTableName tableWithFooter;
 
     protected String invalidClientId;
     protected ConnectorTableHandle invalidTableHandle;
@@ -495,7 +492,6 @@ public abstract class AbstractTestHiveClient
         tablePartitionSchemaChange = new SchemaTableName(database, "presto_test_partition_schema_change");
         tablePartitionSchemaChangeNonCanonical = new SchemaTableName(database, "presto_test_partition_schema_change_non_canonical");
         tableBucketEvolution = new SchemaTableName(database, "presto_test_bucket_evolution");
-        tableWithFooter = new SchemaTableName(database, "presto_test_table_with_footer");
 
         invalidClientId = "hive";
         invalidTableHandle = new HiveTableHandle(database, INVALID_TABLE);
@@ -4321,25 +4317,6 @@ public abstract class AbstractTestHiveClient
             // The file we added to trigger a conflict was cleaned up because it matches the query prefix.
             // Consider this the same as a network failure that caused the successful creation of file not reported to the caller.
             assertFalse(hdfsEnvironment.getFileSystem(context, path).exists(path));
-        }
-    }
-
-    @Test
-    public void testTableWithFooter()
-    {
-        try (Transaction transaction = newTransaction()) {
-            ConnectorSession session = newSession();
-            ConnectorMetadata metadata = transaction.getMetadata();
-
-            ConnectorTableHandle table = getTableHandle(metadata, tableWithFooter);
-            try {
-                metadata.getTableLayouts(session, table, new Constraint<>(TupleDomain.all(), bindings -> true), Optional.empty());
-                fail("expected exception");
-            }
-            catch (PrestoException e) {
-                assertEquals(e.getErrorCode(), HIVE_UNSUPPORTED_FORMAT.toErrorCode());
-                assertContains(e.getMessage(), "Table with 'skip.footer.line.count' is not supported");
-            }
         }
     }
 }
