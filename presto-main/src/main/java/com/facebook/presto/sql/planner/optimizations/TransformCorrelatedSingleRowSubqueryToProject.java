@@ -49,6 +49,7 @@ import static java.util.Objects.requireNonNull;
  *       - (input) plan which produces symbols: [A, B, C]
  * </pre>
  */
+@Deprecated
 public class TransformCorrelatedSingleRowSubqueryToProject
         implements PlanOptimizer
 {
@@ -90,8 +91,8 @@ public class TransformCorrelatedSingleRowSubqueryToProject
                 return rewrittenLateral;
             }
 
-            List<ProjectNode> subqueryProjections = searchFrom(lateral.getSubquery())
-                    .where(ProjectNode.class::isInstance)
+            List<ProjectNode> subqueryProjections = searchFrom(rewrittenLateral.getSubquery())
+                    .where(node -> node instanceof ProjectNode && !node.getOutputSymbols().equals(rewrittenLateral.getCorrelation()))
                     .findAll();
 
             if (subqueryProjections.size() == 0) {

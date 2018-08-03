@@ -87,6 +87,7 @@ import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedInPredi
 import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedLateralJoinToJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedScalarAggregationToJoin;
 import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedScalarSubquery;
+import com.facebook.presto.sql.planner.iterative.rule.TransformCorrelatedSingleRowSubqueryToProject;
 import com.facebook.presto.sql.planner.iterative.rule.TransformExistsApplyToLateralNode;
 import com.facebook.presto.sql.planner.iterative.rule.TransformSpatialPredicates;
 import com.facebook.presto.sql.planner.iterative.rule.TransformUncorrelatedInPredicateSubqueryToSemiJoin;
@@ -108,7 +109,6 @@ import com.facebook.presto.sql.planner.optimizations.PredicatePushDown;
 import com.facebook.presto.sql.planner.optimizations.PruneUnreferencedOutputs;
 import com.facebook.presto.sql.planner.optimizations.SetFlatteningOptimizer;
 import com.facebook.presto.sql.planner.optimizations.StatsRecordingPlanOptimizer;
-import com.facebook.presto.sql.planner.optimizations.TransformCorrelatedSingleRowSubqueryToProject;
 import com.facebook.presto.sql.planner.optimizations.TransformQuantifiedComparisonApplyToLateralJoin;
 import com.facebook.presto.sql.planner.optimizations.UnaliasSymbolReferences;
 import com.facebook.presto.sql.planner.optimizations.WindowFilterPushDown;
@@ -314,7 +314,14 @@ public class PlanOptimizers
                                 new TransformCorrelatedScalarSubquery(), // must be run after TransformCorrelatedScalarAggregationToJoin
                                 new TransformCorrelatedLateralJoinToJoin(),
                                 new ImplementFilteredAggregations())),
-                new TransformCorrelatedSingleRowSubqueryToProject(),
+                new IterativeOptimizer(
+                        ruleStats,
+                        statsCalculator,
+                        estimatedExchangesCostCalculator,
+                        ImmutableList.of(
+                                new com.facebook.presto.sql.planner.optimizations.TransformCorrelatedSingleRowSubqueryToProject()),
+                        ImmutableSet.of(
+                                new TransformCorrelatedSingleRowSubqueryToProject())),
                 new CheckSubqueryNodesAreRewritten(),
                 predicatePushDown,
                 new IterativeOptimizer(
