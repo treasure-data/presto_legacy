@@ -43,7 +43,7 @@ public class QueryIdGenerator
         checkState(ImmutableSet.copyOf(Chars.asList(BASE_32)).size() == 32);
     }
 
-    private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormat.forPattern("YYYYMMdd_HHmmss").withZoneUTC();
+    private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormat.forPattern("yyyyMMdd_HHmmss").withZoneUTC();
     private static final long BASE_SYSTEM_TIME_MILLIS = System.currentTimeMillis();
     private static final long BASE_NANO_TIME = System.nanoTime();
 
