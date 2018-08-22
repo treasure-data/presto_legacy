@@ -660,6 +660,10 @@ public abstract class AbstractTestAggregations
     @Test
     public void testApproximateCountDistinct()
     {
+        // test NULL
+        assertQuery("SELECT approx_distinct(NULL)", "SELECT 0");
+        assertQuery("SELECT approx_distinct(NULL, 0.023)", "SELECT 0");
+
         // test date
         assertQuery("SELECT approx_distinct(orderdate) FROM orders", "SELECT 2443");
         assertQuery("SELECT approx_distinct(orderdate, 0.023) FROM orders", "SELECT 2443");
@@ -715,6 +719,10 @@ public abstract class AbstractTestAggregations
         // test varchar
         assertQuery("SELECT approx_distinct(CAST(custkey AS VARCHAR)) FROM orders", "SELECT 1036");
         assertQuery("SELECT approx_distinct(CAST(custkey AS VARCHAR), 0.023) FROM orders", "SELECT 1036");
+
+        // test char
+        assertQuery("SELECT approx_distinct(CAST(CAST(custkey AS VARCHAR) AS CHAR(20))) FROM orders", "SELECT 1036");
+        assertQuery("SELECT approx_distinct(CAST(CAST(custkey AS VARCHAR) AS CHAR(20)), 0.023) FROM orders", "SELECT 1036");
 
         // test varbinary
         assertQuery("SELECT approx_distinct(to_utf8(CAST(custkey AS VARCHAR))) FROM orders", "SELECT 1036");

@@ -121,6 +121,7 @@ public class HiveClientConfig
     private HiveMetastoreAuthenticationType hiveMetastoreAuthenticationType = HiveMetastoreAuthenticationType.NONE;
     private HdfsAuthenticationType hdfsAuthenticationType = HdfsAuthenticationType.NONE;
     private boolean hdfsImpersonationEnabled;
+    private boolean hdfsWireEncryptionEnabled;
 
     private boolean skipDeletionForAlter;
 
@@ -133,6 +134,7 @@ public class HiveClientConfig
     private boolean createsOfNonManagedTablesEnabled = true;
 
     private boolean tableStatisticsEnabled = true;
+    private int partitionStatisticsSampleSize = 100;
 
     public int getMaxInitialSplits()
     {
@@ -954,6 +956,19 @@ public class HiveClientConfig
         return this;
     }
 
+    public boolean isHdfsWireEncryptionEnabled()
+    {
+        return hdfsWireEncryptionEnabled;
+    }
+
+    @Config("hive.hdfs.wire-encryption.enabled")
+    @ConfigDescription("Should be turned on when HDFS wire encryption is enabled")
+    public HiveClientConfig setHdfsWireEncryptionEnabled(boolean hdfsWireEncryptionEnabled)
+    {
+        this.hdfsWireEncryptionEnabled = hdfsWireEncryptionEnabled;
+        return this;
+    }
+
     public boolean isSkipDeletionForAlter()
     {
         return skipDeletionForAlter;
@@ -1043,5 +1058,19 @@ public class HiveClientConfig
     public boolean isTableStatisticsEnabled()
     {
         return tableStatisticsEnabled;
+    }
+
+    @Min(1)
+    public int getPartitionStatisticsSampleSize()
+    {
+        return partitionStatisticsSampleSize;
+    }
+
+    @Config("hive.partition-statistics-sample-size")
+    @ConfigDescription("Maximum sample size of the partitions column statistics")
+    public HiveClientConfig setPartitionStatisticsSampleSize(int partitionStatisticsSampleSize)
+    {
+        this.partitionStatisticsSampleSize = partitionStatisticsSampleSize;
+        return this;
     }
 }
