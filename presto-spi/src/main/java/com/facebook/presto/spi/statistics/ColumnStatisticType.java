@@ -11,14 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.operator.aggregation.minmaxby;
+package com.facebook.presto.spi.statistics;
 
-public interface UnknownBooleanState
-        extends TwoNullableValueState
+public enum ColumnStatisticType
 {
-    // First state is void and will always be null
-
-    boolean getSecond();
-
-    void setSecond(boolean second);
+    MIN_VALUE,
+    MAX_VALUE,
+    NUMBER_OF_DISTINCT_VALUES,
+    NUMBER_OF_NON_NULL_VALUES,
+    NUMBER_OF_TRUE_VALUES,
+    MAX_VALUE_SIZE_IN_BYTES,
+    TOTAL_SIZE_IN_BYTES,
 }

@@ -11,16 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.operator.aggregation.minmaxby;
+package com.facebook.presto.spi.statistics;
 
-import com.facebook.presto.spi.block.Block;
-
-public interface BlockUnknownState
-        extends TwoNullableValueState
+public enum TableStatisticType
 {
-    Block getFirst();
-
-    void setFirst(Block first);
-
-    // Second state is void and will always be null
+    ROW_COUNT,
 }

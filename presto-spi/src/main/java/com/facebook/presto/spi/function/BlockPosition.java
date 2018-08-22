@@ -11,14 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.operator.aggregation.minmaxby;
+package com.facebook.presto.spi.function;
 
-public interface UnknownLongState
-        extends TwoNullableValueState
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.PARAMETER)
+public @interface BlockPosition
 {
-    // First state is void and will always be null
-
-    long getSecond();
-
-    void setSecond(long second);
 }

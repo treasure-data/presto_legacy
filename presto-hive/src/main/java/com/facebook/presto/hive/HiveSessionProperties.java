@@ -69,9 +69,9 @@ public final class HiveSessionProperties
     public static final String RCFILE_OPTIMIZED_WRITER_ENABLED = "rcfile_optimized_writer_enabled";
     private static final String RCFILE_OPTIMIZED_WRITER_VALIDATE = "rcfile_optimized_writer_validate";
     private static final String SORTED_WRITING_ENABLED = "sorted_writing_enabled";
-    private static final String WRITER_SORT_BUFFER_SIZE = "writer_sort_buffer_size";
     private static final String STATISTICS_ENABLED = "statistics_enabled";
     private static final String PARTITION_STATISTICS_SAMPLE_SIZE = "partition_statistics_sample_size";
+    private static final String COLLECT_COLUMN_STATISTICS_ON_WRITE = "collect_column_statistics_on_write";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -246,11 +246,6 @@ public final class HiveSessionProperties
                         "Enable writing to bucketed sorted tables",
                         hiveClientConfig.isSortedWritingEnabled(),
                         false),
-                dataSizeSessionProperty(
-                        WRITER_SORT_BUFFER_SIZE,
-                        "Writer sort buffer size",
-                        hiveClientConfig.getWriterSortBufferSize(),
-                        false),
                 booleanProperty(
                         STATISTICS_ENABLED,
                         "Experimental: Expose table statistics",
@@ -260,6 +255,11 @@ public final class HiveSessionProperties
                         PARTITION_STATISTICS_SAMPLE_SIZE,
                         "Maximum sample size of the partitions column statistics",
                         hiveClientConfig.getPartitionStatisticsSampleSize(),
+                        false),
+                booleanProperty(
+                        COLLECT_COLUMN_STATISTICS_ON_WRITE,
+                        "Experimental: Enables automatic column level statistics collection on write",
+                        hiveClientConfig.isCollectColumnStatisticsOnWrite(),
                         false));
     }
 
@@ -423,11 +423,6 @@ public final class HiveSessionProperties
         return session.getProperty(SORTED_WRITING_ENABLED, Boolean.class);
     }
 
-    public static DataSize getWriterSortBufferSize(ConnectorSession session)
-    {
-        return session.getProperty(WRITER_SORT_BUFFER_SIZE, DataSize.class);
-    }
-
     public static boolean isStatisticsEnabled(ConnectorSession session)
     {
         return session.getProperty(STATISTICS_ENABLED, Boolean.class);
@@ -440,6 +435,11 @@ public final class HiveSessionProperties
             throw new PrestoException(INVALID_SESSION_PROPERTY, format("%s must be greater than 0: %s", PARTITION_STATISTICS_SAMPLE_SIZE, size));
         }
         return size;
+    }
+
+    public static boolean isCollectColumnStatisticsOnWrite(ConnectorSession session)
+    {
+        return session.getProperty(COLLECT_COLUMN_STATISTICS_ON_WRITE, Boolean.class);
     }
 
     public static PropertyMetadata<DataSize> dataSizeSessionProperty(String name, String description, DataSize defaultValue, boolean hidden)
