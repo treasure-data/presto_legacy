@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.spi.eventlistener;
 
+import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
 import com.facebook.presto.spi.session.ResourceEstimates;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -30,12 +31,13 @@ public class QueryContext
     private final Optional<String> userAgent;
     private final Optional<String> clientInfo;
     private final Set<String> clientTags;
+    private final Set<String> clientCapabilities;
     private final Optional<String> source;
 
     private final Optional<String> catalog;
     private final Optional<String> schema;
 
-    private final Optional<String> resourceGroupName;
+    private final Optional<ResourceGroupId> resourceGroupId;
 
     private final Map<String, String> sessionProperties;
     private final ResourceEstimates resourceEstimates;
@@ -51,10 +53,11 @@ public class QueryContext
             Optional<String> userAgent,
             Optional<String> clientInfo,
             Set<String> clientTags,
+            Set<String> clientCapabilities,
             Optional<String> source,
             Optional<String> catalog,
             Optional<String> schema,
-            Optional<String> resourceGroupName,
+            Optional<ResourceGroupId> resourceGroupId,
             Map<String, String> sessionProperties,
             ResourceEstimates resourceEstimates,
             String serverAddress,
@@ -67,10 +70,11 @@ public class QueryContext
         this.userAgent = requireNonNull(userAgent, "userAgent is null");
         this.clientInfo = requireNonNull(clientInfo, "clientInfo is null");
         this.clientTags = requireNonNull(clientTags, "clientTags is null");
+        this.clientCapabilities = requireNonNull(clientCapabilities, "clientCapabilities is null");
         this.source = requireNonNull(source, "source is null");
         this.catalog = requireNonNull(catalog, "catalog is null");
         this.schema = requireNonNull(schema, "schema is null");
-        this.resourceGroupName = requireNonNull(resourceGroupName, "resourceGroupName is null");
+        this.resourceGroupId = requireNonNull(resourceGroupId, "resourceGroupId is null");
         this.sessionProperties = requireNonNull(sessionProperties, "sessionProperties is null");
         this.resourceEstimates = requireNonNull(resourceEstimates, "resourceEstimates is null");
         this.serverAddress = requireNonNull(serverAddress, "serverAddress is null");
@@ -115,6 +119,12 @@ public class QueryContext
     }
 
     @JsonProperty
+    public Set<String> getClientCapabilities()
+    {
+        return clientCapabilities;
+    }
+
+    @JsonProperty
     public Optional<String> getSource()
     {
         return source;
@@ -133,9 +143,9 @@ public class QueryContext
     }
 
     @JsonProperty
-    public Optional<String> getResourceGroupName()
+    public Optional<ResourceGroupId> getResourceGroupId()
     {
-        return resourceGroupName;
+        return resourceGroupId;
     }
 
     @JsonProperty

@@ -136,6 +136,7 @@ public class QueryStateMachine
 
     private final AtomicReference<String> setCatalog = new AtomicReference<>();
     private final AtomicReference<String> setSchema = new AtomicReference<>();
+    private final AtomicReference<String> setPath = new AtomicReference<>();
 
     private final Map<String, String> setSessionProperties = new ConcurrentHashMap<>();
     private final Set<String> resetSessionProperties = Sets.newConcurrentHashSet();
@@ -482,6 +483,7 @@ public class QueryStateMachine
                 queryStats,
                 Optional.ofNullable(setCatalog.get()),
                 Optional.ofNullable(setSchema.get()),
+                Optional.ofNullable(setPath.get()),
                 setSessionProperties,
                 resetSessionProperties,
                 addedPreparedStatements,
@@ -495,7 +497,7 @@ public class QueryStateMachine
                 inputs.get(),
                 output.get(),
                 completeInfo,
-                getResourceGroup().map(ResourceGroupId::toString));
+                getResourceGroup());
     }
 
     public VersionedMemoryPoolId getMemoryPool()
@@ -548,6 +550,17 @@ public class QueryStateMachine
     public void setSetSchema(String schema)
     {
         setSchema.set(requireNonNull(schema, "schema is null"));
+    }
+
+    public void setSetPath(String path)
+    {
+        requireNonNull(path, "path is null");
+        setPath.set(path);
+    }
+
+    public String getSetPath()
+    {
+        return setPath.get();
     }
 
     public void addSetSessionProperties(String key, String value)
@@ -864,6 +877,7 @@ public class QueryStateMachine
                 pruneQueryStats(queryInfo.getQueryStats()),
                 queryInfo.getSetCatalog(),
                 queryInfo.getSetSchema(),
+                queryInfo.getSetPath(),
                 queryInfo.getSetSessionProperties(),
                 queryInfo.getResetSessionProperties(),
                 queryInfo.getAddedPreparedStatements(),
@@ -877,7 +891,7 @@ public class QueryStateMachine
                 queryInfo.getInputs(),
                 queryInfo.getOutput(),
                 queryInfo.isCompleteInfo(),
-                queryInfo.getResourceGroupName());
+                queryInfo.getResourceGroupId());
         finalQueryInfo.compareAndSet(finalInfo, Optional.of(prunedQueryInfo));
     }
 

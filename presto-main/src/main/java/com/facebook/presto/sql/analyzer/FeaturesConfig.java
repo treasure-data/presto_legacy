@@ -82,9 +82,11 @@ public class FeaturesConfig
     private boolean legacyRoundNBigint;
     private boolean legacyJoinUsing;
     private boolean legacyRowFieldOrdinalAccess;
+    private boolean legacyCharToVarcharCoercion;
     private boolean optimizeMixedDistinctAggregations;
     private boolean forceSingleNodeOutput = true;
     private boolean pagesIndexEagerCompactionEnabled;
+    private boolean distributedSort = true;
 
     private boolean dictionaryAggregation;
 
@@ -201,6 +203,18 @@ public class FeaturesConfig
     public boolean isLegacyRowFieldOrdinalAccess()
     {
         return legacyRowFieldOrdinalAccess;
+    }
+
+    @Config("deprecated.legacy-char-to-varchar-coercion")
+    public FeaturesConfig setLegacyCharToVarcharCoercion(boolean value)
+    {
+        this.legacyCharToVarcharCoercion = value;
+        return this;
+    }
+
+    public boolean isLegacyCharToVarcharCoercion()
+    {
+        return legacyCharToVarcharCoercion;
     }
 
     @Config("deprecated.legacy-array-agg")
@@ -776,6 +790,18 @@ public class FeaturesConfig
     public FeaturesConfig setPreAllocateMemoryThreshold(DataSize preAllocateMemoryThreshold)
     {
         this.preAllocateMemoryThreshold = preAllocateMemoryThreshold;
+        return this;
+    }
+
+    public boolean isDistributedSortEnabled()
+    {
+        return distributedSort;
+    }
+
+    @Config("distributed-sort")
+    public FeaturesConfig setDistributedSortEnabled(boolean enabled)
+    {
+        distributedSort = enabled;
         return this;
     }
 

@@ -30,7 +30,6 @@ import com.facebook.presto.sql.tree.CoalesceExpression;
 import com.facebook.presto.sql.tree.ColumnDefinition;
 import com.facebook.presto.sql.tree.Commit;
 import com.facebook.presto.sql.tree.ComparisonExpression;
-import com.facebook.presto.sql.tree.ComparisonExpressionType;
 import com.facebook.presto.sql.tree.CreateSchema;
 import com.facebook.presto.sql.tree.CreateTable;
 import com.facebook.presto.sql.tree.CreateTableAsSelect;
@@ -83,6 +82,8 @@ import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
 import com.facebook.presto.sql.tree.OrderBy;
 import com.facebook.presto.sql.tree.Parameter;
+import com.facebook.presto.sql.tree.PathElement;
+import com.facebook.presto.sql.tree.PathSpecification;
 import com.facebook.presto.sql.tree.Prepare;
 import com.facebook.presto.sql.tree.Property;
 import com.facebook.presto.sql.tree.QualifiedName;
@@ -99,6 +100,7 @@ import com.facebook.presto.sql.tree.Rollup;
 import com.facebook.presto.sql.tree.Row;
 import com.facebook.presto.sql.tree.Select;
 import com.facebook.presto.sql.tree.SelectItem;
+import com.facebook.presto.sql.tree.SetPath;
 import com.facebook.presto.sql.tree.SetSession;
 import com.facebook.presto.sql.tree.ShowCatalogs;
 import com.facebook.presto.sql.tree.ShowColumns;
@@ -149,8 +151,8 @@ import static com.facebook.presto.sql.parser.IdentifierSymbol.COLON;
 import static com.facebook.presto.sql.testing.TreeAssertions.assertFormattedSql;
 import static com.facebook.presto.sql.tree.ArithmeticUnaryExpression.negative;
 import static com.facebook.presto.sql.tree.ArithmeticUnaryExpression.positive;
-import static com.facebook.presto.sql.tree.ComparisonExpressionType.GREATER_THAN;
-import static com.facebook.presto.sql.tree.ComparisonExpressionType.LESS_THAN;
+import static com.facebook.presto.sql.tree.ComparisonExpression.Operator.GREATER_THAN;
+import static com.facebook.presto.sql.tree.ComparisonExpression.Operator.LESS_THAN;
 import static com.facebook.presto.sql.tree.SortItem.NullOrdering.UNDEFINED;
 import static com.facebook.presto.sql.tree.SortItem.Ordering.ASCENDING;
 import static com.facebook.presto.sql.tree.SortItem.Ordering.DESCENDING;
@@ -528,45 +530,45 @@ public class TestSqlParser
     @Test
     public void testPrecedenceAndAssociativity()
     {
-        assertExpression("1 AND 2 OR 3", new LogicalBinaryExpression(LogicalBinaryExpression.Type.OR,
-                new LogicalBinaryExpression(LogicalBinaryExpression.Type.AND,
+        assertExpression("1 AND 2 OR 3", new LogicalBinaryExpression(LogicalBinaryExpression.Operator.OR,
+                new LogicalBinaryExpression(LogicalBinaryExpression.Operator.AND,
                         new LongLiteral("1"),
                         new LongLiteral("2")),
                 new LongLiteral("3")));
 
-        assertExpression("1 OR 2 AND 3", new LogicalBinaryExpression(LogicalBinaryExpression.Type.OR,
+        assertExpression("1 OR 2 AND 3", new LogicalBinaryExpression(LogicalBinaryExpression.Operator.OR,
                 new LongLiteral("1"),
-                new LogicalBinaryExpression(LogicalBinaryExpression.Type.AND,
+                new LogicalBinaryExpression(LogicalBinaryExpression.Operator.AND,
                         new LongLiteral("2"),
                         new LongLiteral("3"))));
 
-        assertExpression("NOT 1 AND 2", new LogicalBinaryExpression(LogicalBinaryExpression.Type.AND,
+        assertExpression("NOT 1 AND 2", new LogicalBinaryExpression(LogicalBinaryExpression.Operator.AND,
                 new NotExpression(new LongLiteral("1")),
                 new LongLiteral("2")));
 
-        assertExpression("NOT 1 OR 2", new LogicalBinaryExpression(LogicalBinaryExpression.Type.OR,
+        assertExpression("NOT 1 OR 2", new LogicalBinaryExpression(LogicalBinaryExpression.Operator.OR,
                 new NotExpression(new LongLiteral("1")),
                 new LongLiteral("2")));
 
-        assertExpression("-1 + 2", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.ADD,
+        assertExpression("-1 + 2", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.ADD,
                 negative(new LongLiteral("1")),
                 new LongLiteral("2")));
 
-        assertExpression("1 - 2 - 3", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.SUBTRACT,
-                new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.SUBTRACT,
+        assertExpression("1 - 2 - 3", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.SUBTRACT,
+                new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.SUBTRACT,
                         new LongLiteral("1"),
                         new LongLiteral("2")),
                 new LongLiteral("3")));
 
-        assertExpression("1 / 2 / 3", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.DIVIDE,
-                new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.DIVIDE,
+        assertExpression("1 / 2 / 3", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.DIVIDE,
+                new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.DIVIDE,
                         new LongLiteral("1"),
                         new LongLiteral("2")),
                 new LongLiteral("3")));
 
-        assertExpression("1 + 2 * 3", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.ADD,
+        assertExpression("1 + 2 * 3", new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.ADD,
                 new LongLiteral("1"),
-                new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Type.MULTIPLY,
+                new ArithmeticBinaryExpression(ArithmeticBinaryExpression.Operator.MULTIPLY,
                         new LongLiteral("2"),
                         new LongLiteral("3"))));
     }
@@ -629,7 +631,7 @@ public class TestSqlParser
     @Test
     public void testCurrentTimestamp()
     {
-        assertExpression("CURRENT_TIMESTAMP", new CurrentTime(CurrentTime.Type.TIMESTAMP));
+        assertExpression("CURRENT_TIMESTAMP", new CurrentTime(CurrentTime.Function.TIMESTAMP));
     }
 
     @Test
@@ -703,28 +705,28 @@ public class TestSqlParser
         assertStatement("SHOW PARTITIONS FROM t WHERE x = 1",
                 new ShowPartitions(
                         QualifiedName.of("t"),
-                        Optional.of(new ComparisonExpression(ComparisonExpressionType.EQUAL, new Identifier("x"), new LongLiteral("1"))),
+                        Optional.of(new ComparisonExpression(ComparisonExpression.Operator.EQUAL, new Identifier("x"), new LongLiteral("1"))),
                         ImmutableList.of(),
                         Optional.empty()));
 
         assertStatement("SHOW PARTITIONS FROM t WHERE x = 1 ORDER BY y",
                 new ShowPartitions(
                         QualifiedName.of("t"),
-                        Optional.of(new ComparisonExpression(ComparisonExpressionType.EQUAL, new Identifier("x"), new LongLiteral("1"))),
+                        Optional.of(new ComparisonExpression(ComparisonExpression.Operator.EQUAL, new Identifier("x"), new LongLiteral("1"))),
                         ImmutableList.of(new SortItem(new Identifier("y"), ASCENDING, UNDEFINED)),
                         Optional.empty()));
 
         assertStatement("SHOW PARTITIONS FROM t WHERE x = 1 ORDER BY y LIMIT 10",
                 new ShowPartitions(
                         QualifiedName.of("t"),
-                        Optional.of(new ComparisonExpression(ComparisonExpressionType.EQUAL, new Identifier("x"), new LongLiteral("1"))),
+                        Optional.of(new ComparisonExpression(ComparisonExpression.Operator.EQUAL, new Identifier("x"), new LongLiteral("1"))),
                         ImmutableList.of(new SortItem(new Identifier("y"), ASCENDING, UNDEFINED)),
                         Optional.of("10")));
 
         assertStatement("SHOW PARTITIONS FROM t WHERE x = 1 ORDER BY y LIMIT ALL",
                 new ShowPartitions(
                         QualifiedName.of("t"),
-                        Optional.of(new ComparisonExpression(ComparisonExpressionType.EQUAL, new Identifier("x"), new LongLiteral("1"))),
+                        Optional.of(new ComparisonExpression(ComparisonExpression.Operator.EQUAL, new Identifier("x"), new LongLiteral("1"))),
                         ImmutableList.of(new SortItem(new Identifier("y"), ASCENDING, UNDEFINED)),
                         Optional.of("ALL")));
     }
@@ -1335,7 +1337,7 @@ public class TestSqlParser
         assertStatement("DELETE FROM \"awesome table\"", new Delete(table(QualifiedName.of("awesome table")), Optional.empty()));
 
         assertStatement("DELETE FROM t WHERE a = b", new Delete(table(QualifiedName.of("t")), Optional.of(
-                new ComparisonExpression(ComparisonExpressionType.EQUAL,
+                new ComparisonExpression(ComparisonExpression.Operator.EQUAL,
                         new Identifier("a"),
                         new Identifier("b")))));
     }
@@ -1413,6 +1415,42 @@ public class TestSqlParser
                 new ShowGrants(false, Optional.of(QualifiedName.of("t"))));
         assertStatement("SHOW GRANTS",
                 new ShowGrants(false, Optional.empty()));
+    }
+
+    @Test
+    public void testSetPath()
+    {
+        assertStatement("SET PATH iLikeToEat.apples, andBananas",
+                new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
+                        new PathElement(Optional.of(new Identifier("iLikeToEat")), new Identifier("apples")),
+                        new PathElement(Optional.empty(), new Identifier("andBananas"))))));
+
+        assertStatement("SET PATH \"schemas,with\".\"grammar.in\", \"their!names\"",
+                new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
+                        new PathElement(Optional.of(new Identifier("schemas,with")), new Identifier("grammar.in")),
+                        new PathElement(Optional.empty(), new Identifier("their!names"))))));
+
+        assertStatement("SET PATH \"\"",
+                new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
+                        new PathElement(Optional.empty(), new Identifier(""))))));
+
+        try {
+            assertStatement("SET PATH one.too.many, qualifiers",
+                    new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
+                            new PathElement(Optional.empty(), new Identifier("dummyValue"))))));
+            fail();
+        }
+        catch (RuntimeException e) {
+            //expected - schema can only be qualified by catalog
+        }
+
+        try {
+            SQL_PARSER.createStatement("SET PATH ", new ParsingOptions());
+            fail();
+        }
+        catch (RuntimeException e) {
+            //expected - some form of parameter is required
+        }
     }
 
     @Test
@@ -1793,7 +1831,7 @@ public class TestSqlParser
                 "SELECT EXISTS(SELECT 1) = EXISTS(SELECT 2)",
                 simpleQuery(
                         selectList(new ComparisonExpression(
-                                ComparisonExpressionType.EQUAL,
+                                ComparisonExpression.Operator.EQUAL,
                                 exists(simpleQuery(selectList(new LongLiteral("1")))),
                                 exists(simpleQuery(selectList(new LongLiteral("2"))))))));
 
@@ -1803,7 +1841,7 @@ public class TestSqlParser
                         selectList(
                                 new NotExpression(
                                         new ComparisonExpression(
-                                                ComparisonExpressionType.EQUAL,
+                                                ComparisonExpression.Operator.EQUAL,
                                                 exists(simpleQuery(selectList(new LongLiteral("1")))),
                                                 exists(simpleQuery(selectList(new LongLiteral("2")))))))));
 
@@ -1812,7 +1850,7 @@ public class TestSqlParser
                 simpleQuery(
                         selectList(
                                 new ComparisonExpression(
-                                        ComparisonExpressionType.EQUAL,
+                                        ComparisonExpression.Operator.EQUAL,
                                         new NotExpression(exists(simpleQuery(selectList(new LongLiteral("1"))))),
                                         exists(simpleQuery(selectList(new LongLiteral("2"))))))));
     }
@@ -1854,7 +1892,7 @@ public class TestSqlParser
                     createShowStats(qualifiedName,
                             ImmutableList.of(new AllColumns()),
                             Optional.of(
-                                    new LogicalBinaryExpression(LogicalBinaryExpression.Type.OR,
+                                    new LogicalBinaryExpression(LogicalBinaryExpression.Operator.OR,
                                             new ComparisonExpression(GREATER_THAN,
                                                     new Identifier("field"),
                                                     new LongLiteral("0")),
@@ -1897,7 +1935,7 @@ public class TestSqlParser
                                                 QualifiedName.of("SUM"),
                                                 Optional.empty(),
                                                 Optional.of(new ComparisonExpression(
-                                                        ComparisonExpressionType.GREATER_THAN,
+                                                        ComparisonExpression.Operator.GREATER_THAN,
                                                         new Identifier("x"),
                                                         new LongLiteral("4"))),
                                                 Optional.empty(),
@@ -1924,13 +1962,13 @@ public class TestSqlParser
                         new SubqueryExpression(simpleQuery(selectList(new SingleColumn(identifier("col2"))), table(QualifiedName.of("table1"))))));
         assertExpression("col1 = ALL (VALUES ROW(1), ROW(2))",
                 new QuantifiedComparisonExpression(
-                        ComparisonExpressionType.EQUAL,
+                        ComparisonExpression.Operator.EQUAL,
                         QuantifiedComparisonExpression.Quantifier.ALL,
                         identifier("col1"),
                         new SubqueryExpression(query(values(row(new LongLiteral("1")), row(new LongLiteral("2")))))));
         assertExpression("col1 >= SOME (SELECT 10)",
                 new QuantifiedComparisonExpression(
-                        ComparisonExpressionType.GREATER_THAN_OR_EQUAL,
+                        ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL,
                         QuantifiedComparisonExpression.Quantifier.SOME,
                         identifier("col1"),
                         new SubqueryExpression(simpleQuery(selectList(new LongLiteral("10"))))));

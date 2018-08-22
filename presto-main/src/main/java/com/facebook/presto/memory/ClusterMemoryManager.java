@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -109,6 +110,7 @@ public class ClusterMemoryManager
     private final Map<QueryId, Long> preAllocations = new HashMap<>();
     private final Map<QueryId, Long> preAllocationsConsumed = new HashMap<>();
 
+    @GuardedBy("this")
     private final Map<String, RemoteNodeMemory> nodes = new HashMap<>();
 
     //TODO remove when the system pool is completely removed
@@ -239,26 +241,13 @@ public class ClusterMemoryManager
         if (!(lowMemoryKiller instanceof NoneLowMemoryKiller) &&
                 outOfMemory &&
                 !queryKilled &&
-                nanosSince(lastTimeNotOutOfMemory).compareTo(killOnOutOfMemoryDelay) > 0 &&
-                isLastKilledQueryGone()) {
-            List<QueryMemoryInfo> queryMemoryInfoList = Streams.stream(queries)
-                    .map(this::createQueryMemoryInfo)
-                    .collect(toImmutableList());
-            List<MemoryInfo> nodeMemoryInfos = nodes.values().stream()
-                    .map(RemoteNodeMemory::getInfo)
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .collect(toImmutableList());
-            Optional<QueryId> chosenQueryId = lowMemoryKiller.chooseQueryToKill(queryMemoryInfoList, nodeMemoryInfos);
-            if (chosenQueryId.isPresent()) {
-                Optional<QueryExecution> chosenQuery = Streams.stream(queries).filter(query -> chosenQueryId.get().equals(query.getQueryId())).collect(toOptional());
-                if (chosenQuery.isPresent()) {
-                    // See comments in  isLastKilledQueryGone for why chosenQuery might be absent.
-                    chosenQuery.get().fail(new PrestoException(CLUSTER_OUT_OF_MEMORY, "Query killed because the cluster is out of memory. Please try again in a few minutes."));
-                    queriesKilledDueToOutOfMemory.incrementAndGet();
-                    lastKilledQuery = chosenQueryId.get();
-                    logQueryKill(chosenQueryId.get(), nodeMemoryInfos);
-                }
+                nanosSince(lastTimeNotOutOfMemory).compareTo(killOnOutOfMemoryDelay) > 0) {
+            boolean lastKilledQueryGone = isLastKilledQueryGone();
+            if (lastKilledQueryGone) {
+                callOomKiller(queries);
+            }
+            else {
+                log.debug("Last killed query is still not gone: %s", lastKilledQuery);
             }
         }
 
@@ -273,6 +262,30 @@ public class ClusterMemoryManager
         updateNodes(updateAssignments(queries));
     }
 
+    private synchronized void callOomKiller(Iterable<QueryExecution> queries)
+    {
+        List<QueryMemoryInfo> queryMemoryInfoList = Streams.stream(queries)
+                .map(this::createQueryMemoryInfo)
+                .collect(toImmutableList());
+        List<MemoryInfo> nodeMemoryInfos = nodes.values().stream()
+                .map(RemoteNodeMemory::getInfo)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(toImmutableList());
+        Optional<QueryId> chosenQueryId = lowMemoryKiller.chooseQueryToKill(queryMemoryInfoList, nodeMemoryInfos);
+        if (chosenQueryId.isPresent()) {
+            log.debug("Low memory killer chose %s", chosenQueryId.get());
+            Optional<QueryExecution> chosenQuery = Streams.stream(queries).filter(query -> chosenQueryId.get().equals(query.getQueryId())).collect(toOptional());
+            if (chosenQuery.isPresent()) {
+                // See comments in  isLastKilledQueryGone for why chosenQuery might be absent.
+                chosenQuery.get().fail(new PrestoException(CLUSTER_OUT_OF_MEMORY, "Query killed because the cluster is out of memory. Please try again in a few minutes."));
+                queriesKilledDueToOutOfMemory.incrementAndGet();
+                lastKilledQuery = chosenQueryId.get();
+                logQueryKill(chosenQueryId.get(), nodeMemoryInfos);
+            }
+        }
+    }
+
     @GuardedBy("this")
     private boolean isLastKilledQueryGone()
     {
@@ -283,11 +296,9 @@ public class ClusterMemoryManager
         // Therefore, if the query is gone from pools field, it should also be gone from nodes field.
         // However, since nodes can updated asynchronously, it has the potential of coming back after being gone.
         // Therefore, even if the query appears to be gone here, it might be back when one inspects nodes later.
-        ClusterMemoryPool generalPool = pools.get(GENERAL_POOL);
-        if (generalPool == null) {
-            return false;
-        }
-        return !generalPool.getQueryMemoryReservations().containsKey(lastKilledQuery);
+        return !pools.get(GENERAL_POOL)
+                .getQueryMemoryReservations()
+                .containsKey(lastKilledQuery);
     }
 
     private void logQueryKill(QueryId killedQueryId, List<MemoryInfo> nodes)
@@ -417,7 +428,7 @@ public class ClusterMemoryManager
         return query.getTotalMemoryReservation();
     }
 
-    private boolean allAssignmentsHavePropagated(Iterable<QueryExecution> queries)
+    private synchronized boolean allAssignmentsHavePropagated(Iterable<QueryExecution> queries)
     {
         if (nodes.isEmpty()) {
             // Assignments can't have propagated, if there are no visible nodes.
@@ -437,7 +448,7 @@ public class ClusterMemoryManager
         return newestAssignment <= mostOutOfDateNode;
     }
 
-    private void updateNodes(MemoryPoolAssignmentsRequest assignments)
+    private synchronized void updateNodes(MemoryPoolAssignmentsRequest assignments)
     {
         ImmutableSet.Builder<Node> builder = ImmutableSet.builder();
         Set<Node> aliveNodes = builder
@@ -457,7 +468,7 @@ public class ClusterMemoryManager
         // Add new nodes
         for (Node node : aliveNodes) {
             if (!nodes.containsKey(node.getNodeIdentifier())) {
-                nodes.put(node.getNodeIdentifier(), new RemoteNodeMemory(httpClient, memoryInfoCodec, assignmentsRequestJsonCodec, locationFactory.createMemoryInfoLocation(node)));
+                nodes.put(node.getNodeIdentifier(), new RemoteNodeMemory(node, httpClient, memoryInfoCodec, assignmentsRequestJsonCodec, locationFactory.createMemoryInfoLocation(node)));
             }
         }
 
@@ -491,6 +502,17 @@ public class ClusterMemoryManager
                 }
             }
         }
+    }
+
+    public synchronized Map<String, Optional<MemoryInfo>> getWorkerMemoryInfo()
+    {
+        Map<String, Optional<MemoryInfo>> memoryInfo = new HashMap<>();
+        for (Entry<String, RemoteNodeMemory> entry : nodes.entrySet()) {
+            // workerId is of the form "node_identifier [node_host]"
+            String workerId = entry.getKey() + " [" + entry.getValue().getNode().getHostAndPort().getHostText() + "]";
+            memoryInfo.put(workerId, entry.getValue().getInfo());
+        }
+        return memoryInfo;
     }
 
     @PreDestroy

@@ -84,6 +84,7 @@ public class TestFeaturesConfig
                 .setLegacyRoundNBigint(false)
                 .setLegacyJoinUsing(false)
                 .setLegacyRowFieldOrdinalAccess(false)
+                .setLegacyCharToVarcharCoercion(false)
                 .setEnableIntermediateAggregations(false)
                 .setPushAggregationThroughJoin(true)
                 .setParseDecimalLiteralsAsDouble(false)
@@ -95,6 +96,7 @@ public class TestFeaturesConfig
                 .setPreferPartialAggregation(true)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.NEW)
                 .setArrayAggGroupImplementation(ArrayAggGroupImplementation.NEW)
+                .setDistributedSortEnabled(true)
                 .setMaxGroupingSets(2048)
                 .setPreAllocateMemoryThreshold(succinctBytes(0)));
     }
@@ -116,6 +118,7 @@ public class TestFeaturesConfig
                 .put("deprecated.legacy-round-n-bigint", "true")
                 .put("deprecated.legacy-join-using", "true")
                 .put("deprecated.legacy-row-field-ordinal-access", "true")
+                .put("deprecated.legacy-char-to-varchar-coercion", "true")
                 .put("distributed-index-joins-enabled", "true")
                 .put("distributed-joins-enabled", "false")
                 .put("grouped-execution-for-aggregation-enabled", "true")
@@ -155,6 +158,7 @@ public class TestFeaturesConfig
                 .put("arrayagg.implementation", "LEGACY")
                 .put("optimizer.use-mark-distinct", "false")
                 .put("optimizer.prefer-partial-aggregation", "false")
+                .put("distributed-sort", "false")
                 .put("analyzer.max-grouping-sets", "2047")
                 .put("experimental.preallocate-memory-threshold", "5TB")
                 .build();
@@ -202,6 +206,7 @@ public class TestFeaturesConfig
                 .setLegacyRoundNBigint(true)
                 .setLegacyJoinUsing(true)
                 .setLegacyRowFieldOrdinalAccess(true)
+                .setLegacyCharToVarcharCoercion(true)
                 .setEnableIntermediateAggregations(true)
                 .setParseDecimalLiteralsAsDouble(true)
                 .setForceSingleNodeOutput(false)
@@ -212,6 +217,7 @@ public class TestFeaturesConfig
                 .setPreferPartialAggregation(false)
                 .setHistogramGroupImplementation(HistogramGroupImplementation.LEGACY)
                 .setArrayAggGroupImplementation(ArrayAggGroupImplementation.LEGACY)
+                .setDistributedSortEnabled(false)
                 .setMaxGroupingSets(2047)
                 .setPreAllocateMemoryThreshold(DataSize.valueOf("5TB"));
         assertFullMapping(properties, expected);
