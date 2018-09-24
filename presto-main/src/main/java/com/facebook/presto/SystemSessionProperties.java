@@ -91,7 +91,6 @@ public final class SystemSessionProperties
     public static final String LEGACY_ROW_FIELD_ORDINAL_ACCESS = "legacy_row_field_ordinal_access";
     public static final String ITERATIVE_OPTIMIZER = "iterative_optimizer_enabled";
     public static final String ITERATIVE_OPTIMIZER_TIMEOUT = "iterative_optimizer_timeout";
-    public static final String ENABLE_NEW_STATS_CALCULATOR = "enable_new_stats_calculator";
     public static final String EXCHANGE_COMPRESSION = "exchange_compression";
     public static final String LEGACY_TIMESTAMP = "legacy_timestamp";
     public static final String ENABLE_INTERMEDIATE_AGGREGATIONS = "enable_intermediate_aggregations";
@@ -106,6 +105,8 @@ public final class SystemSessionProperties
     public static final String PREFER_PARTITIAL_AGGREGATION = "prefer_partial_aggregation";
     public static final String MAX_GROUPING_SETS = "max_grouping_sets";
     public static final String LEGACY_UNNEST = "legacy_unnest";
+    public static final String STATISTICS_CPU_TIMER_ENABLED = "statistics_cpu_timer_enabled";
+    public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -413,11 +414,6 @@ public final class SystemSessionProperties
                         value -> Duration.valueOf((String) value),
                         Duration::toString),
                 booleanProperty(
-                        ENABLE_NEW_STATS_CALCULATOR,
-                        "Use new experimental statistics calculator",
-                        featuresConfig.isEnableNewStatsCalculator(),
-                        true),
-                booleanProperty(
                         EXCHANGE_COMPRESSION,
                         "Enable compression in exchanges",
                         featuresConfig.isExchangeCompressionEnabled(),
@@ -490,6 +486,16 @@ public final class SystemSessionProperties
                         LEGACY_UNNEST,
                         "Using legacy unnest semantic, where unnest(array(row)) will create one column of type row",
                         featuresConfig.isLegacyUnnestArrayRows(),
+                        false),
+                booleanProperty(
+                        STATISTICS_CPU_TIMER_ENABLED,
+                        "Experimental: Enable cpu time tracking for automatic column statistics collection on write",
+                        taskManagerConfig.isStatisticsCpuTimerEnabled(),
+                        false),
+                booleanProperty(
+                        ENABLE_STATS_CALCULATOR,
+                        "Experimental: Enable statistics calculator",
+                        featuresConfig.isEnableStatsCalculator(),
                         false));
     }
 
@@ -732,11 +738,6 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ITERATIVE_OPTIMIZER_TIMEOUT, Duration.class);
     }
 
-    public static boolean isEnableNewStatsCalculator(Session session)
-    {
-        return session.getSystemProperty(ENABLE_NEW_STATS_CALCULATOR, Boolean.class);
-    }
-
     public static boolean isExchangeCompressionEnabled(Session session)
     {
         return session.getSystemProperty(EXCHANGE_COMPRESSION, Boolean.class);
@@ -811,5 +812,15 @@ public final class SystemSessionProperties
                     format("%s must be a power of 2: %s", property, intValue));
         }
         return intValue;
+    }
+
+    public static boolean isStatisticsCpuTimerEnabled(Session session)
+    {
+        return session.getSystemProperty(STATISTICS_CPU_TIMER_ENABLED, Boolean.class);
+    }
+
+    public static boolean isEnableStatsCalculator(Session session)
+    {
+        return session.getSystemProperty(ENABLE_STATS_CALCULATOR, Boolean.class);
     }
 }

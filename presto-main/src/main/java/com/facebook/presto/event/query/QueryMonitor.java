@@ -13,11 +13,11 @@
  */
 package com.facebook.presto.event.query;
 
-import com.facebook.presto.client.FailureInfo;
 import com.facebook.presto.client.NodeVersion;
 import com.facebook.presto.connector.ConnectorId;
 import com.facebook.presto.eventlistener.EventListenerManager;
 import com.facebook.presto.execution.Column;
+import com.facebook.presto.execution.ExecutionFailureInfo;
 import com.facebook.presto.execution.Input;
 import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryStats;
@@ -25,7 +25,9 @@ import com.facebook.presto.execution.StageInfo;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.execution.TaskState;
+import com.facebook.presto.execution.scheduler.NodeSchedulerConfig;
 import com.facebook.presto.metadata.FunctionRegistry;
+import com.facebook.presto.metadata.InternalNodeManager;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.SessionPropertyManager;
 import com.facebook.presto.operator.DriverStats;
@@ -88,6 +90,8 @@ public class QueryMonitor
     private final SessionPropertyManager sessionPropertyManager;
     private final FunctionRegistry functionRegistry;
     private final int maxJsonLimit;
+    private final InternalNodeManager nodeManager;
+    private final NodeSchedulerConfig nodeSchedulerConfig;
 
     @Inject
     public QueryMonitor(
@@ -98,7 +102,9 @@ public class QueryMonitor
             NodeVersion nodeVersion,
             SessionPropertyManager sessionPropertyManager,
             Metadata metadata,
-            QueryMonitorConfig config)
+            QueryMonitorConfig config,
+            InternalNodeManager nodeManager,
+            NodeSchedulerConfig nodeSchedulerConfig)
     {
         this.eventListenerManager = requireNonNull(eventListenerManager, "eventListenerManager is null");
         this.stageInfoCodec = requireNonNull(stageInfoCodec, "stageInfoCodec is null");
@@ -109,6 +115,8 @@ public class QueryMonitor
         this.sessionPropertyManager = requireNonNull(sessionPropertyManager, "sessionPropertyManager is null");
         this.functionRegistry = requireNonNull(metadata, "metadata is null").getFunctionRegistry();
         this.maxJsonLimit = toIntExact(requireNonNull(config, "config is null").getMaxOutputStageJsonSize().toBytes());
+        this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
+        this.nodeSchedulerConfig = requireNonNull(nodeSchedulerConfig, "nodeSchedulerConfig is null");
     }
 
     public void queryCreatedEvent(QueryInfo queryInfo)
@@ -149,7 +157,7 @@ public class QueryMonitor
             Optional<QueryFailureInfo> queryFailureInfo = Optional.empty();
 
             if (queryInfo.getFailureInfo() != null) {
-                FailureInfo failureInfo = queryInfo.getFailureInfo();
+                ExecutionFailureInfo failureInfo = queryInfo.getFailureInfo();
                 Optional<TaskInfo> failedTask = queryInfo.getOutputStage().flatMap(QueryMonitor::findFailedTask);
 
                 queryFailureInfo = Optional.of(new QueryFailureInfo(
@@ -199,19 +207,22 @@ public class QueryMonitor
             Optional<String> plan = Optional.empty();
             try {
                 if (queryInfo.getOutputStage().isPresent()) {
-                    // Stats and costs are suppress, since transaction is already completed
                     plan = Optional.of(textDistributedPlan(
                             queryInfo.getOutputStage().get(),
                             functionRegistry,
+                            // Not possible to recompute stats and costs, since transaction is already completed at this moment
                             (node, sourceStats, lookup, session, types) -> UNKNOWN_STATS,
                             (node, stats, lookup, session, types) -> UNKNOWN_COST,
+                            nodeManager,
+                            nodeSchedulerConfig,
                             queryInfo.getSession().toSession(sessionPropertyManager),
                             false));
                 }
             }
             catch (Exception e) {
-                // don't fail to create event if the plan can not be created
-                log.debug(e, "Error creating explain plan");
+                // Sometimes it is expected to fail. For example if generated plan is too long.
+                // Don't fail to create event if the plan can not be created.
+                log.warn(e, "Error creating explain plan");
             }
 
             eventListenerManager.queryCompleted(
@@ -407,7 +418,6 @@ public class QueryMonitor
                                     ofMillis(driverStats.getTotalCpuTime().toMillis()),
                                     ofMillis(driverStats.getElapsedTime().toMillis()),
                                     ofMillis(driverStats.getQueuedTime().toMillis()),
-                                    ofMillis(driverStats.getTotalUserTime().toMillis()),
                                     ofMillis(driverStats.getRawInputReadTime().toMillis()),
                                     driverStats.getRawInputPositions(),
                                     driverStats.getRawInputDataSize().toBytes(),

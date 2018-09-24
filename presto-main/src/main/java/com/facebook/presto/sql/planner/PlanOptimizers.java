@@ -333,7 +333,7 @@ public class PlanOptimizers
                         ruleStats,
                         statsCalculator,
                         estimatedExchangesCostCalculator,
-                        new PickTableLayout(metadata).rules()),
+                        new PickTableLayout(metadata, sqlParser).rules()),
                 new PruneUnreferencedOutputs(),
                 new IterativeOptimizer(
                         ruleStats,
@@ -382,7 +382,7 @@ public class PlanOptimizers
                         ruleStats,
                         statsCalculator,
                         estimatedExchangesCostCalculator,
-                        new PickTableLayout(metadata).rules()),
+                        new PickTableLayout(metadata, sqlParser).rules()),
                 projectionPushDown,
                 new PruneUnreferencedOutputs(),
                 new IterativeOptimizer(
@@ -415,7 +415,7 @@ public class PlanOptimizers
                     ruleStats,
                     statsCalculator,
                     estimatedExchangesCostCalculator,
-                    ImmutableSet.of(new DetermineJoinDistributionType())))); // Must run before AddExchanges
+                    ImmutableSet.of(new DetermineJoinDistributionType(costComparator))))); // Must run before AddExchanges
             builder.add(new DetermineSemiJoinDistributionType()); // Must run before AddExchanges
             builder.add(
                     new IterativeOptimizer(

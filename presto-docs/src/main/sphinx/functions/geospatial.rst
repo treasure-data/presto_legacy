@@ -22,27 +22,35 @@ Presto Geospatial functions support the Well-Known Text (WKT) form of spatial ob
 Constructors
 ------------
 
-.. function:: ST_Point(double, double) -> Point
+.. function:: ST_AsBinary(Geometry) -> varbinary
 
-    Returns a geometry type point object with the given coordinate values.
-
-.. function:: ST_LineFromText(varchar) -> LineString
-
-    Returns a geometry type linestring object from WKT representation.
-
-.. function:: ST_Polygon(varchar) -> Polygon
-
-    Returns a geometry type polygon object from WKT representation.
-
-.. function:: ST_GeometryFromText(varchar) -> Geometry
-
-    Returns a geometry type object from WKT representation.
+    Returns the WKB representation of the geometry.
 
 .. function:: ST_AsText(Geometry) -> varchar
 
     Returns the WKT representation of the geometry. For empty geometries,
     ``ST_AsText(ST_LineFromText('LINESTRING EMPTY'))`` will produce ``'MULTILINESTRING EMPTY'``
     and ``ST_AsText(ST_Polygon('POLYGON EMPTY'))`` will produce ``'MULTIPOLYGON EMPTY'``.
+
+.. function:: ST_GeometryFromText(varchar) -> Geometry
+
+    Returns a geometry type object from WKT representation.
+
+.. function:: ST_GeomFromBinary(varbinary) -> Geometry
+
+    Returns a geometry type object from WKB representation.
+
+.. function:: ST_LineFromText(varchar) -> LineString
+
+    Returns a geometry type linestring object from WKT representation.
+
+.. function:: ST_Point(double, double) -> Point
+
+    Returns a geometry type point object with the given coordinate values.
+
+.. function:: ST_Polygon(varchar) -> Polygon
+
+    Returns a geometry type polygon object from WKT representation.
 
 Relationship Tests
 ------------------
@@ -306,6 +314,17 @@ Accessors
 
     Returns the great-circle distance between two points on Earth's surface in kilometers.
 
+Aggregations
+------------
+.. function:: convex_hull_agg(Geometry) -> Geometry
+
+    Returns the minimum convex geometry that encloses all input geometries.
+    This function doesn't support geometry collections.
+
+.. function:: geometry_union_agg(Geometry) -> Geometry
+
+    Returns a geometry that represents the point set union of all input geometries.
+
 Bing Tiles
 ----------
 
@@ -331,6 +350,11 @@ These functions convert between geometries and
 
     Returns a collection of Bing tiles that surround the point specified
     by the latitude and longitude arguments at a given zoom level.
+
+.. function:: bing_tiles_around(latitude, longitude, zoom_level, radius_in_km) -> array<BingTile>
+
+    Returns a minimum set of Bing tiles at specified zoom level that cover a circle of specified
+    radius in km around a specified (latitude, longitude) point.
 
 .. function:: bing_tile_coordinates(tile) -> row<x, y>
 

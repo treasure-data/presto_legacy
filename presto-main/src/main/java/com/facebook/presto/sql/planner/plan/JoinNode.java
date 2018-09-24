@@ -29,10 +29,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static com.facebook.presto.sql.planner.SortExpressionExtractor.extractSortExpression;
+import static com.facebook.presto.sql.planner.plan.JoinNode.DistributionType.PARTITIONED;
+import static com.facebook.presto.sql.planner.plan.JoinNode.DistributionType.REPLICATED;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.FULL;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.INNER;
 import static com.facebook.presto.sql.planner.plan.JoinNode.Type.LEFT;
@@ -97,15 +99,30 @@ public class JoinNode
         this.rightHashSymbol = rightHashSymbol;
         this.distributionType = distributionType;
 
-        List<Symbol> inputSymbols = ImmutableList.<Symbol>builder()
+        Set<Symbol> inputSymbols = ImmutableSet.<Symbol>builder()
                 .addAll(left.getOutputSymbols())
                 .addAll(right.getOutputSymbols())
                 .build();
         checkArgument(new HashSet<>(inputSymbols).containsAll(outputSymbols), "Left and right join inputs do not contain all output symbols");
-        checkArgument(!isCrossJoin() || inputSymbols.equals(outputSymbols), "Cross join does not support output symbols pruning or reordering");
+        checkArgument(!isCrossJoin() || inputSymbols.size() == outputSymbols.size(), "Cross join does not support output symbols pruning or reordering");
 
         checkArgument(!(criteria.isEmpty() && leftHashSymbol.isPresent()), "Left hash symbol is only valid in an equijoin");
         checkArgument(!(criteria.isEmpty() && rightHashSymbol.isPresent()), "Right hash symbol is only valid in an equijoin");
+
+        if (distributionType.isPresent()) {
+            // The implementation of full outer join only works if the data is hash partitioned.
+            checkArgument(
+                    !(distributionType.get() == REPLICATED && (type == RIGHT || type == FULL)),
+                    "%s join do not work with %s distribution type",
+                    type,
+                    distributionType.get());
+            // It does not make sense to PARTITION when there is nothing to partition on
+            checkArgument(
+                    !(distributionType.get() == PARTITIONED && criteria.isEmpty() && type != RIGHT && type != FULL),
+                    "Equi criteria are empty, so %s join should not have %s distribution type",
+                    type,
+                    distributionType.get());
+        }
     }
 
     public JoinNode flipChildren()
@@ -282,13 +299,7 @@ public class JoinNode
     public PlanNode replaceChildren(List<PlanNode> newChildren)
     {
         checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
-        PlanNode newLeft = newChildren.get(0);
-        PlanNode newRight = newChildren.get(1);
-        // Reshuffle join output symbols (for cross joins) since order of symbols in child nodes might have changed
-        List<Symbol> newOutputSymbols = Stream.concat(newLeft.getOutputSymbols().stream(), newRight.getOutputSymbols().stream())
-                .filter(outputSymbols::contains)
-                .collect(toImmutableList());
-        return new JoinNode(getId(), type, newLeft, newRight, criteria, newOutputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType);
+        return new JoinNode(getId(), type, newChildren.get(0), newChildren.get(1), criteria, outputSymbols, filter, leftHashSymbol, rightHashSymbol, distributionType);
     }
 
     public JoinNode withDistributionType(DistributionType distributionType)
