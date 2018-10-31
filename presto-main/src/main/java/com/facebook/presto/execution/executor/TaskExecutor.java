@@ -16,7 +16,9 @@ package com.facebook.presto.execution.executor;
 import com.facebook.presto.execution.SplitRunner;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskManagerConfig;
+import com.facebook.presto.server.ServerConfig;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.version.EmbedVersion;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ticker;
 import com.google.common.collect.ComparisonChain;
@@ -43,6 +45,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,6 +61,7 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.function.DoubleSupplier;
 
 import static com.facebook.presto.execution.executor.MultilevelSplitQueue.computeLevel;
+import static com.facebook.presto.util.MoreMath.min;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -85,8 +89,9 @@ public class TaskExecutor
 
     private final int runnerThreads;
     private final int minimumNumberOfDrivers;
-    private final int minimumNumberOfDriversPerTask;
+    private final int guaranteedNumberOfDriversPerTask;
     private final int maximumNumberOfDriversPerTask;
+    private final EmbedVersion embedVersion;
 
     private final Ticker ticker;
 
@@ -151,39 +156,54 @@ public class TaskExecutor
     private volatile boolean closed;
 
     @Inject
-    public TaskExecutor(TaskManagerConfig config, MultilevelSplitQueue splitQueue)
+    public TaskExecutor(TaskManagerConfig config, EmbedVersion embedVersion, MultilevelSplitQueue splitQueue)
     {
         this(requireNonNull(config, "config is null").getMaxWorkerThreads(),
                 config.getMinDrivers(),
                 config.getMinDriversPerTask(),
                 config.getMaxDriversPerTask(),
+                embedVersion,
                 splitQueue,
                 Ticker.systemTicker());
     }
 
     @VisibleForTesting
-    public TaskExecutor(int runnerThreads, int minDrivers, int minimumNumberOfDriversPerTask, int maximumNumberOfDriversPerTask, Ticker ticker)
+    public TaskExecutor(int runnerThreads, int minDrivers, int guaranteedNumberOfDriversPerTask, int maximumNumberOfDriversPerTask, Ticker ticker)
     {
-        this(runnerThreads, minDrivers, minimumNumberOfDriversPerTask, maximumNumberOfDriversPerTask, new MultilevelSplitQueue(2), ticker);
+        this(runnerThreads, minDrivers, guaranteedNumberOfDriversPerTask, maximumNumberOfDriversPerTask, new EmbedVersion(new ServerConfig()), new MultilevelSplitQueue(2), ticker);
     }
 
     @VisibleForTesting
-    public TaskExecutor(int runnerThreads, int minDrivers, int minimumNumberOfDriversPerTask, int maximumNumberOfDriversPerTask, MultilevelSplitQueue splitQueue, Ticker ticker)
+    public TaskExecutor(int runnerThreads, int minDrivers, int guaranteedNumberOfDriversPerTask, int maximumNumberOfDriversPerTask, MultilevelSplitQueue splitQueue, Ticker ticker)
+    {
+        this(runnerThreads, minDrivers, guaranteedNumberOfDriversPerTask, maximumNumberOfDriversPerTask, new EmbedVersion(new ServerConfig()), splitQueue, ticker);
+    }
+
+    @VisibleForTesting
+    public TaskExecutor(
+            int runnerThreads,
+            int minDrivers,
+            int guaranteedNumberOfDriversPerTask,
+            int maximumNumberOfDriversPerTask,
+            EmbedVersion embedVersion,
+            MultilevelSplitQueue splitQueue,
+            Ticker ticker)
     {
         checkArgument(runnerThreads > 0, "runnerThreads must be at least 1");
-        checkArgument(minimumNumberOfDriversPerTask > 0, "minimumNumberOfDriversPerTask must be at least 1");
+        checkArgument(guaranteedNumberOfDriversPerTask > 0, "guaranteedNumberOfDriversPerTask must be at least 1");
         checkArgument(maximumNumberOfDriversPerTask > 0, "maximumNumberOfDriversPerTask must be at least 1");
-        checkArgument(minimumNumberOfDriversPerTask <= maximumNumberOfDriversPerTask, "minimumNumberOfDriversPerTask cannot be greater than maximumNumberOfDriversPerTask");
+        checkArgument(guaranteedNumberOfDriversPerTask <= maximumNumberOfDriversPerTask, "guaranteedNumberOfDriversPerTask cannot be greater than maximumNumberOfDriversPerTask");
 
         // we manage thread pool size directly, so create an unlimited pool
         this.executor = newCachedThreadPool(threadsNamed("task-processor-%s"));
         this.executorMBean = new ThreadPoolExecutorMBean((ThreadPoolExecutor) executor);
         this.runnerThreads = runnerThreads;
+        this.embedVersion = requireNonNull(embedVersion, "embedVersion is null");
 
         this.ticker = requireNonNull(ticker, "ticker is null");
 
         this.minimumNumberOfDrivers = minDrivers;
-        this.minimumNumberOfDriversPerTask = minimumNumberOfDriversPerTask;
+        this.guaranteedNumberOfDriversPerTask = guaranteedNumberOfDriversPerTask;
         this.maximumNumberOfDriversPerTask = maximumNumberOfDriversPerTask;
         this.waitingSplits = requireNonNull(splitQueue, "splitQueue is null");
         this.tasks = new LinkedList<>();
@@ -222,20 +242,27 @@ public class TaskExecutor
     private synchronized void addRunnerThread()
     {
         try {
-            executor.execute(new TaskRunner());
+            executor.execute(embedVersion.embedVersion(new TaskRunner()));
         }
         catch (RejectedExecutionException ignored) {
         }
     }
 
-    public synchronized TaskHandle addTask(TaskId taskId, DoubleSupplier utilizationSupplier, int initialSplitConcurrency, Duration splitConcurrencyAdjustFrequency)
+    public synchronized TaskHandle addTask(
+            TaskId taskId,
+            DoubleSupplier utilizationSupplier,
+            int initialSplitConcurrency,
+            Duration splitConcurrencyAdjustFrequency,
+            OptionalInt maxDriversPerTask)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(utilizationSupplier, "utilizationSupplier is null");
+        checkArgument(!maxDriversPerTask.isPresent() || maxDriversPerTask.getAsInt() <= maximumNumberOfDriversPerTask,
+                "maxDriversPerTask cannot be greater than the configured value");
 
         log.debug("Task scheduled " + taskId);
 
-        TaskHandle taskHandle = new TaskHandle(taskId, waitingSplits, utilizationSupplier, initialSplitConcurrency, splitConcurrencyAdjustFrequency);
+        TaskHandle taskHandle = new TaskHandle(taskId, waitingSplits, utilizationSupplier, initialSplitConcurrency, splitConcurrencyAdjustFrequency, maxDriversPerTask);
 
         tasks.add(taskHandle);
         return taskHandle;
@@ -359,7 +386,7 @@ public class TaskExecutor
         // immediately schedule a new split for this task.  This assures
         // that a task gets its fair amount of consideration (you have to
         // have splits to be considered for running on a thread).
-        if (taskHandle.getRunningLeafSplits() < minimumNumberOfDriversPerTask) {
+        if (taskHandle.getRunningLeafSplits() < min(guaranteedNumberOfDriversPerTask, taskHandle.getMaxDriversPerTask().orElse(Integer.MAX_VALUE))) {
             PrioritizedSplitRunner split = taskHandle.pollNextSplit();
             if (split != null) {
                 startSplit(split);
@@ -408,7 +435,7 @@ public class TaskExecutor
         for (Iterator<TaskHandle> iterator = tasks.iterator(); iterator.hasNext(); ) {
             TaskHandle task = iterator.next();
             // skip tasks that are already running the configured max number of drivers
-            if (task.getRunningLeafSplits() >= maximumNumberOfDriversPerTask) {
+            if (task.getRunningLeafSplits() >= task.getMaxDriversPerTask().orElse(maximumNumberOfDriversPerTask)) {
                 continue;
             }
             PrioritizedSplitRunner split = task.pollNextSplit();

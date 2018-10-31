@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.rewrite;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.QualifiedObjectName;
 import com.facebook.presto.metadata.TableHandle;
@@ -42,11 +43,14 @@ import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.tree.AllColumns;
 import com.facebook.presto.sql.tree.AstVisitor;
+import com.facebook.presto.sql.tree.BetweenPredicate;
 import com.facebook.presto.sql.tree.Cast;
 import com.facebook.presto.sql.tree.ComparisonExpression;
 import com.facebook.presto.sql.tree.DoubleLiteral;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.Identifier;
+import com.facebook.presto.sql.tree.InListExpression;
+import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
 import com.facebook.presto.sql.tree.Literal;
@@ -92,15 +96,23 @@ public class ShowStatsRewrite
         implements StatementRewrite.Rewrite
 {
     private static final List<Class<? extends Expression>> ALLOWED_SHOW_STATS_WHERE_EXPRESSION_TYPES = ImmutableList.of(
-            Literal.class, Identifier.class, ComparisonExpression.class, LogicalBinaryExpression.class, NotExpression.class, IsNullPredicate.class, IsNotNullPredicate.class);
+            Literal.class,
+            Identifier.class,
+            ComparisonExpression.class,
+            InPredicate.class,
+            BetweenPredicate.class,
+            LogicalBinaryExpression.class,
+            NotExpression.class,
+            IsNullPredicate.class,
+            IsNotNullPredicate.class);
 
     private static final Expression NULL_DOUBLE = new Cast(new NullLiteral(), DOUBLE);
     private static final Expression NULL_VARCHAR = new Cast(new NullLiteral(), VARCHAR);
 
     @Override
-    public Statement rewrite(Session session, Metadata metadata, SqlParser parser, Optional<QueryExplainer> queryExplainer, Statement node, List<Expression> parameters, AccessControl accessControl)
+    public Statement rewrite(Session session, Metadata metadata, SqlParser parser, Optional<QueryExplainer> queryExplainer, Statement node, List<Expression> parameters, AccessControl accessControl, WarningCollector warningCollector)
     {
-        return (Statement) new Visitor(metadata, session, parameters, queryExplainer).process(node, null);
+        return (Statement) new Visitor(metadata, session, parameters, queryExplainer, warningCollector).process(node, null);
     }
 
     private static class Visitor
@@ -110,13 +122,15 @@ public class ShowStatsRewrite
         private final Session session;
         private final List<Expression> parameters;
         private final Optional<QueryExplainer> queryExplainer;
+        private final WarningCollector warningCollector;
 
-        public Visitor(Metadata metadata, Session session, List<Expression> parameters, Optional<QueryExplainer> queryExplainer)
+        public Visitor(Metadata metadata, Session session, List<Expression> parameters, Optional<QueryExplainer> queryExplainer, WarningCollector warningCollector)
         {
             this.metadata = requireNonNull(metadata, "metadata is null");
             this.session = requireNonNull(session, "session is null");
             this.parameters = requireNonNull(parameters, "parameters is null");
             this.queryExplainer = requireNonNull(queryExplainer, "queryExplainer is null");
+            this.warningCollector = requireNonNull(warningCollector, "warningCollector is null");
         }
 
         @Override
@@ -200,6 +214,19 @@ public class ShowStatsRewrite
             else if (expression instanceof IsNotNullPredicate) {
                 validateShowStatsWhereExpression(((IsNotNullPredicate) expression).getValue(), node);
             }
+            else if (expression instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) expression;
+                check(inPredicate.getValue() instanceof Identifier, node, "Only column reference is allowed on the left side of the IN predicate of the WHERE condition of the SHOW STATS SELECT clause");
+                check(inPredicate.getValueList() instanceof InListExpression, node, "Only list of literals is allowed on the right side of the IN predicate of the WHERE condition of the SHOW STATS SELECT clause");
+                ((InListExpression) inPredicate.getValueList()).getValues().stream()
+                        .forEach(value -> check(value instanceof Literal, node, "Only literals are allowed on the right side of the IN predicate of the WHERE condition of the SHOW STATS SELECT clause"));
+            }
+            else if (expression instanceof BetweenPredicate) {
+                BetweenPredicate betweenPredicate = (BetweenPredicate) expression;
+                check(betweenPredicate.getValue() instanceof Identifier, node, "Only column reference is allowed on the left side of the BETWEEN predicate of the WHERE condition of the SHOW STATS SELECT clause");
+                check(betweenPredicate.getMin() instanceof Literal, node, "Only literals are allowed on the right side of the BETWEEN predicate of the WHERE condition of the SHOW STATS SELECT clause");
+                check(betweenPredicate.getMax() instanceof Literal, node, "Only literals are allowed on the right side of the BETWEEN predicate of the WHERE condition of the SHOW STATS SELECT clause");
+            }
         }
 
         private Node rewriteShowStats(ShowStats node, Table table, Constraint<ColumnHandle> constraint)
@@ -237,7 +264,7 @@ public class ShowStatsRewrite
                 return Constraint.alwaysTrue();
             }
 
-            Plan plan = queryExplainer.get().getLogicalPlan(session, new Query(Optional.empty(), specification, Optional.empty(), Optional.empty()), parameters);
+            Plan plan = queryExplainer.get().getLogicalPlan(session, new Query(Optional.empty(), specification, Optional.empty(), Optional.empty()), parameters, warningCollector);
 
             Optional<TableScanNode> scanNode = searchFrom(plan.getRoot())
                     .where(TableScanNode.class::isInstance)

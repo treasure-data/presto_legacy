@@ -65,6 +65,7 @@ public class FeaturesConfig
     private double networkCostWeight = 15;
     private boolean distributedIndexJoinsEnabled;
     private JoinDistributionType joinDistributionType = PARTITIONED;
+    private DataSize joinMaxBroadcastTableSize;
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionForAggregationEnabled;
     private int concurrentLifespansPerTask;
@@ -106,7 +107,7 @@ public class FeaturesConfig
     private int spillerThreads = 4;
     private double spillMaxUsedSpaceThreshold = 0.9;
     private boolean iterativeOptimizerEnabled = true;
-    private boolean enableStatsCalculator = true;
+    private boolean enableStatsCalculator;
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
@@ -287,6 +288,18 @@ public class FeaturesConfig
     public FeaturesConfig setJoinDistributionType(JoinDistributionType joinDistributionType)
     {
         this.joinDistributionType = requireNonNull(joinDistributionType, "joinDistributionType is null");
+        return this;
+    }
+
+    public DataSize getJoinMaxBroadcastTableSize()
+    {
+        return joinMaxBroadcastTableSize;
+    }
+
+    @Config("join-max-broadcast-table-size")
+    public FeaturesConfig setJoinMaxBroadcastTableSize(DataSize joinMaxBroadcastTableSize)
+    {
+        this.joinMaxBroadcastTableSize = joinMaxBroadcastTableSize;
         return this;
     }
 

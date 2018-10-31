@@ -2,8 +2,8 @@
 Geospatial Functions
 ====================
 
-Presto Geospatial functions support the SQL/MM specification.
-They are compliant with the Open Geospatial Consortium’s (OGC) OpenGIS Specifications.
+Presto Geospatial functions that begin with the ``ST_`` prefix support the SQL/MM specification
+and are compliant with the Open Geospatial Consortium’s (OGC) OpenGIS Specifications.
 As such, many Presto Geospatial functions require, or more accurately, assume that
 geometries that are operated on are both simple and valid. For example, it does not
 make sense to calculate the area of a polygon that has a hole defined outside of the
@@ -50,6 +50,12 @@ Constructors
     two non-empty points in the input array, an empty LineString will be returned.  The returned geometry may
     not be simple, e.g. may self-intersect or may contain duplicate vertexes depending on the input.
 
+.. function:: ST_MultiPoint(array(Point)) -> MultiPoint
+
+    Returns a MultiPoint geometry object formed from the specified points. Return `null` if input array is empty.
+    Throws an exception if any element in the array is `null` or empty.
+    The returned geometry may not be simple and may contain duplicate points if input array has duplicates.
+
 .. function:: ST_Point(double, double) -> Point
 
     Returns a geometry type point object with the given coordinate values.
@@ -83,7 +89,7 @@ Relationship Tests
 .. function:: ST_Intersects(Geometry, Geometry) -> boolean
 
     Returns ``true`` if the given geometries spatially intersect in two dimensions
-    (share any portion of space) and ``false`` if they don not (they are disjoint).
+    (share any portion of space) and ``false`` if they do not (they are disjoint).
 
 .. function:: ST_Overlaps(Geometry, Geometry) -> boolean
 
@@ -105,6 +111,12 @@ Relationship Tests
 
 Operations
 ----------
+
+.. function:: geometry_union(array(Geometry)) -> Geometry
+
+    Returns a geometry that represents the point set union of the input geometries. Performance
+    of this function, in conjunction with :func:`array_agg` to first aggregate the input geometries,
+    may be better than :func:`geometry_union_agg`, at the expense of higher memory utilization.
 
 .. function:: ST_Boundary(Geometry) -> Geometry
 
@@ -144,7 +156,7 @@ Operations
 
     Returns a geometry that represents the point set union of the input geometries.
 
-    This function doesn't support geometry collections.
+    See also:  :func:`geometry_union`, :func:`geometry_union_agg`
 
 
 Accessors

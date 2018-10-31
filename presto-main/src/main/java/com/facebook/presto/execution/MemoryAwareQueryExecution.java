@@ -25,6 +25,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.SetThreadName;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import org.joda.time.DateTime;
 
 import javax.annotation.concurrent.GuardedBy;
 
@@ -56,6 +57,12 @@ public class MemoryAwareQueryExecution
     public QueryId getQueryId()
     {
         return delegate.getQueryId();
+    }
+
+    @Override
+    public Session getSession()
+    {
+        return delegate.getSession();
     }
 
     @Override
@@ -125,9 +132,27 @@ public class MemoryAwareQueryExecution
     }
 
     @Override
-    public Session getSession()
+    public DateTime getCreateTime()
     {
-        return delegate.getSession();
+        return delegate.getCreateTime();
+    }
+
+    @Override
+    public Optional<DateTime> getExecutionStartTime()
+    {
+        return delegate.getExecutionStartTime();
+    }
+
+    @Override
+    public DateTime getLastHeartbeat()
+    {
+        return delegate.getLastHeartbeat();
+    }
+
+    @Override
+    public Optional<DateTime> getEndTime()
+    {
+        return delegate.getEndTime();
     }
 
     @Override
@@ -168,7 +193,9 @@ public class MemoryAwareQueryExecution
                     startedWaiting = true;
                     delegate.startWaitingForResources();
                     memoryManager.addChangeListener(GENERAL_POOL, none -> start());
-                    memoryManager.addChangeListener(RESERVED_POOL, none -> start());
+                    if (memoryManager.memoryPoolExists(RESERVED_POOL)) {
+                        memoryManager.addChangeListener(RESERVED_POOL, none -> start());
+                    }
                 }
             }
             catch (Throwable e) {

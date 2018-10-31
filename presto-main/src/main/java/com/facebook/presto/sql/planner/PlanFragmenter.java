@@ -15,6 +15,7 @@ package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.execution.QueryManagerConfig;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.TableLayout;
@@ -82,7 +83,7 @@ public class PlanFragmenter
 
     public SubPlan createSubPlans(Session session, Metadata metadata, NodePartitioningManager nodePartitioningManager, Plan plan, boolean forceSingleNode)
     {
-        Fragmenter fragmenter = new Fragmenter(session, metadata, plan.getTypes());
+        Fragmenter fragmenter = new Fragmenter(session, metadata, plan.getTypes(), plan.getStatsAndCosts());
 
         FragmentProperties properties = new FragmentProperties(new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getRoot().getOutputSymbols()));
         if (forceSingleNode || isForceSingleNodeOutput(session)) {
@@ -134,13 +135,15 @@ public class PlanFragmenter
         private final Session session;
         private final Metadata metadata;
         private final TypeProvider types;
+        private final StatsAndCosts statsAndCosts;
         private int nextFragmentId = ROOT_FRAGMENT_ID + 1;
 
-        public Fragmenter(Session session, Metadata metadata, TypeProvider types)
+        public Fragmenter(Session session, Metadata metadata, TypeProvider types, StatsAndCosts statsAndCosts)
         {
             this.session = requireNonNull(session, "session is null");
             this.metadata = requireNonNull(metadata, "metadata is null");
             this.types = requireNonNull(types, "types is null");
+            this.statsAndCosts = requireNonNull(statsAndCosts, "statsAndCosts is null");
         }
 
         public SubPlan buildRootFragment(PlanNode root, FragmentProperties properties)
@@ -168,7 +171,8 @@ public class PlanFragmenter
                     properties.getPartitioningHandle(),
                     schedulingOrder,
                     properties.getPartitioningScheme(),
-                    StageExecutionStrategy.ungroupedExecution());
+                    StageExecutionStrategy.ungroupedExecution(),
+                    statsAndCosts.getForSubplan(root));
 
             return new SubPlan(fragment, properties.getChildren());
         }
@@ -444,6 +448,29 @@ public class PlanFragmenter
                 return GroupedExecutionProperties.notCapable();
             }
 
+            if ((node.getType() == JoinNode.Type.RIGHT || node.getType() == JoinNode.Type.FULL) && !right.currentNodeCapable) {
+                // For a plan like this, if the fragment participates in grouped execution,
+                // the LookupOuterOperator corresponding to the RJoin will not work execute properly.
+                //
+                // * The operator has to execute as not-grouped because it can only look at the "used" flags in
+                //   join build after all probe has finished.
+                // * The operator has to execute as grouped the subsequent LJoin expects that incoming
+                //   operators are grouped. Otherwise, the LJoin won't be able to throw out the build side
+                //   for each group as soon as the group completes.
+                //
+                //       LJoin
+                //       /   \
+                //   RJoin   Scan
+                //   /   \
+                // Scan Remote
+                //
+                // TODO:
+                // The RJoin can still execute as grouped if there is no subsequent operator that depends
+                // on the RJoin being executed in a grouped manner. However, this is not currently implemented.
+                // Support for this scenario is already implemented in the execution side.
+                return GroupedExecutionProperties.notCapable();
+            }
+
             switch (node.getDistributionType().get()) {
                 case REPLICATED:
                     // Broadcast join maintains partitioning for the left side.
@@ -464,7 +491,7 @@ public class PlanFragmenter
                     //   It's not particularly helpful to do grouped execution on the right side
                     //   because the benefit is likely cancelled out due to required buffering for hash build.
                     //   In theory, it could still be helpful (e.g. when the underlying aggregation's intermediate group state maybe larger than aggregation output).
-                    //   However, this is not currently implemented. JoinBridgeDataManager need to support such a lifecycle.
+                    //   However, this is not currently implemented. JoinBridgeManager need to support such a lifecycle.
                     // !right.currentNodeCapable:
                     //   The build/right side needs to buffer fully for this JOIN, but the probe/left side will still stream through.
                     //   As a result, there is no reason to change currentNodeCapable or subTreeUseful to false.

@@ -28,6 +28,7 @@ import io.airlift.units.Duration;
 import javax.inject.Inject;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.stream.Stream;
 
@@ -37,12 +38,14 @@ import static com.facebook.presto.spi.session.PropertyMetadata.integerProperty;
 import static com.facebook.presto.spi.session.PropertyMetadata.stringProperty;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
+import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType.BROADCAST;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType.PARTITIONED;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.ELIMINATE_CROSS_JOINS;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy.NONE;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -51,6 +54,7 @@ public final class SystemSessionProperties
 {
     public static final String OPTIMIZE_HASH_GENERATION = "optimize_hash_generation";
     public static final String JOIN_DISTRIBUTION_TYPE = "join_distribution_type";
+    public static final String JOIN_MAX_BROADCAST_TABLE_SIZE = "join_max_broadcast_table_size";
     public static final String DISTRIBUTED_JOIN = "distributed_join";
     public static final String DISTRIBUTED_INDEX_JOIN = "distributed_index_join";
     public static final String HASH_PARTITION_COUNT = "hash_partition_count";
@@ -74,6 +78,7 @@ public final class SystemSessionProperties
     public static final String DICTIONARY_AGGREGATION = "dictionary_aggregation";
     public static final String PLAN_WITH_TABLE_NODE_PARTITIONING = "plan_with_table_node_partitioning";
     public static final String SPATIAL_JOIN = "spatial_join";
+    public static final String SPATIAL_PARTITIONING_TABLE_NAME = "spatial_partitioning_table_name";
     public static final String COLOCATED_JOIN = "colocated_join";
     public static final String CONCURRENT_LIFESPANS_PER_NODE = "concurrent_lifespans_per_task";
     public static final String REORDER_JOINS = "reorder_joins";
@@ -106,6 +111,7 @@ public final class SystemSessionProperties
     public static final String LEGACY_UNNEST = "legacy_unnest";
     public static final String STATISTICS_CPU_TIMER_ENABLED = "statistics_cpu_timer_enabled";
     public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
+    public static final String MAX_DRIVERS_PER_TASK = "max_drivers_per_task";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -149,6 +155,15 @@ public final class SystemSessionProperties
                         false,
                         value -> JoinDistributionType.valueOf(((String) value).toUpperCase()),
                         JoinDistributionType::name),
+                new PropertyMetadata<>(
+                        JOIN_MAX_BROADCAST_TABLE_SIZE,
+                        "Maximum estimated size of a table that can be broadcast for JOIN.",
+                        VARCHAR,
+                        DataSize.class,
+                        featuresConfig.getJoinMaxBroadcastTableSize(),
+                        true,
+                        value -> DataSize.valueOf((String) value),
+                        DataSize::toString),
                 booleanProperty(
                         DISTRIBUTED_INDEX_JOIN,
                         "Distribute index joins on join keys instead of executing inline",
@@ -352,6 +367,11 @@ public final class SystemSessionProperties
                         "Use spatial index for spatial join when possible",
                         featuresConfig.isSpatialJoinsEnabled(),
                         false),
+                stringProperty(
+                        SPATIAL_PARTITIONING_TABLE_NAME,
+                        "Name of the table containing spatial partitioning scheme",
+                        null,
+                        false),
                 integerProperty(
                         CONCURRENT_LIFESPANS_PER_NODE,
                         "Experimental: Run a fixed number of groups concurrently for eligible JOINs",
@@ -490,7 +510,16 @@ public final class SystemSessionProperties
                         ENABLE_STATS_CALCULATOR,
                         "Experimental: Enable statistics calculator",
                         featuresConfig.isEnableStatsCalculator(),
-                        false));
+                        false),
+                new PropertyMetadata<>(
+                        MAX_DRIVERS_PER_TASK,
+                        "Maximum number of drivers per task",
+                        INTEGER,
+                        Integer.class,
+                        null,
+                        false,
+                        value -> min(taskManagerConfig.getMaxDriversPerTask(), validateNullablePositiveIntegerValue(value, MAX_DRIVERS_PER_TASK)),
+                        object -> object));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -520,6 +549,11 @@ public final class SystemSessionProperties
         }
 
         return session.getSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.class);
+    }
+
+    public static Optional<DataSize> getJoinMaxBroadcastTableSize(Session session)
+    {
+        return Optional.ofNullable(session.getSystemProperty(JOIN_MAX_BROADCAST_TABLE_SIZE, DataSize.class));
     }
 
     public static boolean isDistributedIndexJoinEnabled(Session session)
@@ -652,6 +686,11 @@ public final class SystemSessionProperties
     public static boolean isSpatialJoinEnabled(Session session)
     {
         return session.getSystemProperty(SPATIAL_JOIN, Boolean.class);
+    }
+
+    public static Optional<String> getSpatialPartitioningTableName(Session session)
+    {
+        return Optional.ofNullable(session.getSystemProperty(SPATIAL_PARTITIONING_TABLE_NAME, String.class));
     }
 
     public static OptionalInt getConcurrentLifespansPerNode(Session session)
@@ -791,6 +830,15 @@ public final class SystemSessionProperties
         return session.getSystemProperty(LEGACY_UNNEST, Boolean.class);
     }
 
+    public static OptionalInt getMaxDriversPerTask(Session session)
+    {
+        Integer value = session.getSystemProperty(MAX_DRIVERS_PER_TASK, Integer.class);
+        if (value == null) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(value);
+    }
+
     private static int validateValueIsPowerOfTwo(Object value, String property)
     {
         int intValue = ((Number) requireNonNull(value, "value is null")).intValue();
@@ -798,6 +846,28 @@ public final class SystemSessionProperties
             throw new PrestoException(
                     INVALID_SESSION_PROPERTY,
                     format("%s must be a power of 2: %s", property, intValue));
+        }
+        return intValue;
+    }
+
+    private static Integer validateNullablePositiveIntegerValue(Object value, String property)
+    {
+        return validateIntegerValue(value, property, 1, true);
+    }
+
+    private static Integer validateIntegerValue(Object value, String property, int lowerBoundIncluded, boolean allowNull)
+    {
+        if (value == null && !allowNull) {
+            throw new PrestoException(INVALID_SESSION_PROPERTY, format("%s must be non-null", property));
+        }
+
+        if (value == null) {
+            return null;
+        }
+
+        int intValue = ((Number) value).intValue();
+        if (intValue < lowerBoundIncluded) {
+            throw new PrestoException(INVALID_SESSION_PROPERTY, format("%s must be equal or greater than %s", property, lowerBoundIncluded));
         }
         return intValue;
     }

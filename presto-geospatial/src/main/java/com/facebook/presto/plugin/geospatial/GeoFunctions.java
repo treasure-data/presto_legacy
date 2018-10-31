@@ -15,16 +15,19 @@ package com.facebook.presto.plugin.geospatial;
 
 import com.esri.core.geometry.Envelope;
 import com.esri.core.geometry.GeometryCursor;
+import com.esri.core.geometry.ListeningGeometryCursor;
 import com.esri.core.geometry.MultiPath;
 import com.esri.core.geometry.MultiPoint;
 import com.esri.core.geometry.MultiVertexGeometry;
 import com.esri.core.geometry.NonSimpleResult;
 import com.esri.core.geometry.NonSimpleResult.Reason;
 import com.esri.core.geometry.OperatorSimplifyOGC;
+import com.esri.core.geometry.OperatorUnion;
 import com.esri.core.geometry.Point;
 import com.esri.core.geometry.Polygon;
 import com.esri.core.geometry.Polyline;
 import com.esri.core.geometry.SpatialReference;
+import com.esri.core.geometry.ogc.OGCConcreteGeometryCollection;
 import com.esri.core.geometry.ogc.OGCGeometry;
 import com.esri.core.geometry.ogc.OGCGeometryCollection;
 import com.esri.core.geometry.ogc.OGCLineString;
@@ -32,6 +35,8 @@ import com.esri.core.geometry.ogc.OGCMultiPolygon;
 import com.esri.core.geometry.ogc.OGCPoint;
 import com.esri.core.geometry.ogc.OGCPolygon;
 import com.facebook.presto.geospatial.GeometryType;
+import com.facebook.presto.geospatial.KdbTree;
+import com.facebook.presto.geospatial.Rectangle;
 import com.facebook.presto.geospatial.serde.GeometrySerde;
 import com.facebook.presto.geospatial.serde.GeometrySerializationType;
 import com.facebook.presto.geospatial.serde.JtsGeometrySerde;
@@ -42,15 +47,23 @@ import com.facebook.presto.spi.function.Description;
 import com.facebook.presto.spi.function.ScalarFunction;
 import com.facebook.presto.spi.function.SqlNullable;
 import com.facebook.presto.spi.function.SqlType;
-import com.facebook.presto.spi.type.StandardTypes;
+import com.facebook.presto.spi.type.IntegerType;
 import com.google.common.base.Joiner;
+import com.google.common.base.VerifyException;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.linearref.LengthIndexedLine;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumSet;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 
@@ -76,11 +89,18 @@ import static com.facebook.presto.geospatial.serde.GeometrySerde.serialize;
 import static com.facebook.presto.plugin.geospatial.GeometryType.GEOMETRY;
 import static com.facebook.presto.plugin.geospatial.GeometryType.GEOMETRY_TYPE_NAME;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
+import static com.facebook.presto.spi.type.StandardTypes.BIGINT;
+import static com.facebook.presto.spi.type.StandardTypes.BOOLEAN;
 import static com.facebook.presto.spi.type.StandardTypes.DOUBLE;
 import static com.facebook.presto.spi.type.StandardTypes.INTEGER;
+import static com.facebook.presto.spi.type.StandardTypes.TINYINT;
+import static com.facebook.presto.spi.type.StandardTypes.VARBINARY;
+import static com.facebook.presto.spi.type.StandardTypes.VARCHAR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
+import static java.lang.Double.isInfinite;
+import static java.lang.Double.isNaN;
 import static java.lang.Math.atan2;
 import static java.lang.Math.cos;
 import static java.lang.Math.sin;
@@ -88,6 +108,7 @@ import static java.lang.Math.sqrt;
 import static java.lang.Math.toIntExact;
 import static java.lang.Math.toRadians;
 import static java.lang.String.format;
+import static java.util.Arrays.setAll;
 import static java.util.Objects.requireNonNull;
 import static org.locationtech.jts.simplify.TopologyPreservingSimplifier.simplify;
 
@@ -106,13 +127,15 @@ public final class GeoFunctions
             .put(OGCPolygonSelfTangency, "Self-tangency")
             .put(OGCDisconnectedInterior, "Disconnected interior")
             .build();
+    private static final int NUMBER_OF_DIMENSIONS = 3;
+    private static final Block EMPTY_ARRAY_OF_INTS = IntegerType.INTEGER.createFixedSizeBlockBuilder(0).build();
 
     private GeoFunctions() {}
 
     @Description("Returns a Geometry type LineString object from Well-Known Text representation (WKT)")
     @ScalarFunction("ST_LineFromText")
     @SqlType(GEOMETRY_TYPE_NAME)
-    public static Slice parseLine(@SqlType(StandardTypes.VARCHAR) Slice input)
+    public static Slice parseLine(@SqlType(VARCHAR) Slice input)
     {
         OGCGeometry geometry = geometryFromText(input);
         validateType("ST_LineFromText", geometry, EnumSet.of(LINE_STRING));
@@ -168,10 +191,40 @@ public final class GeoFunctions
         return serialize(geometry);
     }
 
+    @SqlNullable
+    @Description("Returns a multi-point geometry formed from input points")
+    @ScalarFunction("ST_MultiPoint")
+    @SqlType(GEOMETRY_TYPE_NAME)
+    public static Slice stMultiPoint(@SqlType("array(" + GEOMETRY_TYPE_NAME + ")") Block input)
+    {
+        MultiPoint multipoint = new MultiPoint();
+        for (int i = 0; i < input.getPositionCount(); i++) {
+            if (input.isNull(i)) {
+                throw new PrestoException(INVALID_FUNCTION_ARGUMENT, format("Invalid input to ST_MultiPoint: null at index %s", i + 1));
+            }
+
+            Slice slice = GEOMETRY.getSlice(input, i);
+            OGCGeometry geometry = deserialize(slice);
+            if (!(geometry instanceof OGCPoint)) {
+                throw new PrestoException(INVALID_FUNCTION_ARGUMENT, format("Invalid input to ST_MultiPoint: geometry is not a point: %s at index %s", geometry.geometryType(), i + 1));
+            }
+            OGCPoint point = (OGCPoint) geometry;
+            if (point.isEmpty()) {
+                throw new PrestoException(INVALID_FUNCTION_ARGUMENT, format("Invalid input to ST_MultiPoint: empty point at index %s", i + 1));
+            }
+
+            multipoint.add(point.X(), point.Y());
+        }
+        if (multipoint.getPointCount() == 0) {
+            return null;
+        }
+        return serialize(createFromEsriGeometry(multipoint, null, true));
+    }
+
     @Description("Returns a Geometry type Polygon object from Well-Known Text representation (WKT)")
     @ScalarFunction("ST_Polygon")
     @SqlType(GEOMETRY_TYPE_NAME)
-    public static Slice stPolygon(@SqlType(StandardTypes.VARCHAR) Slice input)
+    public static Slice stPolygon(@SqlType(VARCHAR) Slice input)
     {
         OGCGeometry geometry = geometryFromText(input);
         validateType("ST_Polygon", geometry, EnumSet.of(POLYGON));
@@ -206,7 +259,7 @@ public final class GeoFunctions
     @Description("Returns a Geometry type object from Well-Known Text representation (WKT)")
     @ScalarFunction("ST_GeometryFromText")
     @SqlType(GEOMETRY_TYPE_NAME)
-    public static Slice stGeometryFromText(@SqlType(StandardTypes.VARCHAR) Slice input)
+    public static Slice stGeometryFromText(@SqlType(VARCHAR) Slice input)
     {
         return serialize(geometryFromText(input));
     }
@@ -214,14 +267,14 @@ public final class GeoFunctions
     @Description("Returns a Geometry type object from Well-Known Binary representation (WKB)")
     @ScalarFunction("ST_GeomFromBinary")
     @SqlType(GEOMETRY_TYPE_NAME)
-    public static Slice stGeomFromBinary(@SqlType(StandardTypes.VARBINARY) Slice input)
+    public static Slice stGeomFromBinary(@SqlType(VARBINARY) Slice input)
     {
         return serialize(geomFromBinary(input));
     }
 
     @Description("Returns the Well-Known Text (WKT) representation of the geometry")
     @ScalarFunction("ST_AsText")
-    @SqlType(StandardTypes.VARCHAR)
+    @SqlType(VARCHAR)
     public static Slice stAsText(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         return utf8Slice(deserialize(input).asText());
@@ -229,7 +282,7 @@ public final class GeoFunctions
 
     @Description("Returns the Well-Known Binary (WKB) representation of the geometry")
     @ScalarFunction("ST_AsBinary")
-    @SqlType(StandardTypes.VARBINARY)
+    @SqlType(VARBINARY)
     public static Slice stAsBinary(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         return wrappedBuffer(deserialize(input).asBinary());
@@ -241,7 +294,7 @@ public final class GeoFunctions
     @SqlType(GEOMETRY_TYPE_NAME)
     public static Slice stBuffer(@SqlType(GEOMETRY_TYPE_NAME) Slice input, @SqlType(DOUBLE) double distance)
     {
-        if (Double.isNaN(distance)) {
+        if (isNaN(distance)) {
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "distance is NaN");
         }
 
@@ -315,7 +368,7 @@ public final class GeoFunctions
 
     @Description("Return the coordinate dimension of the Geometry")
     @ScalarFunction("ST_CoordDim")
-    @SqlType(StandardTypes.TINYINT)
+    @SqlType(TINYINT)
     public static long stCoordinateDimension(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         return deserialize(input).coordinateDimension();
@@ -323,7 +376,7 @@ public final class GeoFunctions
 
     @Description("Returns the inherent dimension of this Geometry object, which must be less than or equal to the coordinate dimension")
     @ScalarFunction("ST_Dimension")
-    @SqlType(StandardTypes.TINYINT)
+    @SqlType(TINYINT)
     public static long stDimension(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         return deserialize(input).dimension();
@@ -332,7 +385,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the LineString or Multi-LineString's start and end points are coincident")
     @ScalarFunction("ST_IsClosed")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stIsClosed(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         OGCGeometry geometry = deserialize(input);
@@ -352,15 +405,16 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if this Geometry is an empty geometrycollection, polygon, point etc")
     @ScalarFunction("ST_IsEmpty")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stIsEmpty(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
-        return deserialize(input).isEmpty();
+        Envelope envelope = deserializeEnvelope(input);
+        return envelope == null || envelope.isEmpty();
     }
 
     @Description("Returns TRUE if this Geometry has no anomalous geometric points, such as self intersection or self tangency")
     @ScalarFunction("ST_IsSimple")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static boolean stIsSimple(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         OGCGeometry geometry = deserialize(input);
@@ -369,7 +423,7 @@ public final class GeoFunctions
 
     @Description("Returns true if the input geometry is well formed")
     @ScalarFunction("ST_IsValid")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static boolean stIsValid(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         GeometryCursor cursor = deserialize(input).getEsriGeometryCursor();
@@ -387,7 +441,7 @@ public final class GeoFunctions
 
     @Description("Returns the reason for why the input geometry is not valid. Returns null if the input is valid.")
     @ScalarFunction("geometry_invalid_reason")
-    @SqlType(StandardTypes.VARCHAR)
+    @SqlType(VARCHAR)
     @SqlNullable
     public static Slice invalidReason(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
@@ -514,7 +568,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns the cardinality of the collection of interior rings of a polygon")
     @ScalarFunction("ST_NumInteriorRing")
-    @SqlType(StandardTypes.BIGINT)
+    @SqlType(BIGINT)
     public static Long stNumInteriorRings(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         OGCGeometry geometry = deserialize(input);
@@ -547,7 +601,7 @@ public final class GeoFunctions
 
     @Description("Returns the cardinality of the geometry collection")
     @ScalarFunction("ST_NumGeometries")
-    @SqlType(StandardTypes.INTEGER)
+    @SqlType(INTEGER)
     public static long stNumGeometries(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         OGCGeometry geometry = deserialize(input);
@@ -561,27 +615,66 @@ public final class GeoFunctions
         return ((OGCGeometryCollection) geometry).numGeometries();
     }
 
-    @Description("Returns a geometry that represents the point set union of the input geometries. This function doesn't support geometry collections.")
+    @Description("Returns a geometry that represents the point set union of the input geometries.")
     @ScalarFunction("ST_Union")
     @SqlType(GEOMETRY_TYPE_NAME)
     public static Slice stUnion(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
-        // Only supports Geometry but not GeometryCollection due to ESRI library limitation
-        // https://github.com/Esri/geometry-api-java/issues/176
-        // https://github.com/Esri/geometry-api-java/issues/177
-        OGCGeometry leftGeometry = deserialize(left);
-        validateType("ST_Union", leftGeometry, EnumSet.of(POINT, MULTI_POINT, LINE_STRING, MULTI_LINE_STRING, POLYGON, MULTI_POLYGON));
-        if (leftGeometry.isEmpty()) {
-            return right;
+        return stUnion(ImmutableList.of(left, right));
+    }
+
+    @Description("Returns a geometry that represents the point set union of the input geometries.")
+    @ScalarFunction("geometry_union")
+    @SqlType(GEOMETRY_TYPE_NAME)
+    public static Slice geometryUnion(@SqlType("array(" + GEOMETRY_TYPE_NAME + ")") Block input)
+    {
+        return stUnion(getGeometrySlicesFromBlock(input));
+    }
+
+    private static Slice stUnion(Iterable<Slice> slices)
+    {
+        // The current state of Esri/geometry-api-java does not allow support for multiple dimensions being
+        // fed to the union operator without dropping the lower dimensions:
+        // https://github.com/Esri/geometry-api-java/issues/199
+        // When operating over a collection of geometries, it is more efficient to reuse the same operator
+        // for the entire operation.  Therefore, split the inputs and operators by dimension, and then union
+        // each dimension's result at the end.
+        ListeningGeometryCursor[] cursorsByDimension = new ListeningGeometryCursor[NUMBER_OF_DIMENSIONS];
+        GeometryCursor[] operatorsByDimension = new GeometryCursor[NUMBER_OF_DIMENSIONS];
+
+        setAll(cursorsByDimension, i -> new ListeningGeometryCursor());
+        setAll(operatorsByDimension, i -> OperatorUnion.local().execute(cursorsByDimension[i], null, null));
+
+        Iterator<Slice> slicesIterator = slices.iterator();
+        if (!slicesIterator.hasNext()) {
+            return null;
+        }
+        while (slicesIterator.hasNext()) {
+            Slice slice = slicesIterator.next();
+            // Ignore null inputs
+            if (slice.getInput().available() == 0) {
+                continue;
+            }
+
+            for (OGCGeometry geometry : flattenCollection(deserialize(slice))) {
+                int dimension = geometry.dimension();
+                cursorsByDimension[dimension].tick(geometry.getEsriGeometry());
+                operatorsByDimension[dimension].tock();
+            }
         }
 
-        OGCGeometry rightGeometry = deserialize(right);
-        validateType("ST_Union", rightGeometry, EnumSet.of(POINT, MULTI_POINT, LINE_STRING, MULTI_LINE_STRING, POLYGON, MULTI_POLYGON));
-        if (rightGeometry.isEmpty()) {
-            return left;
+        List<OGCGeometry> outputs = new ArrayList<>();
+        for (GeometryCursor operator : operatorsByDimension) {
+            OGCGeometry unionedGeometry = createFromEsriGeometry(operator.next(), null);
+            if (unionedGeometry != null) {
+                outputs.add(unionedGeometry);
+            }
         }
 
-        return serialize(leftGeometry.union(rightGeometry));
+        if (outputs.size() == 1) {
+            return serialize(outputs.get(0));
+        }
+        return serialize(new OGCConcreteGeometryCollection(outputs, null).flattenAndRemoveOverlaps().reduceFromMulti());
     }
 
     @SqlNullable
@@ -669,7 +762,7 @@ public final class GeoFunctions
 
     @Description("Returns the number of points in a Geometry")
     @ScalarFunction("ST_NumPoints")
-    @SqlType(StandardTypes.BIGINT)
+    @SqlType(BIGINT)
     public static long stNumPoints(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         return getPointCount(deserialize(input));
@@ -678,7 +771,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if and only if the line is closed and simple")
     @ScalarFunction("ST_IsRing")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stIsRing(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         OGCGeometry geometry = deserialize(input);
@@ -709,7 +802,7 @@ public final class GeoFunctions
     public static Slice simplifyGeometry(@SqlType(GEOMETRY_TYPE_NAME) Slice input,
                                          @SqlType(DOUBLE) double distanceTolerance)
     {
-        if (Double.isNaN(distanceTolerance)) {
+        if (isNaN(distanceTolerance)) {
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "distanceTolerance is NaN");
         }
 
@@ -822,15 +915,16 @@ public final class GeoFunctions
         return serialize(leftGeometry.difference(rightGeometry));
     }
 
+    @SqlNullable
     @Description("Returns the 2-dimensional cartesian minimum distance (based on spatial ref) between two geometries in projected units")
     @ScalarFunction("ST_Distance")
     @SqlType(DOUBLE)
-    public static double stDistance(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
+    public static Double stDistance(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         OGCGeometry leftGeometry = deserialize(left);
         OGCGeometry rightGeometry = deserialize(right);
         verifySameSpatialReference(leftGeometry, rightGeometry);
-        return leftGeometry.distance(rightGeometry);
+        return leftGeometry.isEmpty() || rightGeometry.isEmpty() ? null : leftGeometry.distance(rightGeometry);
     }
 
     @SqlNullable
@@ -896,7 +990,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if and only if no points of right lie in the exterior of left, and at least one point of the interior of left lies in the interior of right")
     @ScalarFunction("ST_Contains")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stContains(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(left, right, Envelope::contains)) {
@@ -911,7 +1005,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the supplied geometries have some, but not all, interior points in common")
     @ScalarFunction("ST_Crosses")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stCrosses(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(left, right, Envelope::intersect)) {
@@ -926,7 +1020,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the Geometries do not spatially intersect - if they do not share any space together")
     @ScalarFunction("ST_Disjoint")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stDisjoint(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(left, right, Envelope::intersect)) {
@@ -941,7 +1035,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the given geometries represent the same geometry")
     @ScalarFunction("ST_Equals")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stEquals(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         OGCGeometry leftGeometry = deserialize(left);
@@ -953,7 +1047,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the Geometries spatially intersect in 2D - (share any portion of space) and FALSE if they don't (they are Disjoint)")
     @ScalarFunction("ST_Intersects")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stIntersects(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(left, right, Envelope::intersect)) {
@@ -968,7 +1062,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the Geometries share space, are of the same dimension, but are not completely contained by each other")
     @ScalarFunction("ST_Overlaps")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stOverlaps(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(left, right, Envelope::intersect)) {
@@ -983,8 +1077,8 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if this Geometry is spatially related to another Geometry")
     @ScalarFunction("ST_Relate")
-    @SqlType(StandardTypes.BOOLEAN)
-    public static Boolean stRelate(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right, @SqlType(StandardTypes.VARCHAR) Slice relation)
+    @SqlType(BOOLEAN)
+    public static Boolean stRelate(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right, @SqlType(VARCHAR) Slice relation)
     {
         OGCGeometry leftGeometry = deserialize(left);
         OGCGeometry rightGeometry = deserialize(right);
@@ -995,7 +1089,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the geometries have at least one point in common, but their interiors do not intersect")
     @ScalarFunction("ST_Touches")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stTouches(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(left, right, Envelope::intersect)) {
@@ -1010,7 +1104,7 @@ public final class GeoFunctions
     @SqlNullable
     @Description("Returns TRUE if the geometry A is completely inside geometry B")
     @ScalarFunction("ST_Within")
-    @SqlType(StandardTypes.BOOLEAN)
+    @SqlType(BOOLEAN)
     public static Boolean stWithin(@SqlType(GEOMETRY_TYPE_NAME) Slice left, @SqlType(GEOMETRY_TYPE_NAME) Slice right)
     {
         if (!envelopes(right, left, Envelope::contains)) {
@@ -1024,20 +1118,93 @@ public final class GeoFunctions
 
     @Description("Returns the type of the geometry")
     @ScalarFunction("ST_GeometryType")
-    @SqlType(StandardTypes.VARCHAR)
+    @SqlType(VARCHAR)
     public static Slice stGeometryType(@SqlType(GEOMETRY_TYPE_NAME) Slice input)
     {
         return GeometrySerde.getGeometryType(input).standardName();
     }
 
     @ScalarFunction
+    @SqlNullable
+    @Description("Returns an array of spatial partition IDs for a given geometry")
+    @SqlType("array(int)")
+    public static Block spatialPartitions(@SqlType(KdbTreeType.NAME) Object kdbTree, @SqlType(GEOMETRY_TYPE_NAME) Slice geometry)
+    {
+        Envelope envelope = deserializeEnvelope(geometry);
+        if (envelope == null) {
+            // Empty geometry
+            return null;
+        }
+
+        return spatialPartitions((KdbTree) kdbTree, new Rectangle(envelope.getXMin(), envelope.getYMin(), envelope.getXMax(), envelope.getYMax()));
+    }
+
+    @ScalarFunction
+    @SqlNullable
+    @Description("Returns an array of spatial partition IDs for a geometry representing a set of points within specified distance from the input geometry")
+    @SqlType("array(int)")
+    public static Block spatialPartitions(@SqlType(KdbTreeType.NAME) Object kdbTree, @SqlType(GEOMETRY_TYPE_NAME) Slice geometry, @SqlType(DOUBLE) double distance)
+    {
+        if (isNaN(distance)) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "distance is NaN");
+        }
+
+        if (isInfinite(distance)) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "distance is infinite");
+        }
+
+        if (distance < 0) {
+            throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "distance is negative");
+        }
+
+        Envelope envelope = deserializeEnvelope(geometry);
+        if (envelope == null) {
+            return null;
+        }
+
+        Rectangle expandedEnvelope2D = new Rectangle(envelope.getXMin() - distance, envelope.getYMin() - distance, envelope.getXMax() + distance, envelope.getYMax() + distance);
+        return spatialPartitions((KdbTree) kdbTree, expandedEnvelope2D);
+    }
+
+    private static Block spatialPartitions(KdbTree kdbTree, Rectangle envelope)
+    {
+        Map<Integer, Rectangle> partitions = kdbTree.findIntersectingLeaves(envelope);
+        if (partitions.isEmpty()) {
+            return EMPTY_ARRAY_OF_INTS;
+        }
+
+        // For input rectangles that represent a single point, return at most one partition
+        // by excluding right and upper sides of partition rectangles. The logic that builds
+        // KDB tree needs to make sure to add some padding to the right and upper sides of the
+        // overall extent of the tree to avoid missing right-most and top-most points.
+        boolean point = (envelope.getWidth() == 0 && envelope.getHeight() == 0);
+        if (point) {
+            for (Map.Entry<Integer, Rectangle> partition : partitions.entrySet()) {
+                if (envelope.getXMin() < partition.getValue().getXMax() && envelope.getYMin() < partition.getValue().getYMax()) {
+                    BlockBuilder blockBuilder = IntegerType.INTEGER.createFixedSizeBlockBuilder(1);
+                    blockBuilder.writeInt(partition.getKey());
+                    return blockBuilder.build();
+                }
+            }
+            throw new VerifyException(format("Cannot find half-open partition extent for a point: (%s, %s)", envelope.getXMin(), envelope.getYMin()));
+        }
+
+        BlockBuilder blockBuilder = IntegerType.INTEGER.createFixedSizeBlockBuilder(partitions.size());
+        for (int id : partitions.keySet()) {
+            blockBuilder.writeInt(id);
+        }
+
+        return blockBuilder.build();
+    }
+
+    @ScalarFunction
     @Description("Calculates the great-circle distance between two points on the Earth's surface in kilometers")
-    @SqlType(StandardTypes.DOUBLE)
+    @SqlType(DOUBLE)
     public static double greatCircleDistance(
-            @SqlType(StandardTypes.DOUBLE) double latitude1,
-            @SqlType(StandardTypes.DOUBLE) double longitude1,
-            @SqlType(StandardTypes.DOUBLE) double latitude2,
-            @SqlType(StandardTypes.DOUBLE) double longitude2)
+            @SqlType(DOUBLE) double latitude1,
+            @SqlType(DOUBLE) double longitude1,
+            @SqlType(DOUBLE) double latitude2,
+            @SqlType(DOUBLE) double longitude2)
     {
         checkLatitude(latitude1);
         checkLongitude(longitude1);
@@ -1063,14 +1230,14 @@ public final class GeoFunctions
 
     private static void checkLatitude(double latitude)
     {
-        if (Double.isNaN(latitude) || Double.isInfinite(latitude) || latitude < -90 || latitude > 90) {
+        if (isNaN(latitude) || isInfinite(latitude) || latitude < -90 || latitude > 90) {
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "Latitude must be between -90 and 90");
         }
     }
 
     private static void checkLongitude(double longitude)
     {
-        if (Double.isNaN(longitude) || Double.isInfinite(longitude) || longitude < -180 || longitude > 180) {
+        if (isNaN(longitude) || isInfinite(longitude) || longitude < -180 || longitude > 180) {
             throw new PrestoException(INVALID_FUNCTION_ARGUMENT, "Longitude must be between -180 and 180");
         }
     }
@@ -1241,5 +1408,77 @@ public final class GeoFunctions
     private interface EnvelopesPredicate
     {
         boolean apply(Envelope left, Envelope right);
+    }
+
+    private static Iterable<Slice> getGeometrySlicesFromBlock(Block block)
+    {
+        requireNonNull(block, "block is null");
+        return () -> new Iterator<Slice>() {
+            private int iteratorPosition;
+
+            @Override
+            public boolean hasNext()
+            {
+                return iteratorPosition != block.getPositionCount();
+            }
+
+            @Override
+            public Slice next()
+            {
+                if (!hasNext()) {
+                    throw new NoSuchElementException("Slices have been consumed");
+                }
+                return GEOMETRY.getSlice(block, iteratorPosition++);
+            }
+        };
+    }
+
+    private static Iterable<OGCGeometry> flattenCollection(OGCGeometry geometry)
+    {
+        if (geometry == null) {
+            return ImmutableList.of();
+        }
+        if (!(geometry instanceof OGCConcreteGeometryCollection)) {
+            return ImmutableList.of(geometry);
+        }
+        if (((OGCConcreteGeometryCollection) geometry).numGeometries() == 0) {
+            return ImmutableList.of();
+        }
+        return () -> new GeometryCollectionIterator(geometry);
+    }
+
+    private static class GeometryCollectionIterator
+            implements Iterator<OGCGeometry>
+    {
+        private final Deque<OGCGeometry> geometriesDeque = new ArrayDeque<>();
+
+        GeometryCollectionIterator(OGCGeometry geometries)
+        {
+            geometriesDeque.push(requireNonNull(geometries, "geometries is null"));
+        }
+
+        @Override
+        public boolean hasNext()
+        {
+            if (geometriesDeque.isEmpty()) {
+                return false;
+            }
+            while (geometriesDeque.peek() instanceof OGCConcreteGeometryCollection) {
+                OGCGeometryCollection collection = (OGCGeometryCollection) geometriesDeque.pop();
+                for (int i = 0; i < collection.numGeometries(); i++) {
+                    geometriesDeque.push(collection.geometryN(i));
+                }
+            }
+            return !geometriesDeque.isEmpty();
+        }
+
+        @Override
+        public OGCGeometry next()
+        {
+            if (!hasNext()) {
+                throw new NoSuchElementException("Geometries have been consumed");
+            }
+            return geometriesDeque.pop();
+        }
     }
 }
