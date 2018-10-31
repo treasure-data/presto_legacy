@@ -9,8 +9,6 @@ jobs:
       - _JAVA_OPTIONS: -Xmx4g -Xms4g -XX:ReservedCodeCacheSize=300M -XX:MaxPermSize=300M -XX:InitiatingHeapOccupancyPercent=30
       - RUBY_VERSION: 2.4.1
       - MAVEN_USER_HOME: /home/presto/.m2
-      - JAVA_HOME: /home/presto/.java/jdk1.8.0_181
-      #- PATH: /home/presto/.java/jdk1.8.0_131/bin::$PATH
     docker:
       - image: 523683666290.dkr.ecr.us-east-1.amazonaws.com/td-build:latest
         aws_auth:
@@ -31,13 +29,6 @@ jobs:
 
       - restore_cache:
           key: presto-{{ checksum "pom.xml" }}
-
-      - run:
-          name: Install Prerequisites
-          command: |
-            # install 8u131
-            mkdir -p $(dirname $JAVA_HOME)
-            test -d $JAVA_HOME || curl -L -C - -b "oraclelicense=accept-securebackup-cookie" http://download.oracle.com/otn-pub/java/jdk/8u181-b13/96a7b8442fe848ef90c96a2fad6ed6d1/jdk-8u181-linux-x64.tar.gz | tar zxvf - -C $(dirname $JAVA_HOME)
 
       - run:
           name: Build presto
