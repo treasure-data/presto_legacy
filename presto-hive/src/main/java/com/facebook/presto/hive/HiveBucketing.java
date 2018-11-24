@@ -24,6 +24,7 @@ import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.predicate.ValueSet;
 import com.facebook.presto.spi.type.Type;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -272,7 +273,8 @@ final class HiveBucketing
             bucketColumns.add(bucketColumnHandle);
         }
 
-        return Optional.of(new HiveBucketHandle(bucketColumns.build(), hiveBucketProperty.get().getBucketCount()));
+        int bucketCount = hiveBucketProperty.get().getBucketCount();
+        return Optional.of(new HiveBucketHandle(bucketColumns.build(), bucketCount, bucketCount));
     }
 
     public static Optional<HiveBucketFilter> getHiveBucketFilter(Table table, TupleDomain<ColumnHandle> effectivePredicate)
@@ -360,6 +362,7 @@ final class HiveBucketing
     {
         private final Set<Integer> bucketsToKeep;
 
+        @JsonCreator
         public HiveBucketFilter(@JsonProperty("bucketsToKeep") Set<Integer> bucketsToKeep)
         {
             this.bucketsToKeep = bucketsToKeep;

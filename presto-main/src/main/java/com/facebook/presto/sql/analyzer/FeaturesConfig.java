@@ -41,7 +41,6 @@ import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStra
 import static com.facebook.presto.sql.analyzer.RegexLibrary.JONI;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
-import static io.airlift.units.DataSize.succinctBytes;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
@@ -107,14 +106,15 @@ public class FeaturesConfig
     private int spillerThreads = 4;
     private double spillMaxUsedSpaceThreshold = 0.9;
     private boolean iterativeOptimizerEnabled = true;
-    private boolean enableStatsCalculator;
+    private boolean enableStatsCalculator = true;
+    private boolean ignoreStatsCalculatorFailures = true;
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
     private boolean parseDecimalLiteralsAsDouble;
     private boolean useMarkDistinct = true;
     private boolean preferPartialAggregation = true;
-    private DataSize preAllocateMemoryThreshold = succinctBytes(0);
+    private boolean optimizeTopNRowNumber = true;
 
     private Duration iterativeOptimizerTimeout = new Duration(3, MINUTES); // by default let optimizer wait a long time in case it retrieves some data from ConnectorMetadata
 
@@ -471,6 +471,18 @@ public class FeaturesConfig
         return this;
     }
 
+    public boolean isOptimizeTopNRowNumber()
+    {
+        return optimizeTopNRowNumber;
+    }
+
+    @Config("optimizer.optimize-top-n-row-number")
+    public FeaturesConfig setOptimizeTopNRowNumber(boolean optimizeTopNRowNumber)
+    {
+        this.optimizeTopNRowNumber = optimizeTopNRowNumber;
+        return this;
+    }
+
     public boolean isOptimizeHashGeneration()
     {
         return optimizeHashGeneration;
@@ -590,6 +602,19 @@ public class FeaturesConfig
     public FeaturesConfig setEnableStatsCalculator(boolean enableStatsCalculator)
     {
         this.enableStatsCalculator = enableStatsCalculator;
+        return this;
+    }
+
+    public boolean isIgnoreStatsCalculatorFailures()
+    {
+        return ignoreStatsCalculatorFailures;
+    }
+
+    @Config("optimizer.ignore-stats-calculator-failures")
+    @ConfigDescription("Ignore statistics calculator failures")
+    public FeaturesConfig setIgnoreStatsCalculatorFailures(boolean ignoreStatsCalculatorFailures)
+    {
+        this.ignoreStatsCalculatorFailures = ignoreStatsCalculatorFailures;
         return this;
     }
 
@@ -822,19 +847,6 @@ public class FeaturesConfig
     public FeaturesConfig setMultimapAggGroupImplementation(MultimapAggGroupImplementation groupByMode)
     {
         this.multimapAggGroupImplementation = groupByMode;
-        return this;
-    }
-
-    @NotNull
-    public DataSize getPreAllocateMemoryThreshold()
-    {
-        return preAllocateMemoryThreshold;
-    }
-
-    @Config("experimental.preallocate-memory-threshold")
-    public FeaturesConfig setPreAllocateMemoryThreshold(DataSize preAllocateMemoryThreshold)
-    {
-        this.preAllocateMemoryThreshold = preAllocateMemoryThreshold;
         return this;
     }
 

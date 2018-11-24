@@ -17,8 +17,10 @@ import com.facebook.presto.connector.ConnectorId;
 import com.facebook.presto.connector.ConnectorManager;
 import com.facebook.presto.cost.StatsCalculator;
 import com.facebook.presto.eventlistener.EventListenerManager;
+import com.facebook.presto.execution.QueryInfo;
 import com.facebook.presto.execution.QueryManager;
 import com.facebook.presto.execution.SqlQueryManager;
+import com.facebook.presto.execution.StateMachine.StateChangeListener;
 import com.facebook.presto.execution.TaskManager;
 import com.facebook.presto.execution.resourceGroups.InternalResourceGroupManager;
 import com.facebook.presto.memory.ClusterMemoryManager;
@@ -331,6 +333,11 @@ public class TestingPrestoServer
         return queryManager.getQueryPlan(queryId);
     }
 
+    public void addFinalQueryInfoListener(QueryId queryId, StateChangeListener<QueryInfo> stateChangeListener)
+    {
+        queryManager.addFinalQueryInfoListener(queryId, stateChangeListener);
+    }
+
     public ConnectorId createCatalog(String catalogName, String connectorName)
     {
         return createCatalog(catalogName, connectorName, ImmutableMap.of());
@@ -339,7 +346,7 @@ public class TestingPrestoServer
     public ConnectorId createCatalog(String catalogName, String connectorName, Map<String, String> properties)
     {
         ConnectorId connectorId = connectorManager.createConnection(catalogName, connectorName, properties);
-        updateConnectorIdAnnouncement(announcer, connectorId);
+        updateConnectorIdAnnouncement(announcer, connectorId, nodeManager);
         return connectorId;
     }
 
@@ -468,7 +475,7 @@ public class TestingPrestoServer
         return injector.getInstance(key);
     }
 
-    private static void updateConnectorIdAnnouncement(Announcer announcer, ConnectorId connectorId)
+    private static void updateConnectorIdAnnouncement(Announcer announcer, ConnectorId connectorId, InternalNodeManager nodeManager)
     {
         //
         // This code was copied from PrestoServer, and is a hack that should be removed when the connectorId property is removed
@@ -488,6 +495,8 @@ public class TestingPrestoServer
         announcer.removeServiceAnnouncement(announcement.getId());
         announcer.addServiceAnnouncement(serviceAnnouncement(announcement.getType()).addProperties(properties).build());
         announcer.forceAnnounce();
+
+        nodeManager.refreshNodes();
     }
 
     private static ServiceAnnouncement getPrestoAnnouncement(Set<ServiceAnnouncement> announcements)

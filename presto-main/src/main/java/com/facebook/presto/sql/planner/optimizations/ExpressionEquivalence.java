@@ -257,6 +257,18 @@ public class ExpressionEquivalence
                 Object leftValue = leftConstant.getValue();
                 Object rightValue = rightConstant.getValue();
 
+                if (leftValue == null) {
+                    if (rightValue == null) {
+                        return 0;
+                    }
+                    else {
+                        return -1;
+                    }
+                }
+                else if (rightValue == null) {
+                    return 1;
+                }
+
                 Class<?> javaType = leftConstant.getType().getJavaType();
                 if (javaType == boolean.class) {
                     return ((Boolean) leftValue).compareTo((Boolean) rightValue);
@@ -278,6 +290,33 @@ public class ExpressionEquivalence
 
             if (left instanceof InputReferenceExpression) {
                 return Integer.compare(((InputReferenceExpression) left).getField(), ((InputReferenceExpression) right).getField());
+            }
+
+            if (left instanceof LambdaDefinitionExpression) {
+                LambdaDefinitionExpression leftLambda = (LambdaDefinitionExpression) left;
+                LambdaDefinitionExpression rightLambda = (LambdaDefinitionExpression) right;
+
+                return ComparisonChain.start()
+                        .compare(
+                                leftLambda.getArgumentTypes(),
+                                rightLambda.getArgumentTypes(),
+                                new ListComparator<>(Comparator.comparing(Object::toString)))
+                        .compare(
+                                leftLambda.getArguments(),
+                                rightLambda.getArguments(),
+                                new ListComparator<>(Comparator.<String>naturalOrder()))
+                        .compare(leftLambda.getBody(), rightLambda.getBody(), this)
+                        .result();
+            }
+
+            if (left instanceof VariableReferenceExpression) {
+                VariableReferenceExpression leftVariableReference = (VariableReferenceExpression) left;
+                VariableReferenceExpression rightVariableReference = (VariableReferenceExpression) right;
+
+                return ComparisonChain.start()
+                        .compare(leftVariableReference.getName(), rightVariableReference.getName())
+                        .compare(leftVariableReference.getType(), rightVariableReference.getType(), Comparator.comparing(Object::toString))
+                        .result();
             }
 
             throw new IllegalArgumentException("Unsupported RowExpression type " + left.getClass().getSimpleName());

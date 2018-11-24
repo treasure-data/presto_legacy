@@ -29,6 +29,7 @@ import com.facebook.presto.tests.DistributedQueryRunner;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.util.Optional;
 
 import static com.facebook.presto.SystemSessionProperties.SPATIAL_PARTITIONING_TABLE_NAME;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
@@ -85,7 +86,7 @@ public class TestSpatialJoins
                 .setOwnerName("public")
                 .setOwnerType(PrincipalType.ROLE)
                 .build());
-        queryRunner.installPlugin(new HivePlugin("hive", metastore));
+        queryRunner.installPlugin(new HivePlugin("hive", Optional.of(metastore)));
 
         queryRunner.createCatalog("hive", "hive");
         return queryRunner;
@@ -313,8 +314,8 @@ public class TestSpatialJoins
 
         // Empty build side
         assertQuery("SELECT a.name, b.name " +
-                "FROM (" + POLYGONS_SQL + ") AS a (wkt, name, id) LEFT JOIN (VALUES (null, 'null', 1)) AS b (wkt, name, id) " +
-                "ON ST_Intersects(ST_GeometryFromText(b.wkt), ST_GeometryFromText(a.wkt))",
+                        "FROM (" + POLYGONS_SQL + ") AS a (wkt, name, id) LEFT JOIN (VALUES (null, 'null', 1)) AS b (wkt, name, id) " +
+                        "ON ST_Intersects(ST_GeometryFromText(b.wkt), ST_GeometryFromText(a.wkt))",
                 "SELECT * FROM VALUES ('a', null), ('b', null), ('c', null), ('d', null), ('empty', null), ('null', null)");
 
         // Extra condition

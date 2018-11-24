@@ -102,11 +102,15 @@ public class TestHiveClientConfig
                 .setBucketExecutionEnabled(true)
                 .setFileSystemMaxCacheSize(1000)
                 .setTableStatisticsEnabled(true)
+                .setOptimizeMismatchedBucketCount(false)
                 .setWritesToNonManagedTablesEnabled(false)
                 .setCreatesOfNonManagedTablesEnabled(true)
                 .setHdfsWireEncryptionEnabled(false)
                 .setPartitionStatisticsSampleSize(100)
                 .setIgnoreCorruptedStatistics(false)
+                .setRecordingPath(null)
+                .setRecordingDuration(new Duration(0, TimeUnit.MINUTES))
+                .setReplay(false)
                 .setCollectColumnStatisticsOnWrite(false));
     }
 
@@ -178,11 +182,15 @@ public class TestHiveClientConfig
                 .put("hive.sorted-writing", "false")
                 .put("hive.fs.cache.max-size", "1010")
                 .put("hive.table-statistics-enabled", "false")
+                .put("hive.optimize-mismatched-bucket-count", "true")
                 .put("hive.non-managed-table-writes-enabled", "true")
                 .put("hive.non-managed-table-creates-enabled", "false")
                 .put("hive.hdfs.wire-encryption.enabled", "true")
                 .put("hive.partition-statistics-sample-size", "1234")
                 .put("hive.ignore-corrupted-statistics", "true")
+                .put("hive.metastore-recording-path", "/foo/bar")
+                .put("hive.metastore-recoding-duration", "42s")
+                .put("hive.replay-metastore-recording", "true")
                 .put("hive.collect-column-statistics-on-write", "true")
                 .build();
 
@@ -251,11 +259,15 @@ public class TestHiveClientConfig
                 .setSortedWritingEnabled(false)
                 .setFileSystemMaxCacheSize(1010)
                 .setTableStatisticsEnabled(false)
+                .setOptimizeMismatchedBucketCount(true)
                 .setWritesToNonManagedTablesEnabled(true)
                 .setCreatesOfNonManagedTablesEnabled(false)
                 .setHdfsWireEncryptionEnabled(true)
                 .setPartitionStatisticsSampleSize(1234)
                 .setIgnoreCorruptedStatistics(true)
+                .setRecordingPath("/foo/bar")
+                .setRecordingDuration(new Duration(42, TimeUnit.SECONDS))
+                .setReplay(true)
                 .setCollectColumnStatisticsOnWrite(true);
 
         ConfigAssertions.assertFullMapping(properties, expected);
