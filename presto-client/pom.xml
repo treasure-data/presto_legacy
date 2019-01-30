@@ -3,9 +3,9 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.facebook.presto</groupId>
+        <groupId>io.prestosql</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.214</version>
+        <version>300</version>
     </parent>
 
     <artifactId>presto-client</artifactId>
@@ -17,7 +17,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.facebook.presto</groupId>
+            <groupId>io.prestosql</groupId>
             <artifactId>presto-spi</artifactId>
         </dependency>
 

@@ -3,9 +3,9 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.facebook.presto</groupId>
+        <groupId>io.prestosql</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.214</version>
+        <version>300</version>
     </parent>
 
     <artifactId>presto-plugin-toolkit</artifactId>
@@ -64,7 +64,7 @@
 
         <!-- Presto SPI -->
         <dependency>
-            <groupId>com.facebook.presto</groupId>
+            <groupId>io.prestosql</groupId>
             <artifactId>presto-spi</artifactId>
         </dependency>
 
@@ -87,7 +87,7 @@
         </dependency>
 
         <dependency>
-            <groupId>com.facebook.presto</groupId>
+            <groupId>io.prestosql</groupId>
             <artifactId>presto-spi</artifactId>
             <type>test-jar</type>
             <scope>test</scope>

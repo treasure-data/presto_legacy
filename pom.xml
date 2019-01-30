@@ -8,14 +8,14 @@
         <version>88</version>
     </parent>
 
-    <groupId>com.facebook.presto</groupId>
+    <groupId>io.prestosql</groupId>
     <artifactId>presto-root</artifactId>
-    <version>0.214</version>
+    <version>300</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
     <description>Presto</description>
-    <url>https://github.com/facebook/presto</url>
+    <url>https://prestosql.io</url>
 
     <inceptionYear>2012</inceptionYear>
 
@@ -28,9 +28,9 @@
     </licenses>
 
     <scm>
-        <connection>scm:git:git://github.com/facebook/presto.git</connection>
-        <url>https://github.com/facebook/presto</url>
-        <tag>0.214</tag>
+        <connection>scm:git:git://github.com/prestosql/presto.git</connection>
+        <url>https://github.com/prestosql/presto</url>
+        <tag>300</tag>
     </scm>
 
     <properties>
@@ -44,7 +44,7 @@
         <air.maven.version>3.3.9</air.maven.version>
 
         <dep.antlr.version>4.7.1</dep.antlr.version>
-        <dep.airlift.version>0.176</dep.airlift.version>
+        <dep.airlift.version>0.178</dep.airlift.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.slice.version>0.36</dep.slice.version>
         <dep.aws-sdk.version>1.11.445</dep.aws-sdk.version>
@@ -55,6 +55,8 @@
         <dep.tempto.version>1.50</dep.tempto.version>
         <dep.testng.version>6.10</dep.testng.version>
         <dep.assertj-core.version>3.8.0</dep.assertj-core.version>
+        <dep.logback.version>1.2.3</dep.logback.version>
+        <dep.jmxutils.version>1.20</dep.jmxutils.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -93,7 +95,7 @@
         <module>presto-local-file</module>
         <module>presto-tpch</module>
         <module>presto-tpcds</module>
-        <module>presto-raptor</module>
+        <module>presto-raptor-legacy</module>
         <module>presto-base-jdbc</module>
         <module>presto-mysql</module>
         <module>presto-postgresql</module>
@@ -121,11 +123,10 @@
         <module>presto-resource-group-managers</module>
         <module>presto-password-authenticators</module>
         <module>presto-session-property-managers</module>
-        <module>presto-benchto-queries</module>
         <module>presto-benchto-benchmarks</module>
-        <module>presto-thrift-connector-api</module>
+        <module>presto-thrift-api</module>
         <module>presto-thrift-testing-server</module>
-        <module>presto-thrift-connector</module>
+        <module>presto-thrift</module>
         <module>presto-matching</module>
         <module>presto-memory-context</module>
         <module>presto-proxy</module>
@@ -135,106 +136,106 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-spi</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-spi</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-resource-group-managers</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-resource-group-managers</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-password-authenticators</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-session-property-managers</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-array</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-plugin-toolkit</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-record-decoder</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-orc</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-parquet</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-rcfile</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-hive</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-hive-hadoop2</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-example-http</artifactId>
                 <version>${project.version}</version>
                 <type>zip</type>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-local-file</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-hive</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
@@ -247,197 +248,197 @@
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-tpch</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
+                <artifactId>presto-tpcds</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-blackhole</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-memory</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-base-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-mysql</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-geospatial</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-geospatial-toolkit</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
-                <artifactId>presto-raptor</artifactId>
+                <groupId>io.prestosql</groupId>
+                <artifactId>presto-raptor-legacy</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-cli</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-client</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-parser</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-parser</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-main</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-main</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-matching</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-memory-context</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-server</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-server-rpm</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-tests</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-benchmark</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
-                <artifactId>presto-benchto-queries</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-benchto-benchmarks</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-product-tests</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-sqlserver</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto.hadoop</groupId>
-                <artifactId>hadoop-apache2</artifactId>
-                <version>2.7.4-5</version>
+                <groupId>io.prestosql.hadoop</groupId>
+                <artifactId>hadoop-apache</artifactId>
+                <version>2.7.4-7</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto.hive</groupId>
+                <groupId>io.prestosql.hive</groupId>
                 <artifactId>hive-apache</artifactId>
-                <version>1.2.2-2</version>
+                <version>1.2.2-3</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto.orc</groupId>
+                <groupId>io.prestosql.orc</groupId>
                 <artifactId>orc-protobuf</artifactId>
-                <version>7</version>
+                <version>8</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
-                <artifactId>presto-thrift-connector-api</artifactId>
+                <groupId>io.prestosql</groupId>
+                <artifactId>presto-thrift-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
-                <artifactId>presto-thrift-connector-api</artifactId>
+                <groupId>io.prestosql</groupId>
+                <artifactId>presto-thrift-api</artifactId>
                 <version>${project.version}</version>
                 <type>test-jar</type>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-thrift-testing-server</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto</groupId>
-                <artifactId>presto-thrift-connector</artifactId>
+                <groupId>io.prestosql</groupId>
+                <artifactId>presto-thrift</artifactId>
                 <version>${project.version}</version>
                 <type>zip</type>
             </dependency>
@@ -593,6 +594,12 @@
             </dependency>
 
             <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>joda-to-java-time-bridge</artifactId>
+                <version>3</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.airlift.drift</groupId>
                 <artifactId>drift-api</artifactId>
                 <version>${dep.drift.version}</version>
@@ -709,7 +716,7 @@
             <dependency>
                 <groupId>org.postgresql</groupId>
                 <artifactId>postgresql</artifactId>
-                <version>42.1.4</version>
+                <version>42.2.5</version>
             </dependency>
 
             <dependency>
@@ -1005,15 +1012,15 @@
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto.hive</groupId>
+                <groupId>io.prestosql.hive</groupId>
                 <artifactId>hive-apache-jdbc</artifactId>
-                <version>0.13.1-5</version>
+                <version>0.13.1-6</version>
             </dependency>
 
             <dependency>
                 <groupId>com.esri.geometry</groupId>
                 <artifactId>esri-geometry-api</artifactId>
-                <version>2.2.1</version>
+                <version>2.2.2</version>
                 <exclusions>
                     <exclusion>
                         <groupId>com.fasterxml.jackson.core</groupId>
@@ -1061,9 +1068,9 @@
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto.cassandra</groupId>
+                <groupId>io.prestosql.cassandra</groupId>
                 <artifactId>cassandra-server</artifactId>
-                <version>2.1.16-1</version>
+                <version>2.1.16-2</version>
                 <exclusions>
                     <exclusion>
                         <groupId>io.netty</groupId>
@@ -1073,9 +1080,9 @@
             </dependency>
 
             <dependency>
-                <groupId>com.facebook.presto.cassandra</groupId>
+                <groupId>io.prestosql.cassandra</groupId>
                 <artifactId>cassandra-driver</artifactId>
-                <version>3.1.4-1</version>
+                <version>3.1.4-2</version>
             </dependency>
 
             <!-- force newer version to be used for dependencies -->
@@ -1182,10 +1189,14 @@
 
         <plugins>
             <plugin>
-                <groupId>com.facebook.presto</groupId>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-maven-plugin</artifactId>
-                <version>0.3</version>
+                <version>5</version>
                 <extensions>true</extensions>
+                <configuration>
+                    <spiGroupId>io.prestosql</spiGroupId>
+                    <pluginClassName>io.prestosql.spi.Plugin</pluginClassName>
+                </configuration>
             </plugin>
 
             <plugin>
@@ -1239,7 +1250,7 @@
 
                 java \
                   -cp ./presto-geospatial/target/presto-geospatial-*-tests-with-dependencies.jar \
-                  com.facebook.presto.plugin.geospatial.BenchmarkSTIntersects
+                  io.prestosql.plugin.geospatial.BenchmarkSTIntersects
             -->
             <build>
                 <plugins>

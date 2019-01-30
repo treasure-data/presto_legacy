@@ -11,7 +11,7 @@ mode and Presto runs either in Docker container(s) (both pseudo-distributed
 and distributed setups are possible) or manually from IntelliJ (for
 debugging Presto). The tests run in a separate JVM and they can be started
 using the scripts found in `presto-product-tests/bin`. The product
-tests are run using the [Tempto](https://github.com/prestodb/tempto) harness. 
+tests are run using the [Tempto](https://github.com/prestosql/tempto) harness.
 
 Developers should consider writing product tests in addition to any unit tests
 when making changes to user visible features. The product tests should also
@@ -35,78 +35,17 @@ broken.
     pip install docker-compose
     ```
 
-### OS X using Docker for Mac (macOS 10.10.3 Yosemite or newer) [PREFERRED WAY]
+### OS X using Docker for Mac
 
-* Install Docker for Mac: https://docs.docker.com/docker-for-mac/
+* Install [Docker for Mac](https://docs.docker.com/docker-for-mac/)
 
 * Add entries in `/etc/hosts` for all services running in docker containers:
 `hadoop-master`, `mysql`, `postgres`, `cassandra`, `presto-master`.
-They should point to your external IP address (shown by `ifconfig` on your Mac (not inside docker)).
+They should point to your external IP address (shown by `ifconfig` on your Mac, not inside Docker).
 
 * The default memory setting of 2GB might not be sufficient for some profiles like `singlenode-ldap`.
 You may need 4-8 GB or even more to run certain tests. You can increase Docker memory by going to
-Docker Preferences -> Advanced -> Memory.
-
-### OS X using Docker Toolbox (macOS 10.8 "Mountain Lion" or newer) [NOT RECOMMENDED]
-
-* [`VirtualBox >= 5.0`](https://www.virtualbox.org/wiki/Downloads)
-
-The Docker daemon cannot run natively on OS X because it uses Linux-specific
-kernel features. Instead, the Docker daemon runs in a Linux VM created by
-the `docker-machine` binary. Docker containers run in the Linux VM and are
-controlled by the `docker` client binary that runs natively on OS X.
-Both `docker-machine` and `docker` are included in the `docker-toolbox`
-package, which must be installed.
-
-* [`docker-toolbox >= 1.10`](https://www.docker.com/products/docker-toolbox)
-
-In addition to `docker-machine` and `docker`, the `docker-toolbox`
-package also install `docker-compose`, which is a multi-container
-orchestration Python utility. To gain access to these utilities, start the
-pre-configured shell environment by double-clicking on the "Docker Quickstart
-Terminal" icon located in ~/Applications/Docker. Note that all commands listed
-in subsequent parts of this tutorial must be run within such a pre-configured
-shell.
-
-#### Setting up a Linux VM for Docker Toolbox
-
-The `docker-toolbox` installation creates a VirtualBox VM called `default`.
-To run product-tests on the `default` VM, it must be re-configured to use
-4GB of memory with the following commands:
-
-```
-docker-machine stop
-vboxmanage modifyvm default --memory 4096
-docker-machine start
-```
-
-Alternatively, if you do not want to use the `default` VM to run the
-product tests, you can create a new VM with the commands below. Note that
-the `default` VM will always be running when you start a new pre-configured
-shell environment. Permanently removing or replacing the `default` VM
-is beyond the scope of this tutorial.
-
-* Create a VM called <machine>. This should be done only once and not
-every time a pre-configured shell is started:
-
-    ```
-    docker-machine create -d virtualbox --virtualbox-memory 4096 <machine>
-    ```
-
-* After the new VM is created, the pre-configured shell environment must be
-told to use the `<machine>` VM instead of the `default` VM to run Docker
-containers. These commands must be run every time a new pre-configured
-shell is started:
-
-    ```
-    docker-machine start <machine>
-    eval $(docker-machine env <machine>)
-    ```
-    
-Note that for every new VM, the docker images on the previous
-VM will have to be re-downloaded when the product tests are kicked
-off. To avoid this unnecessary re-download, do not create new
-VMs often.
+*Docker Preferences -> Advanced -> Memory*.
 
 ## Use the `docker-compose` wrappers
 
@@ -200,18 +139,18 @@ Please keep in mind that if you run tests on Hive of version not greater than 1.
 First version of Hive capable of running tests from `post_hive_1_0_1` group is Hive 1.1.0.
 
 For more information on the various ways in which Presto can be configured to
-interact with Kerberized Hive and Hadoop, please refer to the [Hive connector documentation](https://prestodb.io/docs/current/connector/hive.html).
+interact with Kerberized Hive and Hadoop, please refer to the [Hive connector documentation](https://prestosql.io/docs/current/connector/hive.html).
 
 ### Running a single test
 
 The `run_on_docker.sh` script can also run individual product tests. Presto
-product tests are either [Java based](https://github.com/prestodb/tempto#java-based-tests)
-or [convention based](https://github.com/prestodb/tempto#convention-based-sql-query-tests)
+product tests are either [Java based](https://github.com/prestosql/tempto#java-based-tests)
+or [convention based](https://github.com/prestosql/tempto#convention-based-sql-query-tests)
 and each type can be run individually with the following commands:
 
 ```
 # Run single Java based test
-presto-product-tests/bin/run_on_docker.sh <profile> -t com.facebook.presto.tests.functions.operators.Comparison.testLessThanOrEqualOperatorExists
+presto-product-tests/bin/run_on_docker.sh <profile> -t io.prestosql.tests.functions.operators.Comparison.testLessThanOrEqualOperatorExists
 # Run single convention based test
 presto-product-tests/bin/run_on_docker.sh <profile> -t sql_tests.testcases.system.selectInformationSchemaTables
 ```
@@ -330,7 +269,7 @@ containers in an inconsistent state.
 
 ### Debugging Java based tests
 
-[Java based tests](https://github.com/prestodb/tempto#java-based-tests)
+[Java based tests](https://github.com/prestosql/tempto#java-based-tests)
 can be run and debugged from IntelliJ like regular TestNG tests with the
 setup outlined below:
 
@@ -398,7 +337,7 @@ The format of `/etc/hosts` entries is `<ip> <host>`:
 with the following parameters:
     
     - Use classpath of module: `presto-main`
-    - Main class: `com.facebook.presto.server.PrestoServer`
+    - Main class: `io.prestosql.server.PrestoServer`
     - Working directory: `presto-product-tests/conf/presto`
     - VM options: `-ea -Xmx2G -Dconfig=etc/config.properties -Dlog.levels-file=etc/log.properties -DHADOOP_USER_NAME=hive -Duser.timezone=Asia/Kathmandu`
 
@@ -426,7 +365,7 @@ following command:
 ### Debugging convention based tests
 
 Some of the product tests are implemented in a
-[convention based](https://github.com/prestodb/tempto#convention-based-sql-query-tests)
+[convention based](https://github.com/prestosql/tempto#convention-based-sql-query-tests)
 manner. Such tests can not be run directly from IntelliJ and the following
 steps explain how to debug convention based tests:
 
