@@ -13,12 +13,12 @@
  */
 package io.prestosql.plugin.jdbc;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.log.Logger;
 import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ColumnMetadata;
 import io.prestosql.spi.connector.ConnectorSession;
 import io.prestosql.spi.connector.ConnectorSplitSource;
@@ -26,6 +26,8 @@ import io.prestosql.spi.connector.ConnectorTableMetadata;
 import io.prestosql.spi.connector.FixedSplitSource;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.TableNotFoundException;
+import io.prestosql.spi.predicate.TupleDomain;
+import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.type.CharType;
 import io.prestosql.spi.type.DecimalType;
 import io.prestosql.spi.type.Type;
@@ -61,14 +63,11 @@ import static io.prestosql.spi.type.DoubleType.DOUBLE;
 import static io.prestosql.spi.type.IntegerType.INTEGER;
 import static io.prestosql.spi.type.RealType.REAL;
 import static io.prestosql.spi.type.SmallintType.SMALLINT;
-import static io.prestosql.spi.type.TimeType.TIME;
-import static io.prestosql.spi.type.TimeWithTimeZoneType.TIME_WITH_TIME_ZONE;
-import static io.prestosql.spi.type.TimestampType.TIMESTAMP;
-import static io.prestosql.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static io.prestosql.spi.type.TinyintType.TINYINT;
 import static io.prestosql.spi.type.VarbinaryType.VARBINARY;
 import static io.prestosql.spi.type.Varchars.isVarcharType;
 import static java.lang.String.format;
+import static java.lang.String.join;
 import static java.util.Collections.nCopies;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
@@ -88,10 +87,6 @@ public class BaseJdbcClient
             .put(REAL, "real")
             .put(VARBINARY, "varbinary")
             .put(DATE, "date")
-            .put(TIME, "time")
-            .put(TIME_WITH_TIME_ZONE, "time with timezone")
-            .put(TIMESTAMP, "timestamp")
-            .put(TIMESTAMP_WITH_TIME_ZONE, "timestamp with timezone")
             .build();
 
     protected final String connectorId;
@@ -199,6 +194,7 @@ public class BaseJdbcClient
                 while (resultSet.next()) {
                     JdbcTypeHandle typeHandle = new JdbcTypeHandle(
                             resultSet.getInt("DATA_TYPE"),
+                            resultSet.getString("TYPE_NAME"),
                             resultSet.getInt("COLUMN_SIZE"),
                             resultSet.getInt("DECIMAL_DIGITS"));
                     Optional<ReadMapping> columnMapping = toPrestoType(session, typeHandle);
@@ -235,7 +231,8 @@ public class BaseJdbcClient
                 tableHandle.getCatalogName(),
                 tableHandle.getSchemaName(),
                 tableHandle.getTableName(),
-                layoutHandle.getTupleDomain());
+                layoutHandle.getTupleDomain(),
+                Optional.empty());
         return new FixedSplitSource(ImmutableList.of(jdbcSplit));
     }
 
@@ -265,7 +262,8 @@ public class BaseJdbcClient
                 split.getSchemaName(),
                 split.getTableName(),
                 columnHandles,
-                split.getTupleDomain());
+                split.getTupleDomain(),
+                split.getAdditionalPredicate());
     }
 
     @Override
@@ -299,10 +297,7 @@ public class BaseJdbcClient
             String catalog = connection.getCatalog();
 
             String temporaryName = generateTemporaryTableName();
-            StringBuilder sql = new StringBuilder()
-                    .append("CREATE TABLE ")
-                    .append(quoted(catalog, schema, temporaryName))
-                    .append(" (");
+
             ImmutableList.Builder<String> columnNames = ImmutableList.builder();
             ImmutableList.Builder<Type> columnTypes = ImmutableList.builder();
             ImmutableList.Builder<String> columnList = ImmutableList.builder();
@@ -313,16 +308,14 @@ public class BaseJdbcClient
                 }
                 columnNames.add(columnName);
                 columnTypes.add(column.getType());
-                columnList.add(new StringBuilder()
-                        .append(quoted(columnName))
-                        .append(" ")
-                        .append(toSqlType(column.getType()))
-                        .toString());
+                columnList.add(format("%s %s", quoted(columnName), toSqlType(column.getType())));
             }
-            Joiner.on(", ").appendTo(sql, columnList.build());
-            sql.append(")");
 
-            execute(connection, sql.toString());
+            String sql = format(
+                    "CREATE TABLE %s (%s)",
+                    quoted(catalog, schema, temporaryName),
+                    join(", ", columnList.build()));
+            execute(connection, sql);
 
             return new JdbcOutputTableHandle(
                     connectorId,
@@ -346,14 +339,13 @@ public class BaseJdbcClient
     @Override
     public void commitCreateTable(JdbcOutputTableHandle handle)
     {
-        StringBuilder sql = new StringBuilder()
-                .append("ALTER TABLE ")
-                .append(quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTemporaryTableName()))
-                .append(" RENAME TO ")
-                .append(quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()));
+        String sql = format(
+                "ALTER TABLE %s RENAME TO %s",
+                quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTemporaryTableName()),
+                quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()));
 
         try (Connection connection = getConnection(handle)) {
-            execute(connection, sql.toString());
+            execute(connection, sql);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -386,12 +378,10 @@ public class BaseJdbcClient
     @Override
     public void dropTable(JdbcTableHandle handle)
     {
-        StringBuilder sql = new StringBuilder()
-                .append("DROP TABLE ")
-                .append(quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName()));
+        String sql = "DROP TABLE " + quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTableName());
 
         try (Connection connection = connectionFactory.openConnection()) {
-            execute(connection, sql.toString());
+            execute(connection, sql);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -412,12 +402,10 @@ public class BaseJdbcClient
     @Override
     public String buildInsertSql(JdbcOutputTableHandle handle)
     {
-        String vars = Joiner.on(',').join(nCopies(handle.getColumnNames().size(), "?"));
-        return new StringBuilder()
-                .append("INSERT INTO ")
-                .append(quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTemporaryTableName()))
-                .append(" VALUES (").append(vars).append(")")
-                .toString();
+        return format(
+                "INSERT INTO %s VALUES (%s)",
+                quoted(handle.getCatalogName(), handle.getSchemaName(), handle.getTemporaryTableName()),
+                join(",", nCopies(handle.getColumnNames().size(), "?")));
     }
 
     @Override
@@ -454,6 +442,12 @@ public class BaseJdbcClient
                 resultSet.getString("TABLE_NAME").toLowerCase(ENGLISH));
     }
 
+    @Override
+    public TableStatistics getTableStatistics(ConnectorSession session, JdbcTableHandle handle, TupleDomain<ColumnHandle> tupleDomain)
+    {
+        return TableStatistics.empty();
+    }
+
     protected void execute(Connection connection, String query)
             throws SQLException
     {
@@ -470,7 +464,7 @@ public class BaseJdbcClient
             if (varcharType.isUnbounded()) {
                 return "varchar";
             }
-            return "varchar(" + varcharType.getLengthSafe() + ")";
+            return "varchar(" + varcharType.getBoundedLength() + ")";
         }
         if (type instanceof CharType) {
             if (((CharType) type).getLength() == CharType.MAX_LENGTH) {

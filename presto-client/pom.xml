@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.prestosql</groupId>
         <artifactId>presto-root</artifactId>
-        <version>300</version>
+        <version>302</version>
     </parent>
 
     <artifactId>presto-client</artifactId>
@@ -16,11 +16,6 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>io.prestosql</groupId>
-            <artifactId>presto-spi</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>com.google.code.findbugs</groupId>
             <artifactId>jsr305</artifactId>
@@ -73,6 +68,12 @@
         </dependency>
 
         <!-- for testing -->
+        <dependency>
+            <groupId>io.prestosql</groupId>
+            <artifactId>presto-spi</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>

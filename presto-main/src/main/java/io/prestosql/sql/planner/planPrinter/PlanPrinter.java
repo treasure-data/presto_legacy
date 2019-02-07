@@ -34,7 +34,7 @@ import io.prestosql.metadata.FunctionRegistry;
 import io.prestosql.metadata.OperatorNotFoundException;
 import io.prestosql.metadata.Signature;
 import io.prestosql.metadata.TableHandle;
-import io.prestosql.operator.StageExecutionStrategy;
+import io.prestosql.operator.StageExecutionDescriptor;
 import io.prestosql.spi.connector.ColumnHandle;
 import io.prestosql.spi.connector.ConnectorTableLayoutHandle;
 import io.prestosql.spi.predicate.Domain;
@@ -90,6 +90,7 @@ import io.prestosql.sql.planner.plan.SortNode;
 import io.prestosql.sql.planner.plan.SpatialJoinNode;
 import io.prestosql.sql.planner.plan.StatisticAggregations;
 import io.prestosql.sql.planner.plan.StatisticAggregationsDescriptor;
+import io.prestosql.sql.planner.plan.StatisticsWriterNode;
 import io.prestosql.sql.planner.plan.TableFinishNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
 import io.prestosql.sql.planner.plan.TableWriterNode;
@@ -124,6 +125,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.prestosql.execution.StageInfo.getAllStages;
+import static io.prestosql.operator.StageExecutionDescriptor.ungroupedExecution;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
 import static io.prestosql.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.prestosql.sql.planner.planPrinter.PlanNodeStatsSummarizer.aggregatePlanNodeStats;
@@ -145,7 +147,7 @@ public class PlanPrinter
     private PlanPrinter(
             PlanNode plan,
             TypeProvider types,
-            Optional<StageExecutionStrategy> stageExecutionStrategy,
+            Optional<StageExecutionDescriptor> stageExecutionStrategy,
             FunctionRegistry functionRegistry,
             StatsAndCosts estimatedStatsAndCosts,
             Session session,
@@ -182,7 +184,7 @@ public class PlanPrinter
         return textLogicalPlan(plan, types, Optional.empty(), functionRegistry, estimatedStatsAndCosts, session, Optional.empty(), indent, verbose);
     }
 
-    public static String textLogicalPlan(PlanNode plan, TypeProvider types, Optional<StageExecutionStrategy> stageExecutionStrategy, FunctionRegistry functionRegistry, StatsAndCosts estimatedStatsAndCosts, Session session, Optional<Map<PlanNodeId, PlanNodeStats>> stats, int indent, boolean verbose)
+    public static String textLogicalPlan(PlanNode plan, TypeProvider types, Optional<StageExecutionDescriptor> stageExecutionStrategy, FunctionRegistry functionRegistry, StatsAndCosts estimatedStatsAndCosts, Session session, Optional<Map<PlanNodeId, PlanNodeStats>> stats, int indent, boolean verbose)
     {
         return new PlanPrinter(plan, types, stageExecutionStrategy, functionRegistry, estimatedStatsAndCosts, session, stats, indent, verbose).toString();
     }
@@ -267,13 +269,13 @@ public class PlanPrinter
                     Joiner.on(", ").join(arguments),
                     formatHash(partitioningScheme.getHashColumn())));
         }
-        builder.append(indentString(1)).append(format("Grouped Execution: %s\n", fragment.getStageExecutionStrategy().isAnyScanGroupedExecution()));
+        builder.append(indentString(1)).append(format("Grouped Execution: %s\n", fragment.getStageExecutionDescriptor().isStageGroupedExecution()));
 
         TypeProvider typeProvider = TypeProvider.copyOf(allFragments.stream()
                 .flatMap(f -> f.getSymbols().entrySet().stream())
                 .distinct()
                 .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue)));
-        builder.append(textLogicalPlan(fragment.getRoot(), typeProvider, Optional.of(fragment.getStageExecutionStrategy()), functionRegistry, fragment.getStatsAndCosts(), session, planNodeStats, 1, verbose))
+        builder.append(textLogicalPlan(fragment.getRoot(), typeProvider, Optional.of(fragment.getStageExecutionDescriptor()), functionRegistry, fragment.getStatsAndCosts(), session, planNodeStats, 1, verbose))
                 .append("\n");
 
         return builder.toString();
@@ -288,7 +290,7 @@ public class PlanPrinter
                 SINGLE_DISTRIBUTION,
                 ImmutableList.of(plan.getId()),
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), plan.getOutputSymbols()),
-                StageExecutionStrategy.ungroupedExecution(),
+                ungroupedExecution(),
                 StatsAndCosts.empty());
         return GraphvizPrinter.printLogical(ImmutableList.of(fragment));
     }
@@ -511,12 +513,12 @@ public class PlanPrinter
     private class Visitor
             extends PlanVisitor<Void, Integer>
     {
-        private final Optional<StageExecutionStrategy> stageExecutionStrategy;
+        private final Optional<StageExecutionDescriptor> stageExecutionStrategy;
         private final TypeProvider types;
         private final StatsAndCosts estimatedStatsAndCosts;
         private final Session session;
 
-        public Visitor(Optional<StageExecutionStrategy> stageExecutionStrategy, TypeProvider types, StatsAndCosts estimatedStatsAndCosts, Session session)
+        public Visitor(Optional<StageExecutionDescriptor> stageExecutionStrategy, TypeProvider types, StatsAndCosts estimatedStatsAndCosts, Session session)
         {
             this.stageExecutionStrategy = stageExecutionStrategy;
             this.types = types;
@@ -835,7 +837,7 @@ public class PlanPrinter
             if (stageExecutionStrategy.isPresent()) {
                 print(indent, "- TableScan[%s, grouped = %s] => [%s]",
                         table,
-                        stageExecutionStrategy.get().isGroupedExecution(node.getId()),
+                        stageExecutionStrategy.get().isScanGroupedExecution(node.getId()),
                         formatOutputs(node.getOutputSymbols()));
             }
             else {
@@ -913,7 +915,7 @@ public class PlanPrinter
                 arguments.add(table);
                 if (stageExecutionStrategy.isPresent()) {
                     format += "grouped = %s, ";
-                    arguments.add(stageExecutionStrategy.get().isGroupedExecution(scanNode.get().getId()));
+                    arguments.add(stageExecutionStrategy.get().isScanGroupedExecution(scanNode.get().getId()));
                 }
             }
 
@@ -1118,6 +1120,15 @@ public class PlanPrinter
                 printStatisticAggregations(node.getStatisticsAggregation().get(), node.getStatisticsAggregationDescriptor().get(), indent + 2);
             }
 
+            return processChildren(node, indent + 1);
+        }
+
+        @Override
+        public Void visitStatisticsWriterNode(StatisticsWriterNode node, Integer indent)
+        {
+            print(indent, "- StatisticsWriterNode[%s] => [%s]", node.getTarget(), formatOutputs(node.getOutputSymbols()));
+            printPlanNodesStatsAndCost(indent + 2, node);
+            printStats(indent + 2, node.getId());
             return processChildren(node, indent + 1);
         }
 

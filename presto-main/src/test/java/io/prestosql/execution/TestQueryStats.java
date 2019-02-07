@@ -48,6 +48,8 @@ public class TestQueryStats
                     15L,
                     new Duration(16, NANOSECONDS),
                     new Duration(17, NANOSECONDS),
+                    succinctBytes(181L),
+                    succinctBytes(182L),
                     succinctBytes(18L),
                     succinctBytes(19L),
                     110L,
@@ -68,6 +70,7 @@ public class TestQueryStats
                     succinctBytes(127L),
                     succinctBytes(128L),
                     succinctBytes(129L),
+                    succinctBytes(130L),
                     Optional.empty(),
                     null),
             new OperatorStats(
@@ -80,6 +83,8 @@ public class TestQueryStats
                     25L,
                     new Duration(26, NANOSECONDS),
                     new Duration(27, NANOSECONDS),
+                    succinctBytes(281L),
+                    succinctBytes(282L),
                     succinctBytes(28L),
                     succinctBytes(29L),
                     210L,
@@ -100,6 +105,7 @@ public class TestQueryStats
                     succinctBytes(227L),
                     succinctBytes(228L),
                     succinctBytes(229L),
+                    succinctBytes(230L),
                     Optional.empty(),
                     null),
             new OperatorStats(
@@ -112,6 +118,8 @@ public class TestQueryStats
                     35L,
                     new Duration(36, NANOSECONDS),
                     new Duration(37, NANOSECONDS),
+                    succinctBytes(381L),
+                    succinctBytes(382L),
                     succinctBytes(38L),
                     succinctBytes(39L),
                     310L,
@@ -132,6 +140,7 @@ public class TestQueryStats
                     succinctBytes(327L),
                     succinctBytes(328L),
                     succinctBytes(329L),
+                    succinctBytes(330L),
                     Optional.empty(),
                     null));
 
@@ -166,6 +175,7 @@ public class TestQueryStats
             new DataSize(20, BYTE),
             new DataSize(21, BYTE),
             new DataSize(22, BYTE),
+            new DataSize(23, BYTE),
 
             true,
             new Duration(20, NANOSECONDS),
@@ -173,6 +183,12 @@ public class TestQueryStats
             new Duration(23, NANOSECONDS),
             false,
             ImmutableSet.of(),
+
+            new DataSize(241, BYTE),
+            251,
+
+            new DataSize(242, BYTE),
+            252,
 
             new DataSize(24, BYTE),
             25,
@@ -238,10 +254,19 @@ public class TestQueryStats
         assertEquals(actual.getTotalMemoryReservation(), new DataSize(19, BYTE));
         assertEquals(actual.getPeakUserMemoryReservation(), new DataSize(20, BYTE));
         assertEquals(actual.getPeakTotalMemoryReservation(), new DataSize(21, BYTE));
+        assertEquals(actual.getPeakTaskUserMemory(), new DataSize(22, BYTE));
+        assertEquals(actual.getPeakTaskTotalMemory(), new DataSize(23, BYTE));
+        assertEquals(actual.getSpilledDataSize(), new DataSize(690, BYTE));
 
         assertEquals(actual.getTotalScheduledTime(), new Duration(20, NANOSECONDS));
         assertEquals(actual.getTotalCpuTime(), new Duration(21, NANOSECONDS));
         assertEquals(actual.getTotalBlockedTime(), new Duration(23, NANOSECONDS));
+
+        assertEquals(actual.getPhysicalInputDataSize(), new DataSize(241, BYTE));
+        assertEquals(actual.getPhysicalInputPositions(), 251);
+
+        assertEquals(actual.getInternalNetworkInputDataSize(), new DataSize(242, BYTE));
+        assertEquals(actual.getInternalNetworkInputPositions(), 252);
 
         assertEquals(actual.getRawInputDataSize(), new DataSize(24, BYTE));
         assertEquals(actual.getRawInputPositions(), 25);

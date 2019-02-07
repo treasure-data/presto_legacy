@@ -13,14 +13,17 @@
  */
 package io.prestosql.jdbc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
 import io.airlift.units.Duration;
+import io.prestosql.client.ClientSelectedRole;
 import io.prestosql.client.ClientSession;
 import io.prestosql.client.ServerInfo;
 import io.prestosql.client.StatementClient;
+import io.prestosql.spi.security.SelectedRole;
 
 import java.net.URI;
 import java.nio.charset.CharsetEncoder;
@@ -41,12 +44,12 @@ import java.sql.SQLXML;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -56,6 +59,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.nullToEmpty;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.Maps.fromProperties;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.US_ASCII;
@@ -74,7 +78,7 @@ public class PrestoConnection
     private final AtomicReference<String> catalog = new AtomicReference<>();
     private final AtomicReference<String> schema = new AtomicReference<>();
     private final AtomicReference<String> path = new AtomicReference<>();
-    private final AtomicReference<String> timeZoneId = new AtomicReference<>();
+    private final AtomicReference<ZoneId> timeZoneId = new AtomicReference<>();
     private final AtomicReference<Locale> locale = new AtomicReference<>();
     private final AtomicReference<Integer> networkTimeoutMillis = new AtomicReference<>(Ints.saturatedCast(MINUTES.toMillis(2)));
     private final AtomicReference<ServerInfo> serverInfo = new AtomicReference<>();
@@ -83,10 +87,12 @@ public class PrestoConnection
     private final URI jdbcUri;
     private final URI httpUri;
     private final String user;
+    private final Map<String, String> extraCredentials;
     private final Optional<String> applicationNamePrefix;
     private final Map<String, String> clientInfo = new ConcurrentHashMap<>();
     private final Map<String, String> sessionProperties = new ConcurrentHashMap<>();
     private final Map<String, String> preparedStatements = new ConcurrentHashMap<>();
+    private final Map<String, SelectedRole> roles = new ConcurrentHashMap<>();
     private final AtomicReference<String> transactionId = new AtomicReference<>();
     private final QueryExecutor queryExecutor;
     private final WarningsManager warningsManager = new WarningsManager();
@@ -101,10 +107,10 @@ public class PrestoConnection
         this.catalog.set(uri.getCatalog());
         this.user = uri.getUser();
         this.applicationNamePrefix = uri.getApplicationNamePrefix();
-
+        this.extraCredentials = uri.getExtraCredentials();
         this.queryExecutor = requireNonNull(queryExecutor, "queryExecutor is null");
 
-        timeZoneId.set(TimeZone.getDefault().getID());
+        timeZoneId.set(ZoneId.systemDefault());
         locale.set(Locale.getDefault());
     }
 
@@ -519,13 +525,12 @@ public class PrestoConnection
 
     public String getTimeZoneId()
     {
-        return timeZoneId.get();
+        return timeZoneId.get().getId();
     }
 
     public void setTimeZoneId(String timeZoneId)
     {
-        requireNonNull(timeZoneId, "timeZoneId is null");
-        this.timeZoneId.set(timeZoneId);
+        this.timeZoneId.set(ZoneId.of(timeZoneId));
     }
 
     public Locale getLocale()
@@ -553,6 +558,20 @@ public class PrestoConnection
         checkArgument(charsetEncoder.canEncode(value), "Session property value is not US_ASCII: %s", value);
 
         sessionProperties.put(name, value);
+    }
+
+    void setRole(String catalog, SelectedRole role)
+    {
+        requireNonNull(catalog, "catalog is null");
+        requireNonNull(role, "role is null");
+
+        roles.put(catalog, role);
+    }
+
+    @VisibleForTesting
+    Map<String, SelectedRole> getRoles()
+    {
+        return ImmutableMap.copyOf(roles);
     }
 
     @Override
@@ -607,6 +626,12 @@ public class PrestoConnection
     String getUser()
     {
         return user;
+    }
+
+    @VisibleForTesting
+    Map<String, String> getExtraCredentials()
+    {
+        return ImmutableMap.copyOf(extraCredentials);
     }
 
     ServerInfo getServerInfo()
@@ -677,6 +702,12 @@ public class PrestoConnection
                 ImmutableMap.of(),
                 ImmutableMap.copyOf(allProperties),
                 ImmutableMap.copyOf(preparedStatements),
+                roles.entrySet().stream()
+                        .collect(toImmutableMap(Map.Entry::getKey, entry ->
+                                new ClientSelectedRole(
+                                        ClientSelectedRole.Type.valueOf(entry.getValue().getType().toString()),
+                                        entry.getValue().getRole()))),
+                extraCredentials,
                 transactionId.get(),
                 timeout);
 

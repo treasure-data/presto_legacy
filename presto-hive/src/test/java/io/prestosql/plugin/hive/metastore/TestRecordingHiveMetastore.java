@@ -24,6 +24,9 @@ import io.prestosql.plugin.hive.HiveType;
 import io.prestosql.plugin.hive.PartitionStatistics;
 import io.prestosql.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.prestosql.plugin.hive.metastore.SortingColumn.Order;
+import io.prestosql.spi.security.PrestoPrincipal;
+import io.prestosql.spi.security.PrincipalType;
+import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ColumnStatisticType;
 import io.prestosql.spi.type.Type;
 import org.testng.annotations.Test;
@@ -38,6 +41,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static io.prestosql.plugin.hive.HiveBasicStatistics.createEmptyStatistics;
+import static io.prestosql.spi.security.PrincipalType.USER;
 import static io.prestosql.spi.statistics.ColumnStatisticType.MAX_VALUE;
 import static io.prestosql.spi.statistics.ColumnStatisticType.MIN_VALUE;
 import static io.prestosql.spi.type.VarcharType.createVarcharType;
@@ -49,7 +53,7 @@ public class TestRecordingHiveMetastore
             "database",
             Optional.of("location"),
             "owner",
-            PrincipalType.USER,
+            USER,
             Optional.of("comment"),
             ImmutableMap.of("param", "value"));
     private static final Column TABLE_COLUMN = new Column(
@@ -94,7 +98,8 @@ public class TestRecordingHiveMetastore
                     OptionalLong.of(1235),
                     OptionalLong.of(1),
                     OptionalLong.of(8))));
-    private static final HivePrivilegeInfo PRIVILEGE_INFO = new HivePrivilegeInfo(HivePrivilege.SELECT, true);
+    private static final HivePrivilegeInfo PRIVILEGE_INFO = new HivePrivilegeInfo(HivePrivilege.SELECT, true, new PrestoPrincipal(PrincipalType.USER, "grantor"), new PrestoPrincipal(PrincipalType.USER, "grantee"));
+    private static final RoleGrant ROLE_GRANT = new RoleGrant(new PrestoPrincipal(USER, "grantee"), "role", true);
 
     @Test
     public void testRecordingHiveMetastore()
@@ -131,9 +136,9 @@ public class TestRecordingHiveMetastore
         assertEquals(hiveMetastore.getPartitionNames("database", "table"), Optional.of(ImmutableList.of("value")));
         assertEquals(hiveMetastore.getPartitionNamesByParts("database", "table", ImmutableList.of("value")), Optional.of(ImmutableList.of("value")));
         assertEquals(hiveMetastore.getPartitionsByNames("database", "table", ImmutableList.of("value")), ImmutableMap.of("value", Optional.of(PARTITION)));
-        assertEquals(hiveMetastore.getRoles("user"), ImmutableSet.of("role1", "role2"));
-        assertEquals(hiveMetastore.getDatabasePrivileges("user", "database"), ImmutableSet.of(PRIVILEGE_INFO));
-        assertEquals(hiveMetastore.getTablePrivileges("user", "database", "table"), ImmutableSet.of(PRIVILEGE_INFO));
+        assertEquals(hiveMetastore.listTablePrivileges("database", "table", new PrestoPrincipal(USER, "user")), ImmutableSet.of(PRIVILEGE_INFO));
+        assertEquals(hiveMetastore.listRoles(), ImmutableSet.of("role"));
+        assertEquals(hiveMetastore.listRoleGrants(new PrestoPrincipal(USER, "user")), ImmutableSet.of(ROLE_GRANT));
     }
 
     private static class TestingHiveMetastore
@@ -258,15 +263,9 @@ public class TestRecordingHiveMetastore
         }
 
         @Override
-        public Set<String> getRoles(String user)
+        public Set<HivePrivilegeInfo> listTablePrivileges(String database, String table, PrestoPrincipal prestoPrincipal)
         {
-            return ImmutableSet.of("role1", "role2");
-        }
-
-        @Override
-        public Set<HivePrivilegeInfo> getDatabasePrivileges(String user, String databaseName)
-        {
-            if (user.equals("user") && databaseName.equals("database")) {
+            if (database.equals("database") && table.equals("table") && prestoPrincipal.getType() == USER && prestoPrincipal.getName().equals("user")) {
                 return ImmutableSet.of(PRIVILEGE_INFO);
             }
 
@@ -274,13 +273,15 @@ public class TestRecordingHiveMetastore
         }
 
         @Override
-        public Set<HivePrivilegeInfo> getTablePrivileges(String user, String databaseName, String tableName)
+        public Set<String> listRoles()
         {
-            if (user.equals("user") && databaseName.equals("database") && tableName.equals("table")) {
-                return ImmutableSet.of(PRIVILEGE_INFO);
-            }
+            return ImmutableSet.of("role");
+        }
 
-            return ImmutableSet.of();
+        @Override
+        public Set<RoleGrant> listRoleGrants(PrestoPrincipal principal)
+        {
+            return ImmutableSet.of(ROLE_GRANT);
         }
     }
 }

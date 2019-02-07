@@ -161,19 +161,6 @@ public final class MathFunctions
         }
     }
 
-    @ScalarFunction("log")
-    @Description("logarithm to given base")
-    public static final class LegacyLogFunction
-    {
-        private LegacyLogFunction() {}
-
-        @SqlType(StandardTypes.DOUBLE)
-        public static double log(@SqlType(StandardTypes.DOUBLE) double number, @SqlType(StandardTypes.DOUBLE) double base)
-        {
-            return Math.log(number) / Math.log(base);
-        }
-    }
-
     @Description("absolute value")
     @ScalarFunction("abs")
     @SqlType(StandardTypes.REAL)
@@ -466,6 +453,14 @@ public final class MathFunctions
         return Math.log(num);
     }
 
+    @Description("logarithm to given base")
+    @ScalarFunction
+    @SqlType(StandardTypes.DOUBLE)
+    public static double log(@SqlType(StandardTypes.DOUBLE) double base, @SqlType(StandardTypes.DOUBLE) double number)
+    {
+        return Math.log(number) / Math.log(base);
+    }
+
     @Description("logarithm to base 2")
     @ScalarFunction
     @SqlType(StandardTypes.DOUBLE)
@@ -613,7 +608,7 @@ public final class MathFunctions
     public static double inverseNormalCdf(@SqlType(StandardTypes.DOUBLE) double mean, @SqlType(StandardTypes.DOUBLE) double sd, @SqlType(StandardTypes.DOUBLE) double p)
     {
         checkCondition(p > 0 && p < 1, INVALID_FUNCTION_ARGUMENT, "p must be 0 > p > 1");
-        checkCondition(sd > 0, INVALID_FUNCTION_ARGUMENT, "sd must > 0");
+        checkCondition(sd > 0, INVALID_FUNCTION_ARGUMENT, "sd must be > 0");
 
         return mean + sd * 1.4142135623730951 * Erf.erfInv(2 * p - 1);
     }
@@ -626,7 +621,7 @@ public final class MathFunctions
             @SqlType(StandardTypes.DOUBLE) double standardDeviation,
             @SqlType(StandardTypes.DOUBLE) double value)
     {
-        checkCondition(standardDeviation > 0, INVALID_FUNCTION_ARGUMENT, "standardDeviation must > 0");
+        checkCondition(standardDeviation > 0, INVALID_FUNCTION_ARGUMENT, "standardDeviation must be > 0");
         return 0.5 * (1 + Erf.erf((value - mean) / (standardDeviation * Math.sqrt(2))));
     }
 

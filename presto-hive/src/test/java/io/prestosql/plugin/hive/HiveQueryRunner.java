@@ -15,6 +15,7 @@ package io.prestosql.plugin.hive;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import io.airlift.log.Logger;
 import io.airlift.log.Logging;
 import io.airlift.tpch.TpchTable;
@@ -22,9 +23,11 @@ import io.prestosql.Session;
 import io.prestosql.metadata.QualifiedObjectName;
 import io.prestosql.plugin.hive.authentication.NoHdfsAuthentication;
 import io.prestosql.plugin.hive.metastore.Database;
-import io.prestosql.plugin.hive.metastore.PrincipalType;
 import io.prestosql.plugin.hive.metastore.file.FileHiveMetastore;
 import io.prestosql.plugin.tpch.TpchPlugin;
+import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.PrincipalType;
+import io.prestosql.spi.security.SelectedRole;
 import io.prestosql.testing.QueryRunner;
 import io.prestosql.tests.DistributedQueryRunner;
 import org.intellij.lang.annotations.Language;
@@ -34,8 +37,10 @@ import java.io.File;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.airlift.log.Level.WARN;
 import static io.airlift.units.Duration.nanosSince;
 import static io.prestosql.plugin.tpch.TpchMetadata.TINY_SCHEMA_NAME;
+import static io.prestosql.spi.security.SelectedRole.Type.ROLE;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static io.prestosql.tests.QueryAssertions.copyTpchTables;
 import static java.lang.String.format;
@@ -79,8 +84,9 @@ public final class HiveQueryRunner
             throws Exception
     {
         assertEquals(DateTimeZone.getDefault(), TIME_ZONE, "Timezone not configured correctly. Add -Duser.timezone=America/Bahia_Banderas to your JVM arguments");
+        setupLogging();
 
-        DistributedQueryRunner queryRunner = new DistributedQueryRunner(createSession(), 4, extraProperties);
+        DistributedQueryRunner queryRunner = new DistributedQueryRunner(createSession(Optional.of(new SelectedRole(ROLE, Optional.of("admin")))), 4, extraProperties);
 
         try {
             queryRunner.installPlugin(new TpchPlugin());
@@ -89,7 +95,7 @@ public final class HiveQueryRunner
             File baseDir = queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data").toFile();
 
             HiveClientConfig hiveClientConfig = new HiveClientConfig();
-            HdfsConfiguration hdfsConfiguration = new HiveHdfsConfiguration(new HdfsConfigurationUpdater(hiveClientConfig));
+            HdfsConfiguration hdfsConfiguration = new HiveHdfsConfiguration(new HdfsConfigurationInitializer(hiveClientConfig), ImmutableSet.of());
             HdfsEnvironment hdfsEnvironment = new HdfsEnvironment(hdfsConfiguration, hiveClientConfig, new NoHdfsAuthentication());
 
             FileHiveMetastore metastore = new FileHiveMetastore(hdfsEnvironment, baseDir.toURI().toString(), "test");
@@ -115,8 +121,8 @@ public final class HiveQueryRunner
             queryRunner.createCatalog(HIVE_CATALOG, HIVE_CATALOG, hiveProperties);
             queryRunner.createCatalog(HIVE_BUCKETED_CATALOG, HIVE_CATALOG, hiveBucketedProperties);
 
-            copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, createSession(), tables);
-            copyTpchTablesBucketed(queryRunner, "tpch", TINY_SCHEMA_NAME, createBucketedSession(), tables);
+            copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, createSession(Optional.empty()), tables);
+            copyTpchTablesBucketed(queryRunner, "tpch", TINY_SCHEMA_NAME, createBucketedSession(Optional.empty()), tables);
 
             return queryRunner;
         }
@@ -124,6 +130,12 @@ public final class HiveQueryRunner
             queryRunner.close();
             throw e;
         }
+    }
+
+    private static void setupLogging()
+    {
+        Logging logging = Logging.initialize();
+        logging.setLevel("org.apache.parquet.hadoop", WARN);
     }
 
     private static Database createDatabaseMetastoreObject(String name)
@@ -135,17 +147,28 @@ public final class HiveQueryRunner
                 .build();
     }
 
-    public static Session createSession()
+    public static Session createSession(Optional<SelectedRole> role)
     {
         return testSessionBuilder()
+                .setIdentity(new Identity(
+                        "hive",
+                        Optional.empty(),
+                        role.map(selectedRole -> ImmutableMap.of("hive", selectedRole))
+                                .orElse(ImmutableMap.of())))
                 .setCatalog(HIVE_CATALOG)
                 .setSchema(TPCH_SCHEMA)
                 .build();
     }
 
-    public static Session createBucketedSession()
+    public static Session createBucketedSession(Optional<SelectedRole> role)
     {
         return testSessionBuilder()
+                .setIdentity(new Identity(
+                        "hive",
+                        Optional.empty(),
+                        role.map(selectedRole -> ImmutableMap.of("hive", selectedRole))
+                                .orElse(ImmutableMap.of())))
+                .setCatalog(HIVE_CATALOG)
                 .setCatalog(HIVE_BUCKETED_CATALOG)
                 .setSchema(TPCH_BUCKETED_SCHEMA)
                 .build();

@@ -102,6 +102,7 @@ public class HiveClientConfig
 
     private boolean useParquetColumnNames;
     private boolean failOnCorruptedParquetStatistics = true;
+    private DataSize parquetMaxReadBlockSize = new DataSize(16, MEGABYTE);
 
     private boolean assumeCanonicalPartitionKeys;
 
@@ -127,6 +128,7 @@ public class HiveClientConfig
     private boolean hdfsWireEncryptionEnabled;
 
     private boolean skipDeletionForAlter;
+    private boolean skipTargetCleanupOnRollback;
 
     private boolean bucketExecutionEnabled = true;
     private boolean sortedWritingEnabled = true;
@@ -147,6 +149,9 @@ public class HiveClientConfig
     private Duration recordingDuration = new Duration(0, MINUTES);
     private boolean s3SelectPushdownEnabled;
     private int s3SelectPushdownMaxConnections = 500;
+
+    private boolean isTemporaryStagingDirectoryEnabled = true;
+    private String temporaryStagingDirectoryPath = "/tmp/presto-${USER}";
 
     public int getMaxInitialSplits()
     {
@@ -919,6 +924,19 @@ public class HiveClientConfig
         return this;
     }
 
+    @NotNull
+    public DataSize getParquetMaxReadBlockSize()
+    {
+        return parquetMaxReadBlockSize;
+    }
+
+    @Config("hive.parquet.max-read-block-size")
+    public HiveClientConfig setParquetMaxReadBlockSize(DataSize parquetMaxReadBlockSize)
+    {
+        this.parquetMaxReadBlockSize = parquetMaxReadBlockSize;
+        return this;
+    }
+
     public boolean isOptimizeMismatchedBucketCount()
     {
         return optimizeMismatchedBucketCount;
@@ -1007,6 +1025,19 @@ public class HiveClientConfig
     public HiveClientConfig setSkipDeletionForAlter(boolean skipDeletionForAlter)
     {
         this.skipDeletionForAlter = skipDeletionForAlter;
+        return this;
+    }
+
+    public boolean isSkipTargetCleanupOnRollback()
+    {
+        return skipTargetCleanupOnRollback;
+    }
+
+    @Config("hive.skip-target-cleanup-on-rollback")
+    @ConfigDescription("Skip deletion of target directories when a metastore operation fails")
+    public HiveClientConfig setSkipTargetCleanupOnRollback(boolean skipTargetCleanupOnRollback)
+    {
+        this.skipTargetCleanupOnRollback = skipTargetCleanupOnRollback;
         return this;
     }
 
@@ -1189,5 +1220,32 @@ public class HiveClientConfig
     {
         this.s3SelectPushdownMaxConnections = s3SelectPushdownMaxConnections;
         return this;
+    }
+
+    @Config("hive.temporary-staging-directory-enabled")
+    @ConfigDescription("Should use (if possible) temporary staging directory for write operations")
+    public HiveClientConfig setTemporaryStagingDirectoryEnabled(boolean temporaryStagingDirectoryEnabled)
+    {
+        this.isTemporaryStagingDirectoryEnabled = temporaryStagingDirectoryEnabled;
+        return this;
+    }
+
+    public boolean isTemporaryStagingDirectoryEnabled()
+    {
+        return isTemporaryStagingDirectoryEnabled;
+    }
+
+    @Config("hive.temporary-staging-directory-path")
+    @ConfigDescription("Location of temporary staging directory for write operations. Use ${USER} placeholder to use different location for each user.")
+    public HiveClientConfig setTemporaryStagingDirectoryPath(String temporaryStagingDirectoryPath)
+    {
+        this.temporaryStagingDirectoryPath = temporaryStagingDirectoryPath;
+        return this;
+    }
+
+    @NotNull
+    public String getTemporaryStagingDirectoryPath()
+    {
+        return temporaryStagingDirectoryPath;
     }
 }

@@ -116,6 +116,7 @@ import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_INVALID_PARTITION_VALU
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_SERDE_NOT_FOUND;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_WRITER_DATA_ERROR;
 import static io.prestosql.plugin.hive.HivePartitionKey.HIVE_DEFAULT_DYNAMIC_PARTITION;
+import static io.prestosql.plugin.hive.HiveSessionProperties.getTemporaryStagingDirectoryPath;
 import static io.prestosql.plugin.hive.HiveUtil.checkCondition;
 import static io.prestosql.plugin.hive.HiveUtil.isArrayType;
 import static io.prestosql.plugin.hive.HiveUtil.isMapType;
@@ -233,7 +234,6 @@ public final class HiveWriteUtils
         };
     }
 
-    @SuppressWarnings("deprecation")
     public static Serializer initializeSerializer(Configuration conf, Properties properties, String serializerName)
     {
         try {
@@ -547,10 +547,11 @@ public final class HiveWriteUtils
         }
     }
 
-    public static Path createTemporaryPath(HdfsContext context, HdfsEnvironment hdfsEnvironment, Path targetPath)
+    public static Path createTemporaryPath(ConnectorSession session, HdfsContext context, HdfsEnvironment hdfsEnvironment, Path targetPath)
     {
         // use a per-user temporary directory to avoid permission problems
-        String temporaryPrefix = "/tmp/presto-" + context.getIdentity().getUser();
+        String temporaryPrefix = getTemporaryStagingDirectoryPath(session)
+                .replace("${USER}", context.getIdentity().getUser());
 
         // use relative temporary directory on ViewFS
         if (isViewFileSystem(context, hdfsEnvironment, targetPath)) {
@@ -671,15 +672,14 @@ public final class HiveWriteUtils
 
         if (type instanceof VarcharType) {
             VarcharType varcharType = (VarcharType) type;
-            int varcharLength = varcharType.getLength();
-            // VARCHAR columns with the length less than or equal to 65535 are supported natively by Hive
-            if (varcharLength <= HiveVarchar.MAX_VARCHAR_LENGTH) {
-                return getPrimitiveWritableObjectInspector(getVarcharTypeInfo(varcharLength));
-            }
-            // Unbounded VARCHAR is not supported by Hive.
-            // Values for such columns must be stored as STRING in Hive
-            else if (varcharLength == VarcharType.UNBOUNDED_LENGTH) {
+            if (varcharType.isUnbounded()) {
+                // Unbounded VARCHAR is not supported by Hive.
+                // Values for such columns must be stored as STRING in Hive
                 return writableStringObjectInspector;
+            }
+            if (varcharType.getBoundedLength() <= HiveVarchar.MAX_VARCHAR_LENGTH) {
+                // VARCHAR columns with the length less than or equal to 65535 are supported natively by Hive
+                return getPrimitiveWritableObjectInspector(getVarcharTypeInfo(varcharType.getBoundedLength()));
             }
         }
 

@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.prestosql</groupId>
         <artifactId>presto-root</artifactId>
-        <version>300</version>
+        <version>302</version>
     </parent>
 
     <artifactId>presto-redis</artifactId>
@@ -40,6 +40,12 @@
         <dependency>
             <groupId>io.prestosql</groupId>
             <artifactId>presto-record-decoder</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+            <optional>true</optional>
         </dependency>
 
         <dependency>

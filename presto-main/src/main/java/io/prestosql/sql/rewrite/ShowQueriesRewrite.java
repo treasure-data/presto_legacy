@@ -34,6 +34,8 @@ import io.prestosql.spi.StandardErrorCode;
 import io.prestosql.spi.connector.CatalogSchemaName;
 import io.prestosql.spi.connector.ConnectorTableMetadata;
 import io.prestosql.spi.connector.SchemaTableName;
+import io.prestosql.spi.security.PrestoPrincipal;
+import io.prestosql.spi.security.PrincipalType;
 import io.prestosql.spi.session.PropertyMetadata;
 import io.prestosql.sql.analyzer.QueryExplainer;
 import io.prestosql.sql.analyzer.SemanticException;
@@ -63,6 +65,8 @@ import io.prestosql.sql.tree.ShowColumns;
 import io.prestosql.sql.tree.ShowCreate;
 import io.prestosql.sql.tree.ShowFunctions;
 import io.prestosql.sql.tree.ShowGrants;
+import io.prestosql.sql.tree.ShowRoleGrants;
+import io.prestosql.sql.tree.ShowRoles;
 import io.prestosql.sql.tree.ShowSchemas;
 import io.prestosql.sql.tree.ShowSession;
 import io.prestosql.sql.tree.ShowTables;
@@ -82,16 +86,18 @@ import java.util.SortedMap;
 import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.prestosql.connector.informationSchema.InformationSchemaMetadata.TABLE_COLUMNS;
+import static io.prestosql.connector.informationSchema.InformationSchemaMetadata.TABLE_ENABLED_ROLES;
+import static io.prestosql.connector.informationSchema.InformationSchemaMetadata.TABLE_ROLES;
 import static io.prestosql.connector.informationSchema.InformationSchemaMetadata.TABLE_SCHEMATA;
 import static io.prestosql.connector.informationSchema.InformationSchemaMetadata.TABLE_TABLES;
 import static io.prestosql.connector.informationSchema.InformationSchemaMetadata.TABLE_TABLE_PRIVILEGES;
 import static io.prestosql.metadata.MetadataListing.listCatalogs;
 import static io.prestosql.metadata.MetadataListing.listSchemas;
 import static io.prestosql.metadata.MetadataUtil.createCatalogSchemaName;
-import static io.prestosql.metadata.MetadataUtil.createQualifiedName;
 import static io.prestosql.metadata.MetadataUtil.createQualifiedObjectName;
 import static io.prestosql.spi.StandardErrorCode.INVALID_COLUMN_PROPERTY;
 import static io.prestosql.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
+import static io.prestosql.sql.ExpressionUtils.combineConjuncts;
 import static io.prestosql.sql.ParsingUtil.createParsingOptions;
 import static io.prestosql.sql.QueryUtil.aliased;
 import static io.prestosql.sql.QueryUtil.aliasedName;
@@ -120,6 +126,7 @@ import static io.prestosql.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static io.prestosql.sql.tree.ShowCreate.Type.TABLE;
 import static io.prestosql.sql.tree.ShowCreate.Type.VIEW;
 import static java.lang.String.format;
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
@@ -229,29 +236,80 @@ final class ShowQueriesRewrite
                         session.getIdentity(),
                         new CatalogSchemaName(catalogName, qualifiedTableName.getSchemaName()));
 
-                predicate = Optional.of(equal(identifier("table_name"), new StringLiteral(qualifiedTableName.getObjectName())));
+                predicate = Optional.of(combineConjuncts(
+                        equal(identifier("table_schema"), new StringLiteral(qualifiedTableName.getSchemaName())),
+                        equal(identifier("table_name"), new StringLiteral(qualifiedTableName.getObjectName()))));
             }
+            else {
+                if (catalogName == null) {
+                    throw new SemanticException(CATALOG_NOT_SPECIFIED, showGrants, "Catalog must be specified when session catalog is not set");
+                }
 
-            if (catalogName == null) {
-                throw new SemanticException(CATALOG_NOT_SPECIFIED, showGrants, "Catalog must be specified when session catalog is not set");
-            }
-
-            Set<String> allowedSchemas = listSchemas(session, metadata, accessControl, catalogName);
-            for (String schema : allowedSchemas) {
-                accessControl.checkCanShowTablesMetadata(session.getRequiredTransactionId(), session.getIdentity(), new CatalogSchemaName(catalogName, schema));
+                Set<String> allowedSchemas = listSchemas(session, metadata, accessControl, catalogName);
+                for (String schema : allowedSchemas) {
+                    accessControl.checkCanShowTablesMetadata(session.getRequiredTransactionId(), session.getIdentity(), new CatalogSchemaName(catalogName, schema));
+                }
             }
 
             return simpleQuery(
                     selectList(
+                            aliasedName("grantor", "Grantor"),
+                            aliasedName("grantor_type", "Grantor Type"),
                             aliasedName("grantee", "Grantee"),
+                            aliasedName("grantee_type", "Grantee Type"),
                             aliasedName("table_catalog", "Catalog"),
                             aliasedName("table_schema", "Schema"),
                             aliasedName("table_name", "Table"),
                             aliasedName("privilege_type", "Privilege"),
-                            aliasedName("is_grantable", "Grantable")),
+                            aliasedName("is_grantable", "Grantable"),
+                            aliasedName("with_hierarchy", "With Hierarchy")),
                     from(catalogName, TABLE_TABLE_PRIVILEGES),
                     predicate,
-                    Optional.of(ordering(ascending("grantee"), ascending("table_name"))));
+                    Optional.empty());
+        }
+
+        @Override
+        protected Node visitShowRoles(ShowRoles node, Void context)
+        {
+            if (!node.getCatalog().isPresent() && !session.getCatalog().isPresent()) {
+                throw new SemanticException(CATALOG_NOT_SPECIFIED, node, "Catalog must be specified when session catalog is not set");
+            }
+
+            String catalog = node.getCatalog().map(c -> c.getValue().toLowerCase(ENGLISH)).orElseGet(() -> session.getCatalog().get());
+
+            if (node.isCurrent()) {
+                accessControl.checkCanShowCurrentRoles(session.getRequiredTransactionId(), session.getIdentity(), catalog);
+                return simpleQuery(
+                        selectList(aliasedName("role_name", "Role")),
+                        from(catalog, TABLE_ENABLED_ROLES));
+            }
+            else {
+                accessControl.checkCanShowRoles(session.getRequiredTransactionId(), session.getIdentity(), catalog);
+                return simpleQuery(
+                        selectList(aliasedName("role_name", "Role")),
+                        from(catalog, TABLE_ROLES));
+            }
+        }
+
+        @Override
+        protected Node visitShowRoleGrants(ShowRoleGrants node, Void context)
+        {
+            if (!node.getCatalog().isPresent() && !session.getCatalog().isPresent()) {
+                throw new SemanticException(CATALOG_NOT_SPECIFIED, node, "Catalog must be specified when session catalog is not set");
+            }
+
+            String catalog = node.getCatalog().map(c -> c.getValue().toLowerCase(ENGLISH)).orElseGet(() -> session.getCatalog().get());
+            PrestoPrincipal principal = new PrestoPrincipal(PrincipalType.USER, session.getUser());
+
+            accessControl.checkCanShowRoleGrants(session.getRequiredTransactionId(), session.getIdentity(), catalog);
+            List<Expression> rows = metadata.listRoleGrants(session, catalog, principal).stream()
+                    .map(roleGrant -> row(new StringLiteral(roleGrant.getRoleName())))
+                    .collect(toList());
+
+            return simpleQuery(
+                    selectList(new AllColumns()),
+                    aliased(new Values(rows), "role_grants", ImmutableList.of("Role Grants")),
+                    ordering(ascending("Role Grants")));
         }
 
         @Override
@@ -373,7 +431,11 @@ final class ShowQueriesRewrite
                 }
 
                 Query query = parseView(viewDefinition.get().getOriginalSql(), objectName, node);
-                String sql = formatSql(new CreateView(createQualifiedName(objectName), query, false), Optional.of(parameters)).trim();
+                List<Identifier> parts = node.getName().getOriginalParts();
+                Identifier tableName = parts.get(0);
+                Identifier schemaName = (parts.size() > 1) ? parts.get(1) : new Identifier(objectName.getSchemaName());
+                Identifier catalogName = (parts.size() > 2) ? parts.get(2) : new Identifier(objectName.getCatalogName());
+                String sql = formatSql(new CreateView(QualifiedName.of(ImmutableList.of(catalogName, schemaName, tableName)), query, false, Optional.empty()), Optional.of(parameters)).trim();
                 return singleValueQuery("Create View", sql);
             }
 

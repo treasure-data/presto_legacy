@@ -21,7 +21,6 @@ import com.google.common.collect.Sets;
 import io.airlift.json.JsonCodec;
 import io.airlift.units.Duration;
 import io.prestosql.client.OkHttpUtil.NullCallback;
-import io.prestosql.spi.type.TimeZoneKey;
 import okhttp3.Headers;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -36,6 +35,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -57,6 +57,7 @@ import static io.prestosql.client.PrestoHeaders.PRESTO_CLIENT_CAPABILITIES;
 import static io.prestosql.client.PrestoHeaders.PRESTO_CLIENT_INFO;
 import static io.prestosql.client.PrestoHeaders.PRESTO_CLIENT_TAGS;
 import static io.prestosql.client.PrestoHeaders.PRESTO_DEALLOCATED_PREPARE;
+import static io.prestosql.client.PrestoHeaders.PRESTO_EXTRA_CREDENTIAL;
 import static io.prestosql.client.PrestoHeaders.PRESTO_LANGUAGE;
 import static io.prestosql.client.PrestoHeaders.PRESTO_PATH;
 import static io.prestosql.client.PrestoHeaders.PRESTO_PREPARED_STATEMENT;
@@ -65,6 +66,7 @@ import static io.prestosql.client.PrestoHeaders.PRESTO_SCHEMA;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SESSION;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SET_CATALOG;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SET_PATH;
+import static io.prestosql.client.PrestoHeaders.PRESTO_SET_ROLE;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SET_SCHEMA;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SET_SESSION;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SOURCE;
@@ -100,11 +102,12 @@ class StatementClientV1
     private final AtomicReference<String> setPath = new AtomicReference<>();
     private final Map<String, String> setSessionProperties = new ConcurrentHashMap<>();
     private final Set<String> resetSessionProperties = Sets.newConcurrentHashSet();
+    private final Map<String, ClientSelectedRole> setRoles = new ConcurrentHashMap<>();
     private final Map<String, String> addedPreparedStatements = new ConcurrentHashMap<>();
     private final Set<String> deallocatedPreparedStatements = Sets.newConcurrentHashSet();
     private final AtomicReference<String> startedTransactionId = new AtomicReference<>();
     private final AtomicBoolean clearTransactionId = new AtomicBoolean();
-    private final TimeZoneKey timeZone;
+    private final ZoneId timeZone;
     private final Duration requestTimeoutNanos;
     private final String user;
     private final String clientCapabilities;
@@ -182,6 +185,16 @@ class StatementClientV1
             builder.addHeader(PRESTO_RESOURCE_ESTIMATE, entry.getKey() + "=" + entry.getValue());
         }
 
+        Map<String, ClientSelectedRole> roles = session.getRoles();
+        for (Entry<String, ClientSelectedRole> entry : roles.entrySet()) {
+            builder.addHeader(PrestoHeaders.PRESTO_ROLE, entry.getKey() + '=' + urlEncode(entry.getValue().toString()));
+        }
+
+        Map<String, String> extraCredentials = session.getExtraCredentials();
+        for (Entry<String, String> entry : extraCredentials.entrySet()) {
+            builder.addHeader(PRESTO_EXTRA_CREDENTIAL, entry.getKey() + "=" + entry.getValue());
+        }
+
         Map<String, String> statements = session.getPreparedStatements();
         for (Entry<String, String> entry : statements.entrySet()) {
             builder.addHeader(PRESTO_PREPARED_STATEMENT, urlEncode(entry.getKey()) + "=" + urlEncode(entry.getValue()));
@@ -201,7 +214,7 @@ class StatementClientV1
     }
 
     @Override
-    public TimeZoneKey getTimeZone()
+    public ZoneId getTimeZone()
     {
         return timeZone;
     }
@@ -281,6 +294,12 @@ class StatementClientV1
     public Set<String> getResetSessionProperties()
     {
         return ImmutableSet.copyOf(resetSessionProperties);
+    }
+
+    @Override
+    public Map<String, ClientSelectedRole> getSetRoles()
+    {
+        return ImmutableMap.copyOf(setRoles);
     }
 
     @Override
@@ -399,6 +418,14 @@ class StatementClientV1
             setSessionProperties.put(keyValue.get(0), keyValue.get(1));
         }
         resetSessionProperties.addAll(headers.values(PRESTO_CLEAR_SESSION));
+
+        for (String setRole : headers.values(PRESTO_SET_ROLE)) {
+            List<String> keyValue = SESSION_HEADER_SPLITTER.splitToList(setRole);
+            if (keyValue.size() != 2) {
+                continue;
+            }
+            setRoles.put(keyValue.get(0), ClientSelectedRole.valueOf(urlDecode(keyValue.get(1))));
+        }
 
         for (String entry : headers.values(PRESTO_ADDED_PREPARE)) {
             List<String> keyValue = SESSION_HEADER_SPLITTER.splitToList(entry);

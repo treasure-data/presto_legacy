@@ -17,7 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.log.Logger;
 import io.prestosql.Session;
-import io.prestosql.operator.StageExecutionStrategy;
+import io.prestosql.operator.StageExecutionDescriptor;
 import io.prestosql.split.SampledSplitSource;
 import io.prestosql.split.SplitManager;
 import io.prestosql.split.SplitSource;
@@ -46,6 +46,7 @@ import io.prestosql.sql.planner.plan.SampleNode;
 import io.prestosql.sql.planner.plan.SemiJoinNode;
 import io.prestosql.sql.planner.plan.SortNode;
 import io.prestosql.sql.planner.plan.SpatialJoinNode;
+import io.prestosql.sql.planner.plan.StatisticsWriterNode;
 import io.prestosql.sql.planner.plan.TableFinishNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
 import io.prestosql.sql.planner.plan.TableWriterNode;
@@ -105,7 +106,7 @@ public class DistributedExecutionPlanner
         PlanFragment currentFragment = root.getFragment();
 
         // get splits for this fragment, this is lazy so split assignments aren't actually calculated here
-        Map<PlanNodeId, SplitSource> splitSources = currentFragment.getRoot().accept(new Visitor(session, currentFragment.getStageExecutionStrategy(), allSplitSources), null);
+        Map<PlanNodeId, SplitSource> splitSources = currentFragment.getRoot().accept(new Visitor(session, currentFragment.getStageExecutionDescriptor(), allSplitSources), null);
 
         // create child stages
         ImmutableList.Builder<StageExecutionPlan> dependencies = ImmutableList.builder();
@@ -123,13 +124,13 @@ public class DistributedExecutionPlanner
             extends PlanVisitor<Map<PlanNodeId, SplitSource>, Void>
     {
         private final Session session;
-        private final StageExecutionStrategy stageExecutionStrategy;
+        private final StageExecutionDescriptor stageExecutionDescriptor;
         private final ImmutableList.Builder<SplitSource> splitSources;
 
-        private Visitor(Session session, StageExecutionStrategy stageExecutionStrategy, ImmutableList.Builder<SplitSource> allSplitSources)
+        private Visitor(Session session, StageExecutionDescriptor stageExecutionDescriptor, ImmutableList.Builder<SplitSource> allSplitSources)
         {
             this.session = session;
-            this.stageExecutionStrategy = stageExecutionStrategy;
+            this.stageExecutionDescriptor = stageExecutionDescriptor;
             this.splitSources = allSplitSources;
         }
 
@@ -146,7 +147,7 @@ public class DistributedExecutionPlanner
             SplitSource splitSource = splitManager.getSplits(
                     session,
                     node.getLayout().get(),
-                    stageExecutionStrategy.isGroupedExecution(node.getId()) ? GROUPED_SCHEDULING : UNGROUPED_SCHEDULING);
+                    stageExecutionDescriptor.isScanGroupedExecution(node.getId()) ? GROUPED_SCHEDULING : UNGROUPED_SCHEDULING);
 
             splitSources.add(splitSource);
 
@@ -332,6 +333,12 @@ public class DistributedExecutionPlanner
 
         @Override
         public Map<PlanNodeId, SplitSource> visitTableFinish(TableFinishNode node, Void context)
+        {
+            return node.getSource().accept(this, context);
+        }
+
+        @Override
+        public Map<PlanNodeId, SplitSource> visitStatisticsWriterNode(StatisticsWriterNode node, Void context)
         {
             return node.getSource().accept(this, context);
         }

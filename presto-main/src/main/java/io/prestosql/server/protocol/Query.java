@@ -26,12 +26,17 @@ import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.prestosql.Session;
+import io.prestosql.client.ClientTypeSignature;
+import io.prestosql.client.ClientTypeSignatureParameter;
 import io.prestosql.client.Column;
 import io.prestosql.client.FailureInfo;
+import io.prestosql.client.NamedClientTypeSignature;
 import io.prestosql.client.QueryError;
 import io.prestosql.client.QueryResults;
+import io.prestosql.client.RowFieldName;
 import io.prestosql.client.StageStats;
 import io.prestosql.client.StatementStats;
+import io.prestosql.client.Warning;
 import io.prestosql.execution.QueryExecution;
 import io.prestosql.execution.QueryInfo;
 import io.prestosql.execution.QueryManager;
@@ -47,11 +52,16 @@ import io.prestosql.operator.ExchangeClient;
 import io.prestosql.server.SessionContext;
 import io.prestosql.spi.ErrorCode;
 import io.prestosql.spi.Page;
+import io.prestosql.spi.PrestoWarning;
 import io.prestosql.spi.QueryId;
+import io.prestosql.spi.WarningCode;
 import io.prestosql.spi.block.BlockEncodingSerde;
+import io.prestosql.spi.security.SelectedRole;
 import io.prestosql.spi.type.BooleanType;
 import io.prestosql.spi.type.StandardTypes;
 import io.prestosql.spi.type.Type;
+import io.prestosql.spi.type.TypeSignature;
+import io.prestosql.spi.type.TypeSignatureParameter;
 import io.prestosql.transaction.TransactionId;
 
 import javax.annotation.concurrent.GuardedBy;
@@ -75,6 +85,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.addSuccessCallback;
@@ -83,6 +94,7 @@ import static io.prestosql.SystemSessionProperties.isExchangeCompressionEnabled;
 import static io.prestosql.execution.QueryState.FAILED;
 import static io.prestosql.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.prestosql.util.Failures.toFailure;
+import static io.prestosql.util.MoreLists.mappedCopy;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
@@ -138,6 +150,9 @@ class Query
 
     @GuardedBy("this")
     private Set<String> resetSessionProperties = ImmutableSet.of();
+
+    @GuardedBy("this")
+    private Map<String, SelectedRole> setRoles = ImmutableMap.of();
 
     @GuardedBy("this")
     private Map<String, String> addedPreparedStatements = ImmutableMap.of();
@@ -261,6 +276,11 @@ class Query
     public synchronized Set<String> getResetSessionProperties()
     {
         return resetSessionProperties;
+    }
+
+    public synchronized Map<String, SelectedRole> getSetRoles()
+    {
+        return setRoles;
     }
 
     public synchronized Map<String, String> getAddedPreparedStatements()
@@ -451,7 +471,7 @@ class Query
 
         // for queries with no output, return a fake result for clients that require it
         if ((queryInfo.getState() == QueryState.FINISHED) && !queryInfo.getOutputStage().isPresent()) {
-            columns = ImmutableList.of(new Column("result", BooleanType.BOOLEAN));
+            columns = ImmutableList.of(createColumn("result", BooleanType.BOOLEAN));
             data = ImmutableSet.of(ImmutableList.of(true));
         }
 
@@ -474,6 +494,9 @@ class Query
         setSessionProperties = queryInfo.getSetSessionProperties();
         resetSessionProperties = queryInfo.getResetSessionProperties();
 
+        // update setRoles
+        setRoles = queryInfo.getSetRoles();
+
         // update preparedStatements
         addedPreparedStatements = queryInfo.getAddedPreparedStatements();
         deallocatedPreparedStatements = queryInfo.getDeallocatedPreparedStatements();
@@ -492,7 +515,7 @@ class Query
                 data,
                 toStatementStats(queryInfo),
                 toQueryError(queryInfo),
-                queryInfo.getWarnings(),
+                mappedCopy(queryInfo.getWarnings(), Query::toClientWarning),
                 queryInfo.getUpdateType(),
                 updateCount);
 
@@ -533,7 +556,7 @@ class Query
 
             ImmutableList.Builder<Column> list = ImmutableList.builder();
             for (int i = 0; i < columnNames.size(); i++) {
-                list.add(new Column(columnNames.get(i), columnTypes.get(i)));
+                list.add(createColumn(columnNames.get(i), columnTypes.get(i)));
             }
             columns = list.build();
             types = outputInfo.getColumnTypes();
@@ -566,6 +589,35 @@ class Query
                 .build();
     }
 
+    private static Column createColumn(String name, Type type)
+    {
+        TypeSignature signature = type.getTypeSignature();
+        return new Column(name, signature.toString(), toClientTypeSignature(signature));
+    }
+
+    private static ClientTypeSignature toClientTypeSignature(TypeSignature signature)
+    {
+        return new ClientTypeSignature(signature.getBase(), signature.getParameters().stream()
+                .map(Query::toClientTypeSignatureParameter)
+                .collect(toImmutableList()));
+    }
+
+    private static ClientTypeSignatureParameter toClientTypeSignatureParameter(TypeSignatureParameter parameter)
+    {
+        switch (parameter.getKind()) {
+            case TYPE:
+                return ClientTypeSignatureParameter.ofType(toClientTypeSignature(parameter.getTypeSignature()));
+            case NAMED_TYPE:
+                return ClientTypeSignatureParameter.ofNamedType(new NamedClientTypeSignature(
+                        parameter.getNamedTypeSignature().getFieldName().map(value ->
+                                new RowFieldName(value.getName(), value.isDelimited())),
+                        toClientTypeSignature(parameter.getNamedTypeSignature().getTypeSignature())));
+            case LONG:
+                return ClientTypeSignatureParameter.ofLong(parameter.getLongLiteral());
+        }
+        throw new IllegalArgumentException("Unsupported kind: " + parameter.getKind());
+    }
+
     private static StatementStats toStatementStats(QueryInfo queryInfo)
     {
         QueryStats queryStats = queryInfo.getQueryStats();
@@ -587,6 +639,7 @@ class Query
                 .setProcessedRows(queryStats.getRawInputPositions())
                 .setProcessedBytes(queryStats.getRawInputDataSize().toBytes())
                 .setPeakMemoryBytes(queryStats.getPeakUserMemoryReservation().toBytes())
+                .setSpilledBytes(queryStats.getSpilledDataSize().toBytes())
                 .setRootStage(toStageStats(outputStage))
                 .build();
     }
@@ -704,6 +757,12 @@ class Query
                 errorCode.getType().toString(),
                 failure.getErrorLocation(),
                 failure);
+    }
+
+    private static Warning toClientWarning(PrestoWarning warning)
+    {
+        WarningCode code = warning.getWarningCode();
+        return new Warning(new Warning.Code(code.getCode(), code.getName()), warning.getMessage());
     }
 
     private static class QuerySubmissionFuture

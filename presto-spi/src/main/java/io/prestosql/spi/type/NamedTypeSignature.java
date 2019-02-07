@@ -13,9 +13,6 @@
  */
 package io.prestosql.spi.type;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.Objects;
 import java.util.Optional;
 
@@ -27,22 +24,17 @@ public class NamedTypeSignature
     private final Optional<RowFieldName> fieldName;
     private final TypeSignature typeSignature;
 
-    @JsonCreator
-    public NamedTypeSignature(
-            @JsonProperty("fieldName") Optional<RowFieldName> fieldName,
-            @JsonProperty("typeSignature") TypeSignature typeSignature)
+    public NamedTypeSignature(Optional<RowFieldName> fieldName, TypeSignature typeSignature)
     {
         this.fieldName = requireNonNull(fieldName, "fieldName is null");
         this.typeSignature = requireNonNull(typeSignature, "typeSignature is null");
     }
 
-    @JsonProperty
     public Optional<RowFieldName> getFieldName()
     {
         return fieldName;
     }
 
-    @JsonProperty
     public TypeSignature getTypeSignature()
     {
         return typeSignature;

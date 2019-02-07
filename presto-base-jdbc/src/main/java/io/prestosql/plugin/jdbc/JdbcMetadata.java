@@ -35,6 +35,7 @@ import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.SchemaTablePrefix;
 import io.prestosql.spi.connector.TableNotFoundException;
 import io.prestosql.spi.statistics.ComputedStatistics;
+import io.prestosql.spi.statistics.TableStatistics;
 
 import java.util.Collection;
 import java.util.List;
@@ -129,7 +130,7 @@ public class JdbcMetadata
         ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>> columns = ImmutableMap.builder();
         List<SchemaTableName> tables;
         if (prefix.getTableName() != null) {
-            tables = ImmutableList.of(new SchemaTableName(prefix.getSchemaName(), prefix.getTableName()));
+            tables = ImmutableList.of(prefix.toSchemaTableName());
         }
         else {
             tables = listTables(session, prefix.getSchemaName());
@@ -211,5 +212,12 @@ public class JdbcMetadata
         JdbcOutputTableHandle jdbcInsertHandle = (JdbcOutputTableHandle) tableHandle;
         jdbcClient.finishInsertTable(jdbcInsertHandle);
         return Optional.empty();
+    }
+
+    @Override
+    public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle tableHandle, Constraint<ColumnHandle> constraint)
+    {
+        JdbcTableHandle handle = (JdbcTableHandle) tableHandle;
+        return jdbcClient.getTableStatistics(session, handle, constraint.getSummary());
     }
 }

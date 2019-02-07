@@ -11,13 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package io.prestosql.sql.parser;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import io.prestosql.sql.tree.AddColumn;
 import io.prestosql.sql.tree.AliasedRelation;
 import io.prestosql.sql.tree.AllColumns;
+import io.prestosql.sql.tree.Analyze;
 import io.prestosql.sql.tree.ArithmeticBinaryExpression;
 import io.prestosql.sql.tree.ArithmeticUnaryExpression;
 import io.prestosql.sql.tree.ArrayConstructor;
@@ -34,6 +37,7 @@ import io.prestosql.sql.tree.CoalesceExpression;
 import io.prestosql.sql.tree.ColumnDefinition;
 import io.prestosql.sql.tree.Commit;
 import io.prestosql.sql.tree.ComparisonExpression;
+import io.prestosql.sql.tree.CreateRole;
 import io.prestosql.sql.tree.CreateSchema;
 import io.prestosql.sql.tree.CreateTable;
 import io.prestosql.sql.tree.CreateTableAsSelect;
@@ -50,6 +54,7 @@ import io.prestosql.sql.tree.DescribeInput;
 import io.prestosql.sql.tree.DescribeOutput;
 import io.prestosql.sql.tree.DoubleLiteral;
 import io.prestosql.sql.tree.DropColumn;
+import io.prestosql.sql.tree.DropRole;
 import io.prestosql.sql.tree.DropSchema;
 import io.prestosql.sql.tree.DropTable;
 import io.prestosql.sql.tree.DropView;
@@ -66,6 +71,8 @@ import io.prestosql.sql.tree.FrameBound;
 import io.prestosql.sql.tree.FunctionCall;
 import io.prestosql.sql.tree.GenericLiteral;
 import io.prestosql.sql.tree.Grant;
+import io.prestosql.sql.tree.GrantRoles;
+import io.prestosql.sql.tree.GrantorSpecification;
 import io.prestosql.sql.tree.GroupBy;
 import io.prestosql.sql.tree.GroupingElement;
 import io.prestosql.sql.tree.GroupingOperation;
@@ -102,6 +109,7 @@ import io.prestosql.sql.tree.Parameter;
 import io.prestosql.sql.tree.PathElement;
 import io.prestosql.sql.tree.PathSpecification;
 import io.prestosql.sql.tree.Prepare;
+import io.prestosql.sql.tree.PrincipalSpecification;
 import io.prestosql.sql.tree.Property;
 import io.prestosql.sql.tree.QualifiedName;
 import io.prestosql.sql.tree.QuantifiedComparisonExpression;
@@ -114,6 +122,7 @@ import io.prestosql.sql.tree.RenameSchema;
 import io.prestosql.sql.tree.RenameTable;
 import io.prestosql.sql.tree.ResetSession;
 import io.prestosql.sql.tree.Revoke;
+import io.prestosql.sql.tree.RevokeRoles;
 import io.prestosql.sql.tree.Rollback;
 import io.prestosql.sql.tree.Rollup;
 import io.prestosql.sql.tree.Row;
@@ -122,12 +131,15 @@ import io.prestosql.sql.tree.SearchedCaseExpression;
 import io.prestosql.sql.tree.Select;
 import io.prestosql.sql.tree.SelectItem;
 import io.prestosql.sql.tree.SetPath;
+import io.prestosql.sql.tree.SetRole;
 import io.prestosql.sql.tree.SetSession;
 import io.prestosql.sql.tree.ShowCatalogs;
 import io.prestosql.sql.tree.ShowColumns;
 import io.prestosql.sql.tree.ShowCreate;
 import io.prestosql.sql.tree.ShowFunctions;
 import io.prestosql.sql.tree.ShowGrants;
+import io.prestosql.sql.tree.ShowRoleGrants;
+import io.prestosql.sql.tree.ShowRoles;
 import io.prestosql.sql.tree.ShowSchemas;
 import io.prestosql.sql.tree.ShowSession;
 import io.prestosql.sql.tree.ShowStats;
@@ -355,6 +367,19 @@ class AstBuilder
     }
 
     @Override
+    public Node visitAnalyze(SqlBaseParser.AnalyzeContext context)
+    {
+        List<Property> properties = ImmutableList.of();
+        if (context.properties() != null) {
+            properties = visit(context.properties().property(), Property.class);
+        }
+        return new Analyze(
+                getLocation(context),
+                getQualifiedName(context.qualifiedName()),
+                properties);
+    }
+
+    @Override
     public Node visitAddColumn(SqlBaseParser.AddColumnContext context)
     {
         return new AddColumn(getLocation(context), getQualifiedName(context.qualifiedName()), (ColumnDefinition) visit(context.columnDefinition()));
@@ -369,11 +394,20 @@ class AstBuilder
     @Override
     public Node visitCreateView(SqlBaseParser.CreateViewContext context)
     {
+        Optional<CreateView.Security> security = Optional.empty();
+        if (context.DEFINER() != null) {
+            security = Optional.of(CreateView.Security.DEFINER);
+        }
+        else if (context.INVOKER() != null) {
+            security = Optional.of(CreateView.Security.INVOKER);
+        }
+
         return new CreateView(
                 getLocation(context),
                 getQualifiedName(context.qualifiedName()),
                 (Query) visit(context.query()),
-                context.REPLACE() != null);
+                context.REPLACE() != null,
+                security);
     }
 
     @Override
@@ -806,6 +840,58 @@ class AstBuilder
     }
 
     @Override
+    public Node visitCreateRole(SqlBaseParser.CreateRoleContext context)
+    {
+        return new CreateRole(
+                getLocation(context),
+                (Identifier) visit(context.name),
+                getGrantorSpecificationIfPresent(context.grantor()));
+    }
+
+    @Override
+    public Node visitDropRole(SqlBaseParser.DropRoleContext context)
+    {
+        return new DropRole(
+                getLocation(context),
+                (Identifier) visit(context.name));
+    }
+
+    @Override
+    public Node visitGrantRoles(SqlBaseParser.GrantRolesContext context)
+    {
+        return new GrantRoles(
+                getLocation(context),
+                ImmutableSet.copyOf(getIdentifiers(context.roles().identifier())),
+                ImmutableSet.copyOf(getPrincipalSpecifications(context.principal())),
+                context.OPTION() != null,
+                getGrantorSpecificationIfPresent(context.grantor()));
+    }
+
+    @Override
+    public Node visitRevokeRoles(SqlBaseParser.RevokeRolesContext context)
+    {
+        return new RevokeRoles(
+                getLocation(context),
+                ImmutableSet.copyOf(getIdentifiers(context.roles().identifier())),
+                ImmutableSet.copyOf(getPrincipalSpecifications(context.principal())),
+                context.OPTION() != null,
+                getGrantorSpecificationIfPresent(context.grantor()));
+    }
+
+    @Override
+    public Node visitSetRole(SqlBaseParser.SetRoleContext context)
+    {
+        SetRole.Type type = SetRole.Type.ROLE;
+        if (context.ALL() != null) {
+            type = SetRole.Type.ALL;
+        }
+        else if (context.NONE() != null) {
+            type = SetRole.Type.NONE;
+        }
+        return new SetRole(getLocation(context), type, getIdentifierIfPresent(context.role));
+    }
+
+    @Override
     public Node visitGrant(SqlBaseParser.GrantContext context)
     {
         Optional<List<String>> privileges;
@@ -822,7 +908,7 @@ class AstBuilder
                 privileges,
                 context.TABLE() != null,
                 getQualifiedName(context.qualifiedName()),
-                (Identifier) visit(context.grantee),
+                getPrincipalSpecification(context.grantee),
                 context.OPTION() != null);
     }
 
@@ -844,7 +930,7 @@ class AstBuilder
                 privileges,
                 context.TABLE() != null,
                 getQualifiedName(context.qualifiedName()),
-                (Identifier) visit(context.grantee));
+                getPrincipalSpecification(context.grantee));
     }
 
     @Override
@@ -860,6 +946,23 @@ class AstBuilder
                 getLocation(context),
                 context.TABLE() != null,
                 tableName);
+    }
+
+    @Override
+    public Node visitShowRoles(SqlBaseParser.ShowRolesContext context)
+    {
+        return new ShowRoles(
+                getLocation(context),
+                getIdentifierIfPresent(context.identifier()),
+                context.CURRENT() != null);
+    }
+
+    @Override
+    public Node visitShowRoleGrants(SqlBaseParser.ShowRoleGrantsContext context)
+    {
+        return new ShowRoleGrants(
+                getLocation(context),
+                getIdentifierIfPresent(context.identifier()));
     }
 
     @Override
@@ -1830,11 +1933,7 @@ class AstBuilder
 
     private QualifiedName getQualifiedName(SqlBaseParser.QualifiedNameContext context)
     {
-        List<String> parts = visit(context.identifier(), Identifier.class).stream()
-                .map(Identifier::getValue) // TODO: preserve quotedness
-                .collect(Collectors.toList());
-
-        return QualifiedName.of(parts);
+        return QualifiedName.of(visit(context.identifier(), Identifier.class));
     }
 
     private static boolean isDistinct(SqlBaseParser.SetQuantifierContext setQuantifier)
@@ -1864,6 +1963,11 @@ class AstBuilder
     {
         return Optional.ofNullable(token)
                 .map(Token::getText);
+    }
+
+    private Optional<Identifier> getIdentifierIfPresent(ParserRuleContext context)
+    {
+        return Optional.ofNullable(context).map(c -> (Identifier) visit(c));
     }
 
     private static ArithmeticBinaryExpression.Operator getArithmeticBinaryOperator(Token operator)
@@ -2110,6 +2214,53 @@ class AstBuilder
             return getType(typeParameter.type());
         }
         throw new IllegalArgumentException("Unsupported typeParameter: " + typeParameter.getText());
+    }
+
+    private List<Identifier> getIdentifiers(List<SqlBaseParser.IdentifierContext> identifiers)
+    {
+        return identifiers.stream().map(context -> (Identifier) visit(context)).collect(toList());
+    }
+
+    private List<PrincipalSpecification> getPrincipalSpecifications(List<SqlBaseParser.PrincipalContext> principals)
+    {
+        return principals.stream().map(this::getPrincipalSpecification).collect(toList());
+    }
+
+    private Optional<GrantorSpecification> getGrantorSpecificationIfPresent(SqlBaseParser.GrantorContext context)
+    {
+        return Optional.ofNullable(context).map(this::getGrantorSpecification);
+    }
+
+    private GrantorSpecification getGrantorSpecification(SqlBaseParser.GrantorContext context)
+    {
+        if (context instanceof SqlBaseParser.SpecifiedPrincipalContext) {
+            return new GrantorSpecification(GrantorSpecification.Type.PRINCIPAL, Optional.of(getPrincipalSpecification(((SqlBaseParser.SpecifiedPrincipalContext) context).principal())));
+        }
+        else if (context instanceof SqlBaseParser.CurrentUserGrantorContext) {
+            return new GrantorSpecification(GrantorSpecification.Type.CURRENT_USER, Optional.empty());
+        }
+        else if (context instanceof SqlBaseParser.CurrentRoleGrantorContext) {
+            return new GrantorSpecification(GrantorSpecification.Type.CURRENT_ROLE, Optional.empty());
+        }
+        else {
+            throw new IllegalArgumentException("Unsupported grantor: " + context);
+        }
+    }
+
+    private PrincipalSpecification getPrincipalSpecification(SqlBaseParser.PrincipalContext context)
+    {
+        if (context instanceof SqlBaseParser.UnspecifiedPrincipalContext) {
+            return new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, (Identifier) visit(((SqlBaseParser.UnspecifiedPrincipalContext) context).identifier()));
+        }
+        else if (context instanceof SqlBaseParser.UserPrincipalContext) {
+            return new PrincipalSpecification(PrincipalSpecification.Type.USER, (Identifier) visit(((SqlBaseParser.UserPrincipalContext) context).identifier()));
+        }
+        else if (context instanceof SqlBaseParser.RolePrincipalContext) {
+            return new PrincipalSpecification(PrincipalSpecification.Type.ROLE, (Identifier) visit(((SqlBaseParser.RolePrincipalContext) context).identifier()));
+        }
+        else {
+            throw new IllegalArgumentException("Unsupported principal: " + context);
+        }
     }
 
     private static void check(boolean condition, String message, ParserRuleContext context)

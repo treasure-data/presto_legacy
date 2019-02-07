@@ -18,11 +18,13 @@ import com.google.common.base.Strings;
 import io.prestosql.sql.tree.AddColumn;
 import io.prestosql.sql.tree.AliasedRelation;
 import io.prestosql.sql.tree.AllColumns;
+import io.prestosql.sql.tree.Analyze;
 import io.prestosql.sql.tree.AstVisitor;
 import io.prestosql.sql.tree.Call;
 import io.prestosql.sql.tree.CallArgument;
 import io.prestosql.sql.tree.ColumnDefinition;
 import io.prestosql.sql.tree.Commit;
+import io.prestosql.sql.tree.CreateRole;
 import io.prestosql.sql.tree.CreateSchema;
 import io.prestosql.sql.tree.CreateTable;
 import io.prestosql.sql.tree.CreateTableAsSelect;
@@ -32,6 +34,7 @@ import io.prestosql.sql.tree.Delete;
 import io.prestosql.sql.tree.DescribeInput;
 import io.prestosql.sql.tree.DescribeOutput;
 import io.prestosql.sql.tree.DropColumn;
+import io.prestosql.sql.tree.DropRole;
 import io.prestosql.sql.tree.DropSchema;
 import io.prestosql.sql.tree.DropTable;
 import io.prestosql.sql.tree.DropView;
@@ -43,6 +46,8 @@ import io.prestosql.sql.tree.ExplainOption;
 import io.prestosql.sql.tree.ExplainType;
 import io.prestosql.sql.tree.Expression;
 import io.prestosql.sql.tree.Grant;
+import io.prestosql.sql.tree.GrantRoles;
+import io.prestosql.sql.tree.GrantorSpecification;
 import io.prestosql.sql.tree.Identifier;
 import io.prestosql.sql.tree.Insert;
 import io.prestosql.sql.tree.Intersect;
@@ -57,6 +62,7 @@ import io.prestosql.sql.tree.NaturalJoin;
 import io.prestosql.sql.tree.Node;
 import io.prestosql.sql.tree.OrderBy;
 import io.prestosql.sql.tree.Prepare;
+import io.prestosql.sql.tree.PrincipalSpecification;
 import io.prestosql.sql.tree.Property;
 import io.prestosql.sql.tree.QualifiedName;
 import io.prestosql.sql.tree.Query;
@@ -67,18 +73,22 @@ import io.prestosql.sql.tree.RenameSchema;
 import io.prestosql.sql.tree.RenameTable;
 import io.prestosql.sql.tree.ResetSession;
 import io.prestosql.sql.tree.Revoke;
+import io.prestosql.sql.tree.RevokeRoles;
 import io.prestosql.sql.tree.Rollback;
 import io.prestosql.sql.tree.Row;
 import io.prestosql.sql.tree.SampledRelation;
 import io.prestosql.sql.tree.Select;
 import io.prestosql.sql.tree.SelectItem;
 import io.prestosql.sql.tree.SetPath;
+import io.prestosql.sql.tree.SetRole;
 import io.prestosql.sql.tree.SetSession;
 import io.prestosql.sql.tree.ShowCatalogs;
 import io.prestosql.sql.tree.ShowColumns;
 import io.prestosql.sql.tree.ShowCreate;
 import io.prestosql.sql.tree.ShowFunctions;
 import io.prestosql.sql.tree.ShowGrants;
+import io.prestosql.sql.tree.ShowRoleGrants;
+import io.prestosql.sql.tree.ShowRoles;
 import io.prestosql.sql.tree.ShowSchemas;
 import io.prestosql.sql.tree.ShowSession;
 import io.prestosql.sql.tree.ShowStats;
@@ -531,8 +541,13 @@ public final class SqlFormatter
                 builder.append("OR REPLACE ");
             }
             builder.append("VIEW ")
-                    .append(formatName(node.getName()))
-                    .append(" AS\n");
+                    .append(formatName(node.getName()));
+
+            node.getSecurity().ifPresent(security ->
+                    builder.append(" SECURITY ")
+                            .append(security.toString()));
+
+            builder.append(" AS\n");
 
             process(node.getQuery(), indent);
 
@@ -843,12 +858,10 @@ public final class SqlFormatter
             return " WITH ( " + propertyList + " )";
         }
 
-        private static String formatName(String name)
+        private static String formatName(Identifier name)
         {
-            if (NAME_PATTERN.matcher(name).matches()) {
-                return name;
-            }
-            return "\"" + name.replace("\"", "\"\"") + "\"";
+            String delimiter = name.isDelimited() ? "\"" : "";
+            return delimiter + name.getValue().replace("\"", "\"\"") + delimiter;
         }
 
         private static String formatName(QualifiedName name)
@@ -865,6 +878,34 @@ public final class SqlFormatter
                             .map(comment -> " COMMENT " + formatStringLiteral(comment))
                             .orElse("") +
                     formatPropertiesSingleLine(column.getProperties());
+        }
+
+        private static String formatGrantor(GrantorSpecification grantor)
+        {
+            GrantorSpecification.Type type = grantor.getType();
+            switch (type) {
+                case CURRENT_ROLE:
+                case CURRENT_USER:
+                    return type.name();
+                case PRINCIPAL:
+                    return formatPrincipal(grantor.getPrincipal().get());
+                default:
+                    throw new IllegalArgumentException("Unsupported principal type: " + type);
+            }
+        }
+
+        private static String formatPrincipal(PrincipalSpecification principal)
+        {
+            PrincipalSpecification.Type type = principal.getType();
+            switch (type) {
+                case UNSPECIFIED:
+                    return principal.getName().toString();
+                case USER:
+                case ROLE:
+                    return format("%s %s", type.name(), principal.getName().toString());
+                default:
+                    throw new IllegalArgumentException("Unsupported principal type: " + type);
+            }
         }
 
         @Override
@@ -911,6 +952,15 @@ public final class SqlFormatter
                     .append(" DROP COLUMN ")
                     .append(formatExpression(node.getColumn(), parameters));
 
+            return null;
+        }
+
+        @Override
+        protected Void visitAnalyze(Analyze node, Integer context)
+        {
+            builder.append("ANALYZE ")
+                    .append(formatName(node.getTableName()));
+            builder.append(formatPropertiesMultiLine(node.getProperties()));
             return null;
         }
 
@@ -1057,6 +1107,82 @@ public final class SqlFormatter
         }
 
         @Override
+        protected Void visitCreateRole(CreateRole node, Integer context)
+        {
+            builder.append("CREATE ROLE ").append(node.getName());
+            if (node.getGrantor().isPresent()) {
+                builder.append(" WITH ADMIN ").append(formatGrantor(node.getGrantor().get()));
+            }
+            return null;
+        }
+
+        @Override
+        protected Void visitDropRole(DropRole node, Integer context)
+        {
+            builder.append("DROP ROLE ").append(node.getName());
+            return null;
+        }
+
+        @Override
+        protected Void visitGrantRoles(GrantRoles node, Integer context)
+        {
+            builder.append("GRANT ");
+            builder.append(node.getRoles().stream()
+                    .map(Identifier::toString)
+                    .collect(joining(", ")));
+            builder.append(" TO ");
+            builder.append(node.getGrantees().stream()
+                    .map(Formatter::formatPrincipal)
+                    .collect(joining(", ")));
+            if (node.isWithAdminOption()) {
+                builder.append(" WITH ADMIN OPTION");
+            }
+            if (node.getGrantor().isPresent()) {
+                builder.append(" GRANTED BY ").append(formatGrantor(node.getGrantor().get()));
+            }
+            return null;
+        }
+
+        @Override
+        protected Void visitRevokeRoles(RevokeRoles node, Integer context)
+        {
+            builder.append("REVOKE ");
+            if (node.isAdminOptionFor()) {
+                builder.append("ADMIN OPTION FOR ");
+            }
+            builder.append(node.getRoles().stream()
+                    .map(Identifier::toString)
+                    .collect(joining(", ")));
+            builder.append(" FROM ");
+            builder.append(node.getGrantees().stream()
+                    .map(Formatter::formatPrincipal)
+                    .collect(joining(", ")));
+            if (node.getGrantor().isPresent()) {
+                builder.append(" GRANTED BY ").append(formatGrantor(node.getGrantor().get()));
+            }
+            return null;
+        }
+
+        @Override
+        protected Void visitSetRole(SetRole node, Integer context)
+        {
+            builder.append("SET ROLE ");
+            SetRole.Type type = node.getType();
+            switch (type) {
+                case ALL:
+                case NONE:
+                    builder.append(type.toString());
+                    break;
+                case ROLE:
+                    builder.append(node.getRole().get());
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unsupported type: " + type);
+            }
+            return null;
+        }
+
+        @Override
         public Void visitGrant(Grant node, Integer indent)
         {
             builder.append("GRANT ");
@@ -1075,7 +1201,7 @@ public final class SqlFormatter
             }
             builder.append(node.getTableName())
                     .append(" TO ")
-                    .append(node.getGrantee());
+                    .append(formatPrincipal(node.getGrantee()));
             if (node.isWithGrantOption()) {
                 builder.append(" WITH GRANT OPTION");
             }
@@ -1106,7 +1232,7 @@ public final class SqlFormatter
             }
             builder.append(node.getTableName())
                     .append(" FROM ")
-                    .append(node.getGrantee());
+                    .append(formatPrincipal(node.getGrantee()));
 
             return null;
         }
@@ -1129,11 +1255,40 @@ public final class SqlFormatter
         }
 
         @Override
+        protected Void visitShowRoles(ShowRoles node, Integer context)
+        {
+            builder.append("SHOW ");
+            if (node.isCurrent()) {
+                builder.append("CURRENT ");
+            }
+            builder.append("ROLES");
+
+            if (node.getCatalog().isPresent()) {
+                builder.append(" FROM ")
+                        .append(node.getCatalog().get());
+            }
+
+            return null;
+        }
+
+        @Override
+        protected Void visitShowRoleGrants(ShowRoleGrants node, Integer context)
+        {
+            builder.append("SHOW ROLE GRANTS");
+
+            if (node.getCatalog().isPresent()) {
+                builder.append(" FROM ")
+                        .append(node.getCatalog().get());
+            }
+
+            return null;
+        }
+
+        @Override
         public Void visitSetPath(SetPath node, Integer indent)
         {
             builder.append("SET PATH ");
             builder.append(Joiner.on(", ").join(node.getPathSpecification().getPath()));
-
             return null;
         }
 

@@ -129,6 +129,11 @@ Property Name                                      Description                  
                                                    absolutely necessary to access HDFS.
                                                    Example: ``/etc/hdfs-site.xml``
 
+``hive.recursive-directories``                     Enable reading data from subdirectories of table or          ``false``
+                                                   partition locations. If disabled, subdirectories are
+                                                   ignored. This is equivalent to the
+                                                   ``hive.mapred.supports.subdirectories`` property in Hive.
+
 ``hive.storage-format``                            The default file format used when creating new tables.       ``ORC``
 
 ``hive.compression-codec``                         The compression codec to use when writing files.             ``GZIP``
@@ -449,6 +454,27 @@ Column Type   Collectible Statistics
 
 Automatic column level statistics collection on write is controlled by
 the ``collect-column-statistics-on-write`` catalog session property.
+
+.. _hive_analyze:
+
+Collecting table and column statistics
+--------------------------------------
+
+The Hive connector supports collection of table and partition statistics
+via the :doc:`/sql/analyze` statement. When analyzing a partitioned table,
+the partitions to analyze can be specified via the optional ``partitions``
+property, which is an array containing the values of the partition keys
+in the order they are declared in the table schema::
+
+    ANALYZE hive.sales WITH (
+        partitions = ARRAY[
+            ARRAY['partition1_value1', 'partition1_value2'],
+            ARRAY['partition2_value1', 'partition2_value2']]);
+
+This query will collect statistics for 2 partitions with keys:
+
+* ``partition1_value1, partition1_value2``
+* ``partition2_value1, partition2_value2``
 
 Schema Evolution
 ----------------

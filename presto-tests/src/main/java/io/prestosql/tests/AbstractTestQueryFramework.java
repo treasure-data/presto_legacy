@@ -23,6 +23,7 @@ import io.prestosql.cost.CostCalculatorWithEstimatedExchanges;
 import io.prestosql.cost.CostComparator;
 import io.prestosql.cost.TaskCountEstimator;
 import io.prestosql.execution.QueryManagerConfig;
+import io.prestosql.execution.TaskManagerConfig;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.spi.security.AccessDeniedException;
@@ -202,6 +203,11 @@ public abstract class AbstractTestQueryFramework
         QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.of(count), Optional.of(planAssertion));
     }
 
+    protected void assertQuerySucceeds(@Language("SQL") String sql)
+    {
+        assertQuerySucceeds(getSession(), sql);
+    }
+
     protected void assertQuerySucceeds(Session session, @Language("SQL") String sql)
     {
         QueryAssertions.assertQuerySucceeds(queryRunner, session, sql);
@@ -341,6 +347,7 @@ public abstract class AbstractTestQueryFramework
                 metadata,
                 sqlParser,
                 featuresConfig,
+                new TaskManagerConfig(),
                 forceSingleNode,
                 new MBeanExporter(new TestingMBeanServer()),
                 queryRunner.getSplitManager(),

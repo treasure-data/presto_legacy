@@ -16,6 +16,7 @@ package io.prestosql.plugin.hive.parquet;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.units.DataSize;
 import io.prestosql.memory.context.AggregatedMemoryContext;
 import io.prestosql.parquet.ParquetCorruptionException;
 import io.prestosql.parquet.ParquetDataSource;
@@ -37,13 +38,14 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.BlockMissingException;
+import org.apache.parquet.column.ColumnDescriptor;
+import org.apache.parquet.hadoop.metadata.BlockMetaData;
+import org.apache.parquet.hadoop.metadata.FileMetaData;
+import org.apache.parquet.hadoop.metadata.ParquetMetadata;
+import org.apache.parquet.io.MessageColumnIO;
+import org.apache.parquet.schema.MessageType;
 import org.joda.time.DateTimeZone;
-import parquet.column.ColumnDescriptor;
-import parquet.hadoop.metadata.BlockMetaData;
-import parquet.hadoop.metadata.FileMetaData;
-import parquet.hadoop.metadata.ParquetMetadata;
-import parquet.io.MessageColumnIO;
-import parquet.schema.MessageType;
 
 import javax.inject.Inject;
 
@@ -68,6 +70,7 @@ import static io.prestosql.plugin.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_BAD_DATA;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
 import static io.prestosql.plugin.hive.HiveErrorCode.HIVE_MISSING_DATA;
+import static io.prestosql.plugin.hive.HiveSessionProperties.getParquetMaxReadBlockSize;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isFailOnCorruptedParquetStatistics;
 import static io.prestosql.plugin.hive.HiveSessionProperties.isUseParquetColumnNames;
 import static io.prestosql.plugin.hive.HiveUtil.getDeserializerClassName;
@@ -126,6 +129,7 @@ public class ParquetPageSourceFactory
                 columns,
                 isUseParquetColumnNames(session),
                 isFailOnCorruptedParquetStatistics(session),
+                getParquetMaxReadBlockSize(session),
                 typeManager,
                 effectivePredicate,
                 stats));
@@ -143,6 +147,7 @@ public class ParquetPageSourceFactory
             List<HiveColumnHandle> columns,
             boolean useParquetColumnNames,
             boolean failOnCorruptedParquetStatistics,
+            DataSize maxReadBlockSize,
             TypeManager typeManager,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             FileFormatDataSourceStats stats)
@@ -158,7 +163,7 @@ public class ParquetPageSourceFactory
             MessageType fileSchema = fileMetaData.getSchema();
             dataSource = buildHdfsParquetDataSource(inputStream, path, fileSize, stats);
 
-            List<parquet.schema.Type> fields = columns.stream()
+            List<org.apache.parquet.schema.Type> fields = columns.stream()
                     .filter(column -> column.getColumnType() == REGULAR)
                     .map(column -> getParquetType(column, fileSchema, useParquetColumnNames))
                     .filter(Objects::nonNull)
@@ -189,7 +194,8 @@ public class ParquetPageSourceFactory
                     messageColumnIO,
                     blocks.build(),
                     dataSource,
-                    systemMemoryContext);
+                    systemMemoryContext,
+                    maxReadBlockSize);
 
             return new ParquetPageSource(
                     parquetReader,
@@ -220,7 +226,7 @@ public class ParquetPageSourceFactory
                 throw new PrestoException(HIVE_CANNOT_OPEN_SPLIT, e);
             }
             String message = format("Error opening Hive split %s (offset=%s, length=%s): %s", path, start, length, e.getMessage());
-            if (e.getClass().getSimpleName().equals("BlockMissingException")) {
+            if (e instanceof BlockMissingException) {
                 throw new PrestoException(HIVE_MISSING_DATA, message, e);
             }
             throw new PrestoException(HIVE_CANNOT_OPEN_SPLIT, message, e);
@@ -249,7 +255,7 @@ public class ParquetPageSourceFactory
         return TupleDomain.withColumnDomains(predicate.build());
     }
 
-    public static parquet.schema.Type getParquetType(HiveColumnHandle column, MessageType messageType, boolean useParquetColumnNames)
+    public static org.apache.parquet.schema.Type getParquetType(HiveColumnHandle column, MessageType messageType, boolean useParquetColumnNames)
     {
         if (useParquetColumnNames) {
             return getParquetTypeByName(column.getName(), messageType);

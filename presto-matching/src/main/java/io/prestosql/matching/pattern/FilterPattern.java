@@ -15,32 +15,38 @@ package io.prestosql.matching.pattern;
 
 import io.prestosql.matching.Captures;
 import io.prestosql.matching.Match;
-import io.prestosql.matching.Matcher;
 import io.prestosql.matching.Pattern;
 import io.prestosql.matching.PatternVisitor;
 
-import java.util.function.Predicate;
+import java.util.Optional;
+import java.util.function.BiPredicate;
+import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 public class FilterPattern<T>
         extends Pattern<T>
 {
-    private final Predicate<? super T> predicate;
+    private final BiPredicate<? super T, ?> predicate;
 
-    public FilterPattern(Predicate<? super T> predicate, Pattern<T> previous)
+    public FilterPattern(BiPredicate<? super T, ?> predicate, Optional<Pattern<?>> previous)
     {
         super(previous);
-        this.predicate = predicate;
+        this.predicate = requireNonNull(predicate, "predicate is null");
     }
 
-    public Predicate<? super T> predicate()
+    public BiPredicate<? super T, ?> predicate()
     {
         return predicate;
     }
 
     @Override
-    public Match<T> accept(Matcher matcher, Object object, Captures captures)
+    public <C> Stream<Match> accept(Object object, Captures captures, C context)
     {
-        return matcher.matchFilter(this, object, captures);
+        //TODO remove cast
+        BiPredicate<? super T, C> predicate = (BiPredicate<? super T, C>) this.predicate;
+        return Stream.of(Match.of(captures))
+                .filter(match -> predicate.test((T) object, context));
     }
 
     @Override

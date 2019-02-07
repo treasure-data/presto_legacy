@@ -17,7 +17,9 @@ import io.airlift.slice.Slice;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.security.GrantInfo;
+import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
+import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.statistics.TableStatisticsMetadata;
@@ -56,6 +58,15 @@ public interface ConnectorMetadata
      * Returns a table handle for the specified table name, or null if the connector does not contain the table.
      */
     ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName);
+
+    /**
+     * Returns a table handle for the specified table name, or null if the connector does not contain the table.
+     * The returned table handle can contain information in analyzeProperties.
+     */
+    default ConnectorTableHandle getTableHandleForStatisticsCollection(ConnectorSession session, SchemaTableName tableName, Map<String, Object> analyzeProperties)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support analyze");
+    }
 
     /**
      * Returns the system table for the specified table name, if one exists.
@@ -286,9 +297,33 @@ public interface ConnectorMetadata
     /**
      * Describes statistics that must be collected during a write.
      */
-    default TableStatisticsMetadata getStatisticsCollectionMetadata(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    default TableStatisticsMetadata getStatisticsCollectionMetadataForWrite(ConnectorSession session, ConnectorTableMetadata tableMetadata)
     {
         return TableStatisticsMetadata.empty();
+    }
+
+    /**
+     * Describe statistics that must be collected during a statistics collection
+     */
+    default TableStatisticsMetadata getStatisticsCollectionMetadata(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    {
+        throw new PrestoException(GENERIC_INTERNAL_ERROR, "ConnectorMetadata getTableHandleForStatisticsCollection() is implemented without getStatisticsCollectionMetadata()");
+    }
+
+    /**
+     * Begin statistics collection
+     */
+    default ConnectorTableHandle beginStatisticsCollection(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        throw new PrestoException(GENERIC_INTERNAL_ERROR, "ConnectorMetadata getStatisticsCollectionMetadata() is implemented without beginStatisticsCollection()");
+    }
+
+    /**
+     * Finish statistics collection
+     */
+    default void finishStatisticsCollection(ConnectorSession session, ConnectorTableHandle tableHandle, Collection<ComputedStatistics> computedStatistics)
+    {
+        throw new PrestoException(GENERIC_INTERNAL_ERROR, "ConnectorMetadata beginStatisticsCollection() is implemented without finishStatisticsCollection()");
     }
 
     /**
@@ -429,9 +464,79 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Creates the specified role.
+     *
+     * @param grantor represents the principal specified by WITH ADMIN statement
+     */
+    default void createRole(ConnectorSession session, String role, Optional<PrestoPrincipal> grantor)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support create role");
+    }
+
+    /**
+     * Drops the specified role.
+     */
+    default void dropRole(ConnectorSession session, String role)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support drop role");
+    }
+
+    /**
+     * List available roles.
+     */
+    default Set<String> listRoles(ConnectorSession session)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
+    }
+
+    /**
+     * List role grants for a given principal, not recursively.
+     */
+    default Set<RoleGrant> listRoleGrants(ConnectorSession session, PrestoPrincipal principal)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
+    }
+
+    /**
+     * Grants the specified roles to the specified grantees
+     *
+     * @param grantor represents the principal specified by GRANTED BY statement
+     */
+    default void grantRoles(ConnectorSession connectorSession, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
+    }
+
+    /**
+     * Revokes the specified roles from the specified grantees
+     *
+     * @param grantor represents the principal specified by GRANTED BY statement
+     */
+    default void revokeRoles(ConnectorSession connectorSession, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
+    }
+
+    /**
+     * List applicable roles, including the transitive grants, for the specified principal
+     */
+    default Set<RoleGrant> listApplicableRoles(ConnectorSession session, PrestoPrincipal principal)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
+    }
+
+    /**
+     * List applicable roles, including the transitive grants, in given session
+     */
+    default Set<String> listEnabledRoles(ConnectorSession session)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "This connector does not support roles");
+    }
+
+    /**
      * Grants the specified privilege to the specified user on the specified table
      */
-    default void grantTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
+    default void grantTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, PrestoPrincipal grantee, boolean grantOption)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support grants");
     }
@@ -439,13 +544,13 @@ public interface ConnectorMetadata
     /**
      * Revokes the specified privilege on the specified table from the specified user
      */
-    default void revokeTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
+    default void revokeTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, PrestoPrincipal grantee, boolean grantOption)
     {
         throw new PrestoException(NOT_SUPPORTED, "This connector does not support revokes");
     }
 
     /**
-     * List the table privileges granted to the specified grantee for the tables that have the specified prefix
+     * List the table privileges granted to the specified grantee for the tables that have the specified prefix considering the selected session role
      */
     default List<GrantInfo> listTablePrivileges(ConnectorSession session, SchemaTablePrefix prefix)
     {

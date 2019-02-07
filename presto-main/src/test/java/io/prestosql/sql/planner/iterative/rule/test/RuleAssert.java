@@ -24,7 +24,9 @@ import io.prestosql.cost.StatsAndCosts;
 import io.prestosql.cost.StatsCalculator;
 import io.prestosql.cost.StatsProvider;
 import io.prestosql.execution.warnings.WarningCollector;
+import io.prestosql.matching.Capture;
 import io.prestosql.matching.Match;
+import io.prestosql.matching.Pattern;
 import io.prestosql.metadata.Metadata;
 import io.prestosql.security.AccessControl;
 import io.prestosql.sql.planner.Plan;
@@ -34,7 +36,6 @@ import io.prestosql.sql.planner.TypeProvider;
 import io.prestosql.sql.planner.assertions.PlanMatchPattern;
 import io.prestosql.sql.planner.iterative.Lookup;
 import io.prestosql.sql.planner.iterative.Memo;
-import io.prestosql.sql.planner.iterative.PlanNodeMatcher;
 import io.prestosql.sql.planner.iterative.Rule;
 import io.prestosql.sql.planner.plan.PlanNode;
 import io.prestosql.sql.planner.plan.PlanNodeId;
@@ -47,6 +48,8 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.MoreCollectors.toOptional;
+import static io.prestosql.matching.Capture.newCapture;
 import static io.prestosql.sql.planner.assertions.PlanAssert.assertPlan;
 import static io.prestosql.sql.planner.planPrinter.PlanPrinter.textLogicalPlan;
 import static io.prestosql.transaction.TransactionBuilder.transaction;
@@ -170,15 +173,17 @@ public class RuleAssert
 
     private static <T> RuleApplication applyRule(Rule<T> rule, PlanNode planNode, Rule.Context context)
     {
-        PlanNodeMatcher matcher = new PlanNodeMatcher(context.getLookup());
-        Match<T> match = matcher.match(rule.getPattern(), planNode);
+        Capture<T> planNodeCapture = newCapture();
+        Pattern<T> pattern = rule.getPattern().capturedAs(planNodeCapture);
+        Optional<Match> match = pattern.match(planNode, context.getLookup())
+                .collect(toOptional());
 
         Rule.Result result;
-        if (!rule.isEnabled(context.getSession()) || match.isEmpty()) {
+        if (!rule.isEnabled(context.getSession()) || !match.isPresent()) {
             result = Rule.Result.empty();
         }
         else {
-            result = rule.apply(match.value(), match.captures(), context);
+            result = rule.apply(match.get().capture(planNodeCapture), match.get().captures(), context);
         }
 
         return new RuleApplication(context.getLookup(), context.getStatsProvider(), context.getSymbolAllocator().getTypes(), result);

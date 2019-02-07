@@ -18,12 +18,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import io.prestosql.cli.ClientOptions.OutputFormat;
+import io.prestosql.client.ClientSelectedRole;
 import io.prestosql.client.Column;
 import io.prestosql.client.ErrorLocation;
 import io.prestosql.client.QueryError;
 import io.prestosql.client.QueryStatusInfo;
 import io.prestosql.client.StatementClient;
-import io.prestosql.spi.PrestoWarning;
+import io.prestosql.client.Warning;
 import org.fusesource.jansi.Ansi;
 import sun.misc.Signal;
 import sun.misc.SignalHandler;
@@ -87,6 +88,11 @@ public class Query
     public Set<String> getResetSessionProperties()
     {
         return client.getResetSessionProperties();
+    }
+
+    public Map<String, ClientSelectedRole> getSetRoles()
+    {
+        return client.getSetRoles();
     }
 
     public Map<String, String> getAddedPreparedStatements()
@@ -194,7 +200,7 @@ public class Query
             warningsPrinter.print(client.currentStatusInfo().getWarnings(), true, false);
             client.advance();
         }
-        List<PrestoWarning> warnings;
+        List<Warning> warnings;
         if (client.isRunning()) {
             warnings = client.currentStatusInfo().getWarnings();
         }

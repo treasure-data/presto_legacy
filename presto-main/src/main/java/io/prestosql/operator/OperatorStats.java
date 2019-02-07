@@ -46,6 +46,8 @@ public class OperatorStats
     private final long addInputCalls;
     private final Duration addInputWall;
     private final Duration addInputCpu;
+    private final DataSize physicalInputDataSize;
+    private final DataSize internalNetworkInputDataSize;
     private final DataSize rawInputDataSize;
     private final DataSize inputDataSize;
     private final long inputPositions;
@@ -72,6 +74,8 @@ public class OperatorStats
     private final DataSize peakSystemMemoryReservation;
     private final DataSize peakTotalMemoryReservation;
 
+    private final DataSize spilledDataSize;
+
     private final Optional<BlockedReason> blockedReason;
 
     private final OperatorInfo info;
@@ -89,6 +93,8 @@ public class OperatorStats
             @JsonProperty("addInputCalls") long addInputCalls,
             @JsonProperty("addInputWall") Duration addInputWall,
             @JsonProperty("addInputCpu") Duration addInputCpu,
+            @JsonProperty("physicalInputDataSize") DataSize physicalInputDataSize,
+            @JsonProperty("internalNetworkInputDataSize") DataSize internalNetworkInputDataSize,
             @JsonProperty("rawInputDataSize") DataSize rawInputDataSize,
             @JsonProperty("inputDataSize") DataSize inputDataSize,
             @JsonProperty("inputPositions") long inputPositions,
@@ -115,6 +121,8 @@ public class OperatorStats
             @JsonProperty("peakSystemMemoryReservation") DataSize peakSystemMemoryReservation,
             @JsonProperty("peakTotalMemoryReservation") DataSize peakTotalMemoryReservation,
 
+            @JsonProperty("spilledDataSize") DataSize spilledDataSize,
+
             @JsonProperty("blockedReason") Optional<BlockedReason> blockedReason,
 
             @JsonProperty("info") OperatorInfo info)
@@ -132,6 +140,8 @@ public class OperatorStats
         this.addInputCalls = addInputCalls;
         this.addInputWall = requireNonNull(addInputWall, "addInputWall is null");
         this.addInputCpu = requireNonNull(addInputCpu, "addInputCpu is null");
+        this.physicalInputDataSize = requireNonNull(physicalInputDataSize, "physicalInputDataSize is null");
+        this.internalNetworkInputDataSize = requireNonNull(internalNetworkInputDataSize, "internalNetworkInputDataSize is null");
         this.rawInputDataSize = requireNonNull(rawInputDataSize, "rawInputDataSize is null");
         this.inputDataSize = requireNonNull(inputDataSize, "inputDataSize is null");
         checkArgument(inputPositions >= 0, "inputPositions is negative");
@@ -160,6 +170,8 @@ public class OperatorStats
         this.peakUserMemoryReservation = requireNonNull(peakUserMemoryReservation, "peakUserMemoryReservation is null");
         this.peakSystemMemoryReservation = requireNonNull(peakSystemMemoryReservation, "peakSystemMemoryReservation is null");
         this.peakTotalMemoryReservation = requireNonNull(peakTotalMemoryReservation, "peakTotalMemoryReservation is null");
+
+        this.spilledDataSize = requireNonNull(spilledDataSize, "spilledDataSize is null");
 
         this.blockedReason = blockedReason;
 
@@ -218,6 +230,18 @@ public class OperatorStats
     public Duration getAddInputCpu()
     {
         return addInputCpu;
+    }
+
+    @JsonProperty
+    public DataSize getPhysicalInputDataSize()
+    {
+        return physicalInputDataSize;
+    }
+
+    @JsonProperty
+    public DataSize getInternalNetworkInputDataSize()
+    {
+        return internalNetworkInputDataSize;
     }
 
     @JsonProperty
@@ -341,6 +365,12 @@ public class OperatorStats
     }
 
     @JsonProperty
+    public DataSize getSpilledDataSize()
+    {
+        return spilledDataSize;
+    }
+
+    @JsonProperty
     public Optional<BlockedReason> getBlockedReason()
     {
         return blockedReason;
@@ -365,6 +395,8 @@ public class OperatorStats
         long addInputCalls = this.addInputCalls;
         long addInputWall = this.addInputWall.roundTo(NANOSECONDS);
         long addInputCpu = this.addInputCpu.roundTo(NANOSECONDS);
+        long physicalInputDataSize = this.physicalInputDataSize.toBytes();
+        long internalNetworkInputDataSize = this.internalNetworkInputDataSize.toBytes();
         long rawInputDataSize = this.rawInputDataSize.toBytes();
         long inputDataSize = this.inputDataSize.toBytes();
         long inputPositions = this.inputPositions;
@@ -391,6 +423,8 @@ public class OperatorStats
         long peakSystemMemory = this.peakSystemMemoryReservation.toBytes();
         long peakTotalMemory = this.peakTotalMemoryReservation.toBytes();
 
+        long spilledDataSize = this.spilledDataSize.toBytes();
+
         Optional<BlockedReason> blockedReason = this.blockedReason;
 
         Mergeable<OperatorInfo> base = getMergeableInfoOrNull(info);
@@ -402,6 +436,8 @@ public class OperatorStats
             addInputCalls += operator.getAddInputCalls();
             addInputWall += operator.getAddInputWall().roundTo(NANOSECONDS);
             addInputCpu += operator.getAddInputCpu().roundTo(NANOSECONDS);
+            physicalInputDataSize += operator.getPhysicalInputDataSize().toBytes();
+            internalNetworkInputDataSize += operator.getInternalNetworkInputDataSize().toBytes();
             rawInputDataSize += operator.getRawInputDataSize().toBytes();
             inputDataSize += operator.getInputDataSize().toBytes();
             inputPositions += operator.getInputPositions();
@@ -429,6 +465,8 @@ public class OperatorStats
             peakSystemMemory = max(peakSystemMemory, operator.getPeakSystemMemoryReservation().toBytes());
             peakTotalMemory = max(peakTotalMemory, operator.getPeakTotalMemoryReservation().toBytes());
 
+            spilledDataSize += operator.getSpilledDataSize().toBytes();
+
             if (operator.getBlockedReason().isPresent()) {
                 blockedReason = operator.getBlockedReason();
             }
@@ -451,6 +489,8 @@ public class OperatorStats
                 addInputCalls,
                 new Duration(addInputWall, NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(addInputCpu, NANOSECONDS).convertToMostSuccinctTimeUnit(),
+                succinctBytes(physicalInputDataSize),
+                succinctBytes(internalNetworkInputDataSize),
                 succinctBytes(rawInputDataSize),
                 succinctBytes(inputDataSize),
                 inputPositions,
@@ -476,6 +516,8 @@ public class OperatorStats
                 succinctBytes(peakUserMemory),
                 succinctBytes(peakSystemMemory),
                 succinctBytes(peakTotalMemory),
+
+                succinctBytes(spilledDataSize),
 
                 blockedReason,
 
@@ -510,6 +552,8 @@ public class OperatorStats
                 addInputCalls,
                 addInputWall,
                 addInputCpu,
+                physicalInputDataSize,
+                internalNetworkInputDataSize,
                 rawInputDataSize,
                 inputDataSize,
                 inputPositions,
@@ -530,6 +574,7 @@ public class OperatorStats
                 peakUserMemoryReservation,
                 peakSystemMemoryReservation,
                 peakTotalMemoryReservation,
+                spilledDataSize,
                 blockedReason,
                 (info != null && info.isFinal()) ? info : null);
     }

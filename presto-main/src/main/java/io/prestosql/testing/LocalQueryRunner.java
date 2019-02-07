@@ -21,10 +21,8 @@ import io.airlift.node.NodeInfo;
 import io.airlift.units.Duration;
 import io.prestosql.GroupByHashPageIndexerFactory;
 import io.prestosql.PagesIndexPageSorter;
-import io.prestosql.ScheduledSplit;
 import io.prestosql.Session;
 import io.prestosql.SystemSessionProperties;
-import io.prestosql.TaskSource;
 import io.prestosql.block.BlockEncodingManager;
 import io.prestosql.connector.ConnectorId;
 import io.prestosql.connector.ConnectorManager;
@@ -60,10 +58,12 @@ import io.prestosql.execution.RenameColumnTask;
 import io.prestosql.execution.RenameTableTask;
 import io.prestosql.execution.ResetSessionTask;
 import io.prestosql.execution.RollbackTask;
+import io.prestosql.execution.ScheduledSplit;
 import io.prestosql.execution.SetPathTask;
 import io.prestosql.execution.SetSessionTask;
 import io.prestosql.execution.StartTransactionTask;
 import io.prestosql.execution.TaskManagerConfig;
+import io.prestosql.execution.TaskSource;
 import io.prestosql.execution.resourceGroups.NoOpResourceGroupManager;
 import io.prestosql.execution.scheduler.LegacyNetworkTopology;
 import io.prestosql.execution.scheduler.NodeScheduler;
@@ -71,6 +71,7 @@ import io.prestosql.execution.scheduler.NodeSchedulerConfig;
 import io.prestosql.execution.warnings.WarningCollector;
 import io.prestosql.index.IndexManager;
 import io.prestosql.memory.MemoryManagerConfig;
+import io.prestosql.metadata.AnalyzePropertyManager;
 import io.prestosql.metadata.CatalogManager;
 import io.prestosql.metadata.ColumnPropertyManager;
 import io.prestosql.metadata.HandleResolver;
@@ -93,7 +94,7 @@ import io.prestosql.operator.LookupJoinOperators;
 import io.prestosql.operator.OperatorContext;
 import io.prestosql.operator.OutputFactory;
 import io.prestosql.operator.PagesIndex;
-import io.prestosql.operator.StageExecutionStrategy;
+import io.prestosql.operator.StageExecutionDescriptor;
 import io.prestosql.operator.TaskContext;
 import io.prestosql.operator.index.IndexJoinLookupStats;
 import io.prestosql.server.PluginManager;
@@ -240,9 +241,11 @@ public class LocalQueryRunner
     private final PluginManager pluginManager;
     private final ImmutableMap<Class<? extends Statement>, DataDefinitionTask<?>> dataDefinitionTask;
 
+    private final TaskManagerConfig taskManagerConfig;
     private final boolean alwaysRevokeMemory;
     private final NodeSpillConfig nodeSpillConfig;
     private final NodeSchedulerConfig nodeSchedulerConfig;
+    private final FeaturesConfig featuresConfig;
     private boolean printPlan;
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
@@ -267,6 +270,7 @@ public class LocalQueryRunner
         requireNonNull(defaultSession, "defaultSession is null");
         checkArgument(!defaultSession.getTransactionId().isPresent() || !withInitialTransaction, "Already in transaction");
 
+        this.taskManagerConfig = new TaskManagerConfig().setTaskConcurrency(4);
         this.nodeSpillConfig = requireNonNull(nodeSpillConfig, "nodeSpillConfig is null");
         this.alwaysRevokeMemory = alwaysRevokeMemory;
         this.notificationExecutor = newCachedThreadPool(daemonThreadsNamed("local-query-runner-executor-%s"));
@@ -285,6 +289,7 @@ public class LocalQueryRunner
                 nodeManager,
                 nodeSchedulerConfig,
                 new NodeTaskMap(finalizerService));
+        this.featuresConfig = requireNonNull(featuresConfig, "featuresConfig is null");
         this.pageSinkManager = new PageSinkManager();
         CatalogManager catalogManager = new CatalogManager();
         this.transactionManager = InMemoryTransactionManager.create(
@@ -300,10 +305,11 @@ public class LocalQueryRunner
                 featuresConfig,
                 typeRegistry,
                 blockEncodingManager,
-                new SessionPropertyManager(new SystemSessionProperties(new QueryManagerConfig(), new TaskManagerConfig(), new MemoryManagerConfig(), featuresConfig)),
+                new SessionPropertyManager(new SystemSessionProperties(new QueryManagerConfig(), taskManagerConfig, new MemoryManagerConfig(), featuresConfig)),
                 new SchemaPropertyManager(),
                 new TablePropertyManager(),
                 new ColumnPropertyManager(),
+                new AnalyzePropertyManager(),
                 transactionManager);
         this.planFragmenter = new PlanFragmenter(this.metadata, this.nodePartitioningManager, new QueryManagerConfig());
         this.joinCompiler = new JoinCompiler(metadata, featuresConfig);
@@ -393,7 +399,7 @@ public class LocalQueryRunner
 
         dataDefinitionTask = ImmutableMap.<Class<? extends Statement>, DataDefinitionTask<?>>builder()
                 .put(CreateTable.class, new CreateTableTask())
-                .put(CreateView.class, new CreateViewTask(jsonCodec(ViewDefinition.class), sqlParser, new FeaturesConfig()))
+                .put(CreateView.class, new CreateViewTask(jsonCodec(ViewDefinition.class), sqlParser, featuresConfig))
                 .put(DropTable.class, new DropTableTask())
                 .put(DropView.class, new DropViewTask())
                 .put(RenameColumn.class, new RenameColumnTask())
@@ -698,7 +704,7 @@ public class LocalQueryRunner
                 pageFunctionCompiler,
                 joinFilterFunctionCompiler,
                 new IndexJoinLookupStats(),
-                new TaskManagerConfig().setTaskConcurrency(4),
+                this.taskManagerConfig,
                 spillerFactory,
                 singleStreamSpillerFactory,
                 partitioningSpillerFactory,
@@ -709,10 +715,10 @@ public class LocalQueryRunner
                 new OrderingCompiler());
 
         // plan query
-        StageExecutionStrategy stageExecutionStrategy = subplan.getFragment().getStageExecutionStrategy();
+        StageExecutionDescriptor stageExecutionDescriptor = subplan.getFragment().getStageExecutionDescriptor();
         LocalExecutionPlan localExecutionPlan = executionPlanner.plan(
                 taskContext,
-                stageExecutionStrategy,
+                stageExecutionDescriptor,
                 subplan.getFragment().getRoot(),
                 subplan.getFragment().getPartitioningScheme().getOutputLayout(),
                 plan.getTypes(),
@@ -728,7 +734,7 @@ public class LocalQueryRunner
             SplitSource splitSource = splitManager.getSplits(
                     session,
                     layout,
-                    stageExecutionStrategy.isGroupedExecution(tableScan.getId()) ? GROUPED_SCHEDULING : UNGROUPED_SCHEDULING);
+                    stageExecutionDescriptor.isScanGroupedExecution(tableScan.getId()) ? GROUPED_SCHEDULING : UNGROUPED_SCHEDULING);
 
             ImmutableSet.Builder<ScheduledSplit> scheduledSplits = ImmutableSet.builder();
             while (!splitSource.isFinished()) {
@@ -799,13 +805,11 @@ public class LocalQueryRunner
 
     public List<PlanOptimizer> getPlanOptimizers(boolean forceSingleNode)
     {
-        FeaturesConfig featuresConfig = new FeaturesConfig()
-                .setDistributedIndexJoinsEnabled(false)
-                .setOptimizeHashGeneration(true);
         return new PlanOptimizers(
                 metadata,
                 sqlParser,
                 featuresConfig,
+                taskManagerConfig,
                 forceSingleNode,
                 new MBeanExporter(new TestingMBeanServer()),
                 splitManager,

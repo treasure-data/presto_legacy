@@ -15,6 +15,12 @@ The driver is also available from Maven Central:
         <version>\ |version|\ </version>
     </dependency>
 
+Driver Name
+-----------
+
+The driver class name is ``io.prestosql.jdbc.PrestoDriver``.
+Most users will not need this information as drivers are loaded automatically.
+
 Connecting
 ----------
 
@@ -98,4 +104,7 @@ Name                              Description
 ``KerberosConfigPath``            Kerberos configuration file.
 ``KerberosKeytabPath``            Kerberos keytab file.
 ``KerberosCredentialCachePath``   Kerberos credential cache.
+``extraCredentials``              Extra credentials for connecting to external services. The
+                                  extraCredentials is a list of key-value pairs. Example:
+                                  ``foo:bar;abc:xyz`` will create credentials ``abc=xyz`` and ``foo=bar``
 ================================= =======================================================================

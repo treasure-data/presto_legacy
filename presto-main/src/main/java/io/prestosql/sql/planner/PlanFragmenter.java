@@ -24,7 +24,6 @@ import io.prestosql.metadata.Metadata;
 import io.prestosql.metadata.TableLayout;
 import io.prestosql.metadata.TableLayout.TablePartitioning;
 import io.prestosql.metadata.TableLayoutHandle;
-import io.prestosql.operator.StageExecutionStrategy;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.connector.ConnectorPartitionHandle;
 import io.prestosql.spi.connector.ConnectorPartitioningHandle;
@@ -40,6 +39,7 @@ import io.prestosql.sql.planner.plan.PlanNodeId;
 import io.prestosql.sql.planner.plan.PlanVisitor;
 import io.prestosql.sql.planner.plan.RemoteSourceNode;
 import io.prestosql.sql.planner.plan.SimplePlanRewriter;
+import io.prestosql.sql.planner.plan.StatisticsWriterNode;
 import io.prestosql.sql.planner.plan.TableFinishNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
 import io.prestosql.sql.planner.plan.TableWriterNode;
@@ -59,6 +59,7 @@ import static com.google.common.base.Predicates.in;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.prestosql.SystemSessionProperties.getQueryMaxStageCount;
 import static io.prestosql.SystemSessionProperties.isForceSingleNodeOutput;
+import static io.prestosql.operator.StageExecutionDescriptor.ungroupedExecution;
 import static io.prestosql.spi.StandardErrorCode.QUERY_HAS_TOO_MANY_STAGES;
 import static io.prestosql.spi.connector.NotPartitionedPartitionHandle.NOT_PARTITIONED;
 import static io.prestosql.sql.planner.SchedulingOrderVisitor.scheduleOrder;
@@ -166,7 +167,7 @@ public class PlanFragmenter
                         outputPartitioningScheme.getHashColumn(),
                         outputPartitioningScheme.isReplicateNullsAndAny(),
                         outputPartitioningScheme.getBucketToPartition()),
-                fragment.getStageExecutionStrategy(),
+                fragment.getStageExecutionDescriptor(),
                 fragment.getStatsAndCosts());
 
         ImmutableList.Builder<SubPlan> childrenBuilder = ImmutableList.builder();
@@ -220,7 +221,7 @@ public class PlanFragmenter
                     properties.getPartitioningHandle(),
                     schedulingOrder,
                     properties.getPartitioningScheme(),
-                    StageExecutionStrategy.ungroupedExecution(),
+                    ungroupedExecution(),
                     statsAndCosts.getForSubplan(root));
 
             return new SubPlan(fragment, properties.getChildren());
@@ -238,6 +239,13 @@ public class PlanFragmenter
 
         @Override
         public PlanNode visitExplainAnalyze(ExplainAnalyzeNode node, RewriteContext<FragmentProperties> context)
+        {
+            context.get().setCoordinatorOnlyDistribution();
+            return context.defaultRewrite(node, context.get());
+        }
+
+        @Override
+        public PlanNode visitStatisticsWriterNode(StatisticsWriterNode node, RewriteContext<FragmentProperties> context)
         {
             context.get().setCoordinatorOnlyDistribution();
             return context.defaultRewrite(node, context.get());

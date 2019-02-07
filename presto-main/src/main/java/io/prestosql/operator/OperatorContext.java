@@ -61,7 +61,8 @@ public class OperatorContext
     private final DriverContext driverContext;
     private final Executor executor;
 
-    private final CounterStat rawInputDataSize = new CounterStat();
+    private final CounterStat physicalInputDataSize = new CounterStat();
+    private final CounterStat internalNetworkInputDataSize = new CounterStat();
 
     private final OperationTiming addInputTiming = new OperationTiming();
     private final CounterStat inputDataSize = new CounterStat();
@@ -80,7 +81,7 @@ public class OperatorContext
 
     private final OperationTiming finishTiming = new OperationTiming();
 
-    private final SpillContext spillContext;
+    private final OperatorSpillContext spillContext;
     private final AtomicReference<Supplier<OperatorInfo>> infoSupplier = new AtomicReference<>();
 
     private final AtomicLong peakUserMemoryReservation = new AtomicLong();
@@ -154,22 +155,22 @@ public class OperatorContext
     }
 
     /**
-     * Record the amount of physical bytes that were read by an operator.
-     * This metric is valid only for source operators.
-     */
-    public void recordRawInput(long sizeInBytes)
-    {
-        rawInputDataSize.update(sizeInBytes);
-    }
-
-    /**
      * Record the amount of physical bytes that were read by an operator and
      * the time it took to read the data. This metric is valid only for source operators.
      */
-    public void recordRawInputWithTiming(long sizeInBytes, long readNanos)
+    public void recordPhysicalInputWithTiming(long sizeInBytes, long readNanos)
     {
-        rawInputDataSize.update(sizeInBytes);
+        physicalInputDataSize.update(sizeInBytes);
         addInputTiming.record(readNanos, 0);
+    }
+
+    /**
+     * Record the amount of network bytes that were read by an operator.
+     * This metric is valid only for source operators.
+     */
+    public void recordNetworkInput(long sizeInBytes)
+    {
+        internalNetworkInputDataSize.update(sizeInBytes);
     }
 
     /**
@@ -450,7 +451,9 @@ public class OperatorContext
                 addInputTiming.getCalls(),
                 new Duration(addInputTiming.getWallNanos(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(addInputTiming.getCpuNanos(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
-                succinctBytes(rawInputDataSize.getTotalCount()),
+                succinctBytes(physicalInputDataSize.getTotalCount()),
+                succinctBytes(internalNetworkInputDataSize.getTotalCount()),
+                succinctBytes(physicalInputDataSize.getTotalCount() + internalNetworkInputDataSize.getTotalCount()),
                 succinctBytes(inputDataSize.getTotalCount()),
                 inputPositionsCount,
                 (double) inputPositionsCount * inputPositionsCount,
@@ -476,6 +479,8 @@ public class OperatorContext
                 succinctBytes(peakUserMemoryReservation.get()),
                 succinctBytes(peakSystemMemoryReservation.get()),
                 succinctBytes(peakTotalMemoryReservation.get()),
+
+                succinctBytes(spillContext.getSpilledBytes()),
 
                 memoryFuture.get().isDone() ? Optional.empty() : Optional.of(WAITING_FOR_MEMORY),
                 info);
@@ -520,6 +525,7 @@ public class OperatorContext
     {
         private final DriverContext driverContext;
         private final AtomicLong reservedBytes = new AtomicLong();
+        private final AtomicLong spilledBytes = new AtomicLong();
 
         public OperatorSpillContext(DriverContext driverContext)
         {
@@ -532,11 +538,17 @@ public class OperatorContext
             if (bytes >= 0) {
                 reservedBytes.addAndGet(bytes);
                 driverContext.reserveSpill(bytes);
+                spilledBytes.addAndGet(bytes);
             }
             else {
                 reservedBytes.accumulateAndGet(-bytes, this::decrementSpilledReservation);
                 driverContext.freeSpill(-bytes);
             }
+        }
+
+        public long getSpilledBytes()
+        {
+            return spilledBytes.longValue();
         }
 
         private long decrementSpilledReservation(long reservedBytes, long bytesBeingFreed)

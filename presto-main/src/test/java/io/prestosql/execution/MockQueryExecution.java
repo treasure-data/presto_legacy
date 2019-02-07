@@ -136,6 +136,7 @@ public class MockQueryExecution
                         new DataSize(20, BYTE),
                         new DataSize(21, BYTE),
                         new DataSize(22, BYTE),
+                        new DataSize(23, BYTE),
 
                         true,
                         new Duration(20, NANOSECONDS),
@@ -143,6 +144,12 @@ public class MockQueryExecution
                         new Duration(23, NANOSECONDS),
                         false,
                         ImmutableSet.of(),
+
+                        new DataSize(241, BYTE),
+                        251,
+
+                        new DataSize(242, BYTE),
+                        252,
 
                         new DataSize(24, BYTE),
                         25,
@@ -162,6 +169,7 @@ public class MockQueryExecution
                 Optional.empty(),
                 ImmutableMap.of(),
                 ImmutableSet.of(),
+                ImmutableMap.of(),
                 ImmutableMap.of(),
                 ImmutableSet.of(),
                 Optional.empty(),

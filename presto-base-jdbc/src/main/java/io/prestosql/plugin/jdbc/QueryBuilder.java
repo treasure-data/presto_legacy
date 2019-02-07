@@ -29,9 +29,7 @@ import io.prestosql.spi.type.IntegerType;
 import io.prestosql.spi.type.RealType;
 import io.prestosql.spi.type.SmallintType;
 import io.prestosql.spi.type.TimeType;
-import io.prestosql.spi.type.TimeWithTimeZoneType;
 import io.prestosql.spi.type.TimestampType;
-import io.prestosql.spi.type.TimestampWithTimeZoneType;
 import io.prestosql.spi.type.TinyintType;
 import io.prestosql.spi.type.Type;
 import io.prestosql.spi.type.VarcharType;
@@ -45,12 +43,12 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static io.prestosql.spi.type.DateTimeEncoding.unpackMillisUtc;
 import static java.lang.Float.intBitsToFloat;
 import static java.util.Collections.nCopies;
 import static java.util.Objects.requireNonNull;
@@ -93,7 +91,15 @@ public class QueryBuilder
         this.quote = requireNonNull(quote, "quote is null");
     }
 
-    public PreparedStatement buildSql(JdbcClient client, Connection connection, String catalog, String schema, String table, List<JdbcColumnHandle> columns, TupleDomain<ColumnHandle> tupleDomain)
+    public PreparedStatement buildSql(
+            JdbcClient client,
+            Connection connection,
+            String catalog,
+            String schema,
+            String table,
+            List<JdbcColumnHandle> columns,
+            TupleDomain<ColumnHandle> tupleDomain,
+            Optional<String> additionalPredicate)
             throws SQLException
     {
         StringBuilder sql = new StringBuilder();
@@ -121,6 +127,12 @@ public class QueryBuilder
         List<TypeAndValue> accumulator = new ArrayList<>();
 
         List<String> clauses = toConjuncts(columns, tupleDomain, accumulator);
+        if (additionalPredicate.isPresent()) {
+            clauses = ImmutableList.<String>builder()
+                    .addAll(clauses)
+                    .add(additionalPredicate.get())
+                    .build();
+        }
         if (!clauses.isEmpty()) {
             sql.append(" WHERE ")
                     .append(Joiner.on(" AND ").join(clauses));
@@ -158,14 +170,8 @@ public class QueryBuilder
             else if (typeAndValue.getType().equals(TimeType.TIME)) {
                 statement.setTime(i + 1, new Time((long) typeAndValue.getValue()));
             }
-            else if (typeAndValue.getType().equals(TimeWithTimeZoneType.TIME_WITH_TIME_ZONE)) {
-                statement.setTime(i + 1, new Time(unpackMillisUtc((long) typeAndValue.getValue())));
-            }
             else if (typeAndValue.getType().equals(TimestampType.TIMESTAMP)) {
                 statement.setTimestamp(i + 1, new Timestamp((long) typeAndValue.getValue()));
-            }
-            else if (typeAndValue.getType().equals(TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE)) {
-                statement.setTimestamp(i + 1, new Timestamp(unpackMillisUtc((long) typeAndValue.getValue())));
             }
             else if (typeAndValue.getType() instanceof VarcharType) {
                 statement.setString(i + 1, ((Slice) typeAndValue.getValue()).toStringUtf8());
@@ -193,9 +199,7 @@ public class QueryBuilder
                 validType.equals(BooleanType.BOOLEAN) ||
                 validType.equals(DateType.DATE) ||
                 validType.equals(TimeType.TIME) ||
-                validType.equals(TimeWithTimeZoneType.TIME_WITH_TIME_ZONE) ||
                 validType.equals(TimestampType.TIMESTAMP) ||
-                validType.equals(TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE) ||
                 validType instanceof VarcharType ||
                 validType instanceof CharType;
     }

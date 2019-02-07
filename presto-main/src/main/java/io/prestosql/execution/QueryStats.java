@@ -71,6 +71,7 @@ public class QueryStats
     private final DataSize peakUserMemoryReservation;
     private final DataSize peakTotalMemoryReservation;
     private final DataSize peakTaskTotalMemory;
+    private final DataSize peakTaskUserMemory;
 
     private final boolean scheduled;
     private final Duration totalScheduledTime;
@@ -78,6 +79,12 @@ public class QueryStats
     private final Duration totalBlockedTime;
     private final boolean fullyBlocked;
     private final Set<BlockedReason> blockedReasons;
+
+    private final DataSize physicalInputDataSize;
+    private final long physicalInputPositions;
+
+    private final DataSize internalNetworkInputDataSize;
+    private final long internalNetworkInputPositions;
 
     private final DataSize rawInputDataSize;
     private final long rawInputPositions;
@@ -125,6 +132,7 @@ public class QueryStats
             @JsonProperty("totalMemoryReservation") DataSize totalMemoryReservation,
             @JsonProperty("peakUserMemoryReservation") DataSize peakUserMemoryReservation,
             @JsonProperty("peakTotalMemoryReservation") DataSize peakTotalMemoryReservation,
+            @JsonProperty("peakTaskUserMemory") DataSize peakTaskUserMemory,
             @JsonProperty("peakTaskTotalMemory") DataSize peakTaskTotalMemory,
 
             @JsonProperty("scheduled") boolean scheduled,
@@ -133,6 +141,12 @@ public class QueryStats
             @JsonProperty("totalBlockedTime") Duration totalBlockedTime,
             @JsonProperty("fullyBlocked") boolean fullyBlocked,
             @JsonProperty("blockedReasons") Set<BlockedReason> blockedReasons,
+
+            @JsonProperty("physicalInputDataSize") DataSize physicalInputDataSize,
+            @JsonProperty("physicalInputPositions") long physicalInputPositions,
+
+            @JsonProperty("internalNetworkInputDataSize") DataSize internalNetworkInputDataSize,
+            @JsonProperty("internalNetworkInputPositions") long internalNetworkInputPositions,
 
             @JsonProperty("rawInputDataSize") DataSize rawInputDataSize,
             @JsonProperty("rawInputPositions") long rawInputPositions,
@@ -187,12 +201,21 @@ public class QueryStats
         this.peakUserMemoryReservation = requireNonNull(peakUserMemoryReservation, "peakUserMemoryReservation is null");
         this.peakTotalMemoryReservation = requireNonNull(peakTotalMemoryReservation, "peakTotalMemoryReservation is null");
         this.peakTaskTotalMemory = requireNonNull(peakTaskTotalMemory, "peakTaskTotalMemory is null");
+        this.peakTaskUserMemory = requireNonNull(peakTaskUserMemory, "peakTaskUserMemory is null");
         this.scheduled = scheduled;
         this.totalScheduledTime = requireNonNull(totalScheduledTime, "totalScheduledTime is null");
         this.totalCpuTime = requireNonNull(totalCpuTime, "totalCpuTime is null");
         this.totalBlockedTime = requireNonNull(totalBlockedTime, "totalBlockedTime is null");
         this.fullyBlocked = fullyBlocked;
         this.blockedReasons = ImmutableSet.copyOf(requireNonNull(blockedReasons, "blockedReasons is null"));
+
+        this.physicalInputDataSize = requireNonNull(physicalInputDataSize, "physicalInputDataSize is null");
+        checkArgument(physicalInputPositions >= 0, "physicalInputPositions is negative");
+        this.physicalInputPositions = physicalInputPositions;
+
+        this.internalNetworkInputDataSize = requireNonNull(internalNetworkInputDataSize, "internalNetworkInputDataSize is null");
+        checkArgument(internalNetworkInputPositions >= 0, "internalNetworkInputPositions is negative");
+        this.internalNetworkInputPositions = internalNetworkInputPositions;
 
         this.rawInputDataSize = requireNonNull(rawInputDataSize, "rawInputDataSize is null");
         checkArgument(rawInputPositions >= 0, "rawInputPositions is negative");
@@ -243,12 +266,17 @@ public class QueryStats
                 new DataSize(0, BYTE),
                 new DataSize(0, BYTE),
                 new DataSize(0, BYTE),
+                new DataSize(0, BYTE),
                 false,
                 new Duration(0, MILLISECONDS),
                 new Duration(0, MILLISECONDS),
                 new Duration(0, MILLISECONDS),
                 false,
                 ImmutableSet.of(),
+                new DataSize(0, BYTE),
+                0,
+                new DataSize(0, BYTE),
+                0,
                 new DataSize(0, BYTE),
                 0,
                 new DataSize(0, BYTE),
@@ -418,6 +446,12 @@ public class QueryStats
     }
 
     @JsonProperty
+    public DataSize getPeakTaskUserMemory()
+    {
+        return peakTaskUserMemory;
+    }
+
+    @JsonProperty
     public boolean isScheduled()
     {
         return scheduled;
@@ -451,6 +485,30 @@ public class QueryStats
     public Set<BlockedReason> getBlockedReasons()
     {
         return blockedReasons;
+    }
+
+    @JsonProperty
+    public DataSize getPhysicalInputDataSize()
+    {
+        return physicalInputDataSize;
+    }
+
+    @JsonProperty
+    public long getPhysicalInputPositions()
+    {
+        return physicalInputPositions;
+    }
+
+    @JsonProperty
+    public DataSize getInternalNetworkInputDataSize()
+    {
+        return internalNetworkInputDataSize;
+    }
+
+    @JsonProperty
+    public long getInternalNetworkInputPositions()
+    {
+        return internalNetworkInputPositions;
     }
 
     @JsonProperty
@@ -533,5 +591,13 @@ public class QueryStats
             return OptionalDouble.empty();
         }
         return OptionalDouble.of(min(100, (completedDrivers * 100.0) / totalDrivers));
+    }
+
+    @JsonProperty
+    public DataSize getSpilledDataSize()
+    {
+        return succinctBytes(operatorSummaries.stream()
+                .mapToLong(stats -> stats.getSpilledDataSize().toBytes())
+                .sum());
     }
 }

@@ -26,7 +26,9 @@ import io.prestosql.spi.connector.Constraint;
 import io.prestosql.spi.connector.SystemTable;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.security.GrantInfo;
+import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
+import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.statistics.TableStatisticsMetadata;
@@ -95,6 +97,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public Optional<TableHandle> getTableHandle(Session session, QualifiedObjectName tableName)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<TableHandle> getTableHandleForStatisticsCollection(Session session, QualifiedObjectName tableName, Map<String, Object> analyzeProperties)
     {
         throw new UnsupportedOperationException();
     }
@@ -244,7 +252,25 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
+    public TableStatisticsMetadata getStatisticsCollectionMetadataForWrite(Session session, String catalogName, ConnectorTableMetadata tableMetadata)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public TableStatisticsMetadata getStatisticsCollectionMetadata(Session session, String catalogName, ConnectorTableMetadata tableMetadata)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public AnalyzeTableHandle beginStatisticsCollection(Session session, TableHandle tableHandle)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void finishStatisticsCollection(Session session, AnalyzeTableHandle tableHandle, Collection<ComputedStatistics> computedStatistics)
     {
         throw new UnsupportedOperationException();
     }
@@ -352,13 +378,61 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void grantTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
+    public void createRole(Session session, String role, Optional<PrestoPrincipal> grantor, String catalog)
     {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void revokeTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
+    public void dropRole(Session session, String role, String catalog)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<String> listRoles(Session session, String catalog)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void grantRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalog)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void revokeRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalog)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<RoleGrant> listApplicableRoles(Session session, PrestoPrincipal principal, String catalog)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<String> listEnabledRoles(Session session, String catalog)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Set<RoleGrant> listRoleGrants(Session session, String catalog, PrestoPrincipal principal)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void grantTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, PrestoPrincipal grantee, boolean grantOption)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void revokeTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, PrestoPrincipal grantee, boolean grantOption)
     {
         throw new UnsupportedOperationException();
     }
@@ -413,6 +487,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public ColumnPropertyManager getColumnPropertyManager()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public AnalyzePropertyManager getAnalyzePropertyManager()
     {
         throw new UnsupportedOperationException();
     }

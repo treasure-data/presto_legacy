@@ -163,7 +163,7 @@ public class AccumuloMetadata
     public Map<SchemaTableName, ConnectorViewDefinition> getViews(ConnectorSession session, SchemaTablePrefix prefix)
     {
         ImmutableMap.Builder<SchemaTableName, ConnectorViewDefinition> builder = ImmutableMap.builder();
-        for (SchemaTableName stName : listViews(session, Optional.ofNullable(prefix.getSchemaName()))) {
+        for (SchemaTableName stName : listViews(session, prefix.getSchema())) {
             AccumuloView view = client.getView(stName);
             if (view != null) {
                 builder.put(stName, new ConnectorViewDefinition(stName, Optional.empty(), view.getData()));
@@ -407,11 +407,11 @@ public class AccumuloMetadata
     {
         // List all tables if schema or table is null
         if (prefix.getSchemaName() == null || prefix.getTableName() == null) {
-            return listTables(session, Optional.ofNullable(prefix.getSchemaName()));
+            return listTables(session, prefix.getSchema());
         }
 
         // Make sure requested table exists, returning the single table of it does
-        SchemaTableName table = new SchemaTableName(prefix.getSchemaName(), prefix.getTableName());
+        SchemaTableName table = prefix.toSchemaTableName();
         if (getTableHandle(session, table) != null) {
             return ImmutableList.of(table);
         }

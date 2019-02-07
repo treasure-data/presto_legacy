@@ -19,10 +19,10 @@ import com.google.common.collect.ImmutableSet;
 import io.airlift.json.JsonCodec;
 import io.airlift.units.Duration;
 import io.prestosql.client.ClientSession;
+import io.prestosql.client.ClientTypeSignature;
 import io.prestosql.client.Column;
 import io.prestosql.client.QueryResults;
 import io.prestosql.client.StatementStats;
-import io.prestosql.spi.type.BigintType;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.testng.annotations.AfterMethod;
@@ -32,6 +32,7 @@ import org.testng.annotations.Test;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.sql.SQLException;
+import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -41,6 +42,7 @@ import static com.google.common.net.HttpHeaders.LOCATION;
 import static com.google.common.net.HttpHeaders.SET_COOKIE;
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.prestosql.cli.ClientOptions.OutputFormat.CSV;
+import static io.prestosql.client.ClientStandardTypes.BIGINT;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.testng.Assert.assertEquals;
 
@@ -92,8 +94,10 @@ public class TestQueryRunner
                         "catalog",
                         "schema",
                         "path",
-                        "America/Los_Angeles",
+                        ZoneId.of("America/Los_Angeles"),
                         Locale.ENGLISH,
+                        ImmutableMap.of(),
+                        ImmutableMap.of(),
                         ImmutableMap.of(),
                         ImmutableMap.of(),
                         ImmutableMap.of(),
@@ -117,7 +121,7 @@ public class TestQueryRunner
                 server.url("/query.html?20160128_214710_00012_rk68b").uri(),
                 null,
                 null,
-                ImmutableList.of(new Column("_col0", BigintType.BIGINT)),
+                ImmutableList.of(new Column("_col0", BIGINT, new ClientTypeSignature(BIGINT))),
                 ImmutableList.of(ImmutableList.of(123)),
                 StatementStats.builder().setState("FINISHED").build(),
                 //new StatementStats("FINISHED", false, true, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null),

@@ -16,9 +16,12 @@ package io.prestosql.matching.pattern;
 import io.prestosql.matching.Capture;
 import io.prestosql.matching.Captures;
 import io.prestosql.matching.Match;
-import io.prestosql.matching.Matcher;
 import io.prestosql.matching.Pattern;
 import io.prestosql.matching.PatternVisitor;
+
+import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 public class CapturePattern<T>
         extends Pattern<T>
@@ -28,7 +31,7 @@ public class CapturePattern<T>
     public CapturePattern(Capture<T> capture, Pattern<T> previous)
     {
         super(previous);
-        this.capture = capture;
+        this.capture = requireNonNull(capture, "capture is null");
     }
 
     public Capture<T> capture()
@@ -37,9 +40,10 @@ public class CapturePattern<T>
     }
 
     @Override
-    public Match<T> accept(Matcher matcher, Object object, Captures captures)
+    public <C> Stream<Match> accept(Object object, Captures captures, C context)
     {
-        return matcher.matchCapture(this, object, captures);
+        Captures newCaptures = captures.addAll(Captures.ofNullable(capture, (T) object));
+        return Stream.of(Match.of(newCaptures));
     }
 
     @Override

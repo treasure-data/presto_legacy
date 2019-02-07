@@ -17,6 +17,7 @@ import io.prestosql.metadata.QualifiedObjectName;
 import io.prestosql.spi.connector.CatalogSchemaName;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
 import io.prestosql.transaction.TransactionId;
 
@@ -178,14 +179,14 @@ public interface AccessControl
      *
      * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
      */
-    void checkCanGrantTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, String grantee, boolean withGrantOption);
+    void checkCanGrantTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal grantee, boolean withGrantOption);
 
     /**
      * Check if identity is allowed to revoke a privilege from the revokee on the specified table.
      *
      * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
      */
-    void checkCanRevokeTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, String revokee, boolean grantOptionFor);
+    void checkCanRevokeTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal revokee, boolean grantOptionFor);
 
     /**
      * Check if identity is allowed to set the specified system property.
@@ -207,4 +208,57 @@ public interface AccessControl
      * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
      */
     void checkCanSelectFromColumns(TransactionId transactionId, Identity identity, QualifiedObjectName tableName, Set<String> columnNames);
+
+    /**
+     * Check if identity is allowed to create the specified role.
+     *
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanCreateRole(TransactionId transactionId, Identity identity, String role, Optional<PrestoPrincipal> grantor, String catalogName);
+
+    /**
+     * Check if identity is allowed to drop the specified role.
+     *
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanDropRole(TransactionId transactionId, Identity identity, String role, String catalogName);
+
+    /**
+     * Check if identity is allowed to grant the specified roles to the specified principals.
+     *
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanGrantRoles(TransactionId transactionId, Identity identity, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalogName);
+
+    /**
+     * Check if identity is allowed to revoke the specified roles from the specified principals.
+     *
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanRevokeRoles(TransactionId transactionId, Identity identity, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalogName);
+
+    /**
+     * Check if identity is allowed to set role for specified catalog.
+     *
+     * @throws java.security.AccessControlException if not allowed
+     */
+    void checkCanSetRole(TransactionId requiredTransactionId, Identity identity, String role, String catalog);
+
+    /**
+     * Check if identity is allowed to show roles on the specified catalog.
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanShowRoles(TransactionId transactionId, Identity identity, String catalogName);
+
+    /**
+     * Check if identity is allowed to show current roles on the specified catalog.
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanShowCurrentRoles(TransactionId transactionId, Identity identity, String catalogName);
+
+    /**
+     * Check if identity is allowed to show its own role grants on the specified catalog.
+     * @throws io.prestosql.spi.security.AccessDeniedException if not allowed
+     */
+    void checkCanShowRoleGrants(TransactionId transactionId, Identity identity, String catalogName);
 }

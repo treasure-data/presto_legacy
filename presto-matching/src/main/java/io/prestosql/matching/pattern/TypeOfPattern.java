@@ -15,9 +15,13 @@ package io.prestosql.matching.pattern;
 
 import io.prestosql.matching.Captures;
 import io.prestosql.matching.Match;
-import io.prestosql.matching.Matcher;
 import io.prestosql.matching.Pattern;
 import io.prestosql.matching.PatternVisitor;
+
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 public class TypeOfPattern<T>
         extends Pattern<T>
@@ -26,7 +30,13 @@ public class TypeOfPattern<T>
 
     public TypeOfPattern(Class<T> expectedClass)
     {
-        this.expectedClass = expectedClass;
+        this(expectedClass, Optional.empty());
+    }
+
+    public TypeOfPattern(Class<T> expectedClass, Optional<Pattern<?>> previous)
+    {
+        super(previous);
+        this.expectedClass = requireNonNull(expectedClass, "expectedClass is null");
     }
 
     public Class<T> expectedClass()
@@ -35,9 +45,12 @@ public class TypeOfPattern<T>
     }
 
     @Override
-    public Match<T> accept(Matcher matcher, Object object, Captures captures)
+    public <C> Stream<Match> accept(Object object, Captures captures, C context)
     {
-        return matcher.matchTypeOf(this, object, captures);
+        if (expectedClass.isInstance(object)) {
+            return Stream.of(Match.of(captures));
+        }
+        return Stream.of();
     }
 
     @Override

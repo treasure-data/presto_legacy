@@ -31,20 +31,20 @@ import io.airlift.http.client.Request;
 import io.airlift.json.JsonCodec;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
-import io.prestosql.OutputBuffers;
-import io.prestosql.ScheduledSplit;
 import io.prestosql.Session;
-import io.prestosql.TaskSource;
 import io.prestosql.execution.FutureStateChange;
 import io.prestosql.execution.Lifespan;
 import io.prestosql.execution.NodeTaskMap.PartitionedSplitCountTracker;
 import io.prestosql.execution.RemoteTask;
+import io.prestosql.execution.ScheduledSplit;
 import io.prestosql.execution.StateMachine.StateChangeListener;
 import io.prestosql.execution.TaskId;
 import io.prestosql.execution.TaskInfo;
+import io.prestosql.execution.TaskSource;
 import io.prestosql.execution.TaskState;
 import io.prestosql.execution.TaskStatus;
 import io.prestosql.execution.buffer.BufferInfo;
+import io.prestosql.execution.buffer.OutputBuffers;
 import io.prestosql.execution.buffer.PageBufferInfo;
 import io.prestosql.metadata.Split;
 import io.prestosql.operator.TaskStats;
@@ -504,6 +504,7 @@ public final class HttpRemoteTask
         Optional<PlanFragment> fragment = sendPlan.get() ? Optional.of(planFragment) : Optional.empty();
         TaskUpdateRequest updateRequest = new TaskUpdateRequest(
                 session.toSessionRepresentation(),
+                session.getIdentity().getExtraCredentials(),
                 fragment,
                 sources,
                 outputBuffers.get(),

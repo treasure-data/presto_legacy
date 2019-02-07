@@ -200,7 +200,7 @@ public class OrcType
             if (varcharType.isUnbounded()) {
                 return ImmutableList.of(new OrcType(OrcTypeKind.STRING));
             }
-            return ImmutableList.of(new OrcType(OrcTypeKind.VARCHAR, varcharType.getLengthSafe()));
+            return ImmutableList.of(new OrcType(OrcTypeKind.VARCHAR, varcharType.getBoundedLength()));
         }
         if (type instanceof CharType) {
             return ImmutableList.of(new OrcType(OrcTypeKind.CHAR, ((CharType) type).getLength()));
@@ -273,13 +273,13 @@ public class OrcType
             nextFieldTypeIndex += fieldOrcTypes.size();
         }
 
-        List<OrcType> orcTypes = new ArrayList<>();
+        ImmutableList.Builder<OrcType> orcTypes = ImmutableList.builder();
         orcTypes.add(new OrcType(
                 OrcTypeKind.STRUCT,
                 fieldTypeIndexes,
                 fieldNames));
         fieldTypesList.forEach(orcTypes::addAll);
 
-        return orcTypes;
+        return orcTypes.build();
     }
 }

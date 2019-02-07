@@ -127,7 +127,6 @@ import io.prestosql.operator.scalar.MapNotEqualOperator;
 import io.prestosql.operator.scalar.MapSubscriptOperator;
 import io.prestosql.operator.scalar.MapValues;
 import io.prestosql.operator.scalar.MathFunctions;
-import io.prestosql.operator.scalar.MathFunctions.LegacyLogFunction;
 import io.prestosql.operator.scalar.MultimapFromEntriesFunction;
 import io.prestosql.operator.scalar.QuantileDigestFunctions;
 import io.prestosql.operator.scalar.Re2JRegexpFunctions;
@@ -603,7 +602,7 @@ public class FunctionRegistry
                 .function(ARRAY_FLATTEN_FUNCTION)
                 .function(ARRAY_CONCAT_FUNCTION)
                 .functions(ARRAY_CONSTRUCTOR, ARRAY_SUBSCRIPT, ARRAY_TO_JSON, JSON_TO_ARRAY, JSON_STRING_TO_ARRAY)
-                .function(new ArrayAggregationFunction(featuresConfig.isLegacyArrayAgg(), featuresConfig.getArrayAggGroupImplementation()))
+                .function(new ArrayAggregationFunction(featuresConfig.getArrayAggGroupImplementation()))
                 .functions(new MapSubscriptOperator(featuresConfig.isLegacyMapSubscript()))
                 .functions(MAP_CONSTRUCTOR, MAP_TO_JSON, JSON_TO_MAP, JSON_STRING_TO_MAP)
                 .functions(MAP_AGG, MAP_UNION)
@@ -657,10 +656,6 @@ public class FunctionRegistry
                 builder.scalars(Re2JRegexpFunctions.class);
                 builder.scalar(Re2JRegexpReplaceLambdaFunction.class);
                 break;
-        }
-
-        if (featuresConfig.isLegacyLogFunction()) {
-            builder.scalar(LegacyLogFunction.class);
         }
 
         addFunctions(builder.getFunctions());

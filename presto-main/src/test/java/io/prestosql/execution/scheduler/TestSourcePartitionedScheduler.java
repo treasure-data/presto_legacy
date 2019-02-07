@@ -17,7 +17,6 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import io.prestosql.OutputBuffers.OutputBufferId;
 import io.prestosql.client.NodeVersion;
 import io.prestosql.connector.ConnectorId;
 import io.prestosql.cost.StatsAndCosts;
@@ -29,12 +28,12 @@ import io.prestosql.execution.RemoteTask;
 import io.prestosql.execution.SqlStageExecution;
 import io.prestosql.execution.StageId;
 import io.prestosql.execution.TestSqlTaskManager.MockLocationFactory;
+import io.prestosql.execution.buffer.OutputBuffers.OutputBufferId;
 import io.prestosql.failureDetector.NoOpFailureDetector;
 import io.prestosql.metadata.InMemoryNodeManager;
 import io.prestosql.metadata.InternalNodeManager;
 import io.prestosql.metadata.PrestoNode;
 import io.prestosql.metadata.TableHandle;
-import io.prestosql.operator.StageExecutionStrategy;
 import io.prestosql.spi.Node;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.spi.QueryId;
@@ -74,10 +73,11 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
-import static io.prestosql.OutputBuffers.BufferType.PARTITIONED;
-import static io.prestosql.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.SessionTestUtils.TEST_SESSION;
+import static io.prestosql.execution.buffer.OutputBuffers.BufferType.PARTITIONED;
+import static io.prestosql.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.execution.scheduler.SourcePartitionedScheduler.newSourcePartitionedSchedulerAsStageScheduler;
+import static io.prestosql.operator.StageExecutionDescriptor.ungroupedExecution;
 import static io.prestosql.spi.StandardErrorCode.NO_NODES_AVAILABLE;
 import static io.prestosql.spi.connector.NotPartitionedPartitionHandle.NOT_PARTITIONED;
 import static io.prestosql.spi.type.VarcharType.VARCHAR;
@@ -483,7 +483,7 @@ public class TestSourcePartitionedScheduler
                 SOURCE_DISTRIBUTION,
                 ImmutableList.of(tableScanNodeId),
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), ImmutableList.of(symbol)),
-                StageExecutionStrategy.ungroupedExecution(),
+                ungroupedExecution(),
                 StatsAndCosts.empty());
 
         return new StageExecutionPlan(

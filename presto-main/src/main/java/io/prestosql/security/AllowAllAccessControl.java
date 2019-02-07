@@ -17,6 +17,7 @@ import io.prestosql.metadata.QualifiedObjectName;
 import io.prestosql.spi.connector.CatalogSchemaName;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
 import io.prestosql.transaction.TransactionId;
 
@@ -136,12 +137,12 @@ public class AllowAllAccessControl
     }
 
     @Override
-    public void checkCanGrantTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, String grantee, boolean withGrantOption)
+    public void checkCanGrantTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal grantee, boolean withGrantOption)
     {
     }
 
     @Override
-    public void checkCanRevokeTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, String revokee, boolean grantOptionFor)
+    public void checkCanRevokeTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal revokee, boolean grantOptionFor)
     {
     }
 
@@ -157,6 +158,46 @@ public class AllowAllAccessControl
 
     @Override
     public void checkCanSelectFromColumns(TransactionId transactionId, Identity identity, QualifiedObjectName tableName, Set<String> columnNames)
+    {
+    }
+
+    @Override
+    public void checkCanCreateRole(TransactionId transactionId, Identity identity, String role, Optional<PrestoPrincipal> grantor, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanDropRole(TransactionId transactionId, Identity identity, String role, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanGrantRoles(TransactionId transactionId, Identity identity, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanRevokeRoles(TransactionId transactionId, Identity identity, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanSetRole(TransactionId requiredTransactionId, Identity identity, String role, String catalog)
+    {
+    }
+
+    @Override
+    public void checkCanShowRoles(TransactionId transactionId, Identity identity, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanShowCurrentRoles(TransactionId transactionId, Identity identity, String catalogName)
+    {
+    }
+
+    @Override
+    public void checkCanShowRoleGrants(TransactionId transactionId, Identity identity, String catalogName)
     {
     }
 }

@@ -21,16 +21,13 @@ import io.airlift.stats.TestingGcMonitor;
 import io.airlift.units.DataSize;
 import io.airlift.units.DataSize.Unit;
 import io.airlift.units.Duration;
-import io.prestosql.OutputBuffers;
-import io.prestosql.OutputBuffers.OutputBufferId;
-import io.prestosql.ScheduledSplit;
-import io.prestosql.TaskSource;
 import io.prestosql.execution.buffer.BufferResult;
 import io.prestosql.execution.buffer.BufferState;
+import io.prestosql.execution.buffer.OutputBuffers;
+import io.prestosql.execution.buffer.OutputBuffers.OutputBufferId;
 import io.prestosql.execution.executor.TaskExecutor;
 import io.prestosql.memory.LocalMemoryManager;
 import io.prestosql.memory.NodeMemoryConfig;
-import io.prestosql.memory.ReservedSystemMemoryConfig;
 import io.prestosql.memory.context.LocalMemoryContext;
 import io.prestosql.operator.ExchangeClient;
 import io.prestosql.operator.ExchangeClientSupplier;
@@ -47,14 +44,14 @@ import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
-import static io.prestosql.OutputBuffers.BufferType.PARTITIONED;
-import static io.prestosql.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.SessionTestUtils.TEST_SESSION;
 import static io.prestosql.execution.TaskTestUtils.PLAN_FRAGMENT;
 import static io.prestosql.execution.TaskTestUtils.SPLIT;
 import static io.prestosql.execution.TaskTestUtils.TABLE_SCAN_NODE_ID;
 import static io.prestosql.execution.TaskTestUtils.createTestSplitMonitor;
 import static io.prestosql.execution.TaskTestUtils.createTestingPlanner;
+import static io.prestosql.execution.buffer.OutputBuffers.BufferType.PARTITIONED;
+import static io.prestosql.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
@@ -74,7 +71,7 @@ public class TestSqlTaskManager
 
     public TestSqlTaskManager()
     {
-        localMemoryManager = new LocalMemoryManager(new NodeMemoryConfig(), new ReservedSystemMemoryConfig());
+        localMemoryManager = new LocalMemoryManager(new NodeMemoryConfig());
         localSpillManager = new LocalSpillManager(new NodeSpillConfig());
         taskExecutor = new TaskExecutor(8, 16, 3, 4, Ticker.systemTicker());
         taskExecutor.start();

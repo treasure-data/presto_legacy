@@ -39,10 +39,10 @@ public class TestSqlParserErrorHandling
     {
         return new Object[][] {
                 {"",
-                        "line 1:1: mismatched input '<EOF>'. Expecting: 'ALTER', 'CALL', 'COMMIT', 'CREATE', 'DEALLOCATE', 'DELETE', 'DESC', 'DESCRIBE', 'DROP', 'EXECUTE', 'EXPLAIN', 'GRANT', " +
+                        "line 1:1: mismatched input '<EOF>'. Expecting: 'ALTER', 'ANALYZE', 'CALL', 'COMMIT', 'CREATE', 'DEALLOCATE', 'DELETE', 'DESC', 'DESCRIBE', 'DROP', 'EXECUTE', 'EXPLAIN', 'GRANT', " +
                                 "'INSERT', 'PREPARE', 'RESET', 'REVOKE', 'ROLLBACK', 'SET', 'SHOW', 'START', 'USE', <query>"},
                 {"@select",
-                        "line 1:1: mismatched input '@'. Expecting: 'ALTER', 'CALL', 'COMMIT', 'CREATE', 'DEALLOCATE', 'DELETE', 'DESC', 'DESCRIBE', 'DROP', 'EXECUTE', 'EXPLAIN', 'GRANT', " +
+                        "line 1:1: mismatched input '@'. Expecting: 'ALTER', 'ANALYZE', 'CALL', 'COMMIT', 'CREATE', 'DEALLOCATE', 'DELETE', 'DESC', 'DESCRIBE', 'DROP', 'EXECUTE', 'EXPLAIN', 'GRANT', " +
                                 "'INSERT', 'PREPARE', 'RESET', 'REVOKE', 'ROLLBACK', 'SET', 'SHOW', 'START', 'USE', <query>"},
                 {"select * from foo where @what",
                         "line 1:25: mismatched input '@'. Expecting: <expression>"},
@@ -82,9 +82,11 @@ public class TestSqlParserErrorHandling
                 {"select foo(DISTINCT ,1)",
                         "line 1:21: mismatched input ','. Expecting: <expression>"},
                 {"CREATE TABLE foo () AS (VALUES 1)",
-                        "line 1:19: mismatched input ')'. Expecting: 'OR', 'SCHEMA', 'TABLE', 'VIEW'"},
+                        "line 1:19: mismatched input ')'. Expecting: 'OR', 'ROLE', 'SCHEMA', 'TABLE', 'VIEW'"},
                 {"CREATE TABLE foo (*) AS (VALUES 1)",
-                        "line 1:19: mismatched input '*'. Expecting: 'OR', 'SCHEMA', 'TABLE', 'VIEW'"},
+                        "line 1:19: mismatched input '*'. Expecting: 'OR', 'ROLE', 'SCHEMA', 'TABLE', 'VIEW'"},
+                {"CREATE TABLE foo (*) AS (VALUES 1)",
+                        "line 1:19: mismatched input '*'. Expecting: 'OR', 'ROLE', 'SCHEMA', 'TABLE', 'VIEW'"},
                 {"SELECT grouping(a+2) FROM (VALUES (1)) AS t (a) GROUP BY a+2",
                         "line 1:18: mismatched input '+'. Expecting: ')', ','"},
                 {"SELECT x() over (ROWS select) FROM t",

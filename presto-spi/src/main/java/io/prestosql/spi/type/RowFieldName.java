@@ -13,9 +13,6 @@
  */
 package io.prestosql.spi.type;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.Objects;
 
 import static java.util.Objects.requireNonNull;
@@ -25,22 +22,17 @@ public class RowFieldName
     private final String name;
     private final boolean delimited;
 
-    @JsonCreator
-    public RowFieldName(
-            @JsonProperty("name") String name,
-            @JsonProperty("delimited") boolean delimited)
+    public RowFieldName(String name, boolean delimited)
     {
         this.name = requireNonNull(name, "name is null");
         this.delimited = delimited;
     }
 
-    @JsonProperty
     public String getName()
     {
         return name;
     }
 
-    @JsonProperty
     public boolean isDelimited()
     {
         return delimited;

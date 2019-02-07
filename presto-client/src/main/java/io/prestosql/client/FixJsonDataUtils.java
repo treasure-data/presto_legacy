@@ -14,10 +14,6 @@
 package io.prestosql.client;
 
 import com.google.common.collect.ImmutableList;
-import io.prestosql.spi.type.NamedTypeSignature;
-import io.prestosql.spi.type.ParameterKind;
-import io.prestosql.spi.type.TypeSignature;
-import io.prestosql.spi.type.TypeSignatureParameter;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -28,31 +24,30 @@ import java.util.Map;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.prestosql.spi.type.StandardTypes.ARRAY;
-import static io.prestosql.spi.type.StandardTypes.BIGINT;
-import static io.prestosql.spi.type.StandardTypes.BING_TILE;
-import static io.prestosql.spi.type.StandardTypes.BOOLEAN;
-import static io.prestosql.spi.type.StandardTypes.CHAR;
-import static io.prestosql.spi.type.StandardTypes.DATE;
-import static io.prestosql.spi.type.StandardTypes.DECIMAL;
-import static io.prestosql.spi.type.StandardTypes.DOUBLE;
-import static io.prestosql.spi.type.StandardTypes.GEOMETRY;
-import static io.prestosql.spi.type.StandardTypes.INTEGER;
-import static io.prestosql.spi.type.StandardTypes.INTERVAL_DAY_TO_SECOND;
-import static io.prestosql.spi.type.StandardTypes.INTERVAL_YEAR_TO_MONTH;
-import static io.prestosql.spi.type.StandardTypes.IPADDRESS;
-import static io.prestosql.spi.type.StandardTypes.JSON;
-import static io.prestosql.spi.type.StandardTypes.MAP;
-import static io.prestosql.spi.type.StandardTypes.REAL;
-import static io.prestosql.spi.type.StandardTypes.ROW;
-import static io.prestosql.spi.type.StandardTypes.SMALLINT;
-import static io.prestosql.spi.type.StandardTypes.TIME;
-import static io.prestosql.spi.type.StandardTypes.TIMESTAMP;
-import static io.prestosql.spi.type.StandardTypes.TIMESTAMP_WITH_TIME_ZONE;
-import static io.prestosql.spi.type.StandardTypes.TIME_WITH_TIME_ZONE;
-import static io.prestosql.spi.type.StandardTypes.TINYINT;
-import static io.prestosql.spi.type.StandardTypes.VARCHAR;
-import static io.prestosql.spi.type.TypeSignature.parseTypeSignature;
+import static io.prestosql.client.ClientStandardTypes.ARRAY;
+import static io.prestosql.client.ClientStandardTypes.BIGINT;
+import static io.prestosql.client.ClientStandardTypes.BING_TILE;
+import static io.prestosql.client.ClientStandardTypes.BOOLEAN;
+import static io.prestosql.client.ClientStandardTypes.CHAR;
+import static io.prestosql.client.ClientStandardTypes.DATE;
+import static io.prestosql.client.ClientStandardTypes.DECIMAL;
+import static io.prestosql.client.ClientStandardTypes.DOUBLE;
+import static io.prestosql.client.ClientStandardTypes.GEOMETRY;
+import static io.prestosql.client.ClientStandardTypes.INTEGER;
+import static io.prestosql.client.ClientStandardTypes.INTERVAL_DAY_TO_SECOND;
+import static io.prestosql.client.ClientStandardTypes.INTERVAL_YEAR_TO_MONTH;
+import static io.prestosql.client.ClientStandardTypes.IPADDRESS;
+import static io.prestosql.client.ClientStandardTypes.JSON;
+import static io.prestosql.client.ClientStandardTypes.MAP;
+import static io.prestosql.client.ClientStandardTypes.REAL;
+import static io.prestosql.client.ClientStandardTypes.ROW;
+import static io.prestosql.client.ClientStandardTypes.SMALLINT;
+import static io.prestosql.client.ClientStandardTypes.TIME;
+import static io.prestosql.client.ClientStandardTypes.TIMESTAMP;
+import static io.prestosql.client.ClientStandardTypes.TIMESTAMP_WITH_TIME_ZONE;
+import static io.prestosql.client.ClientStandardTypes.TIME_WITH_TIME_ZONE;
+import static io.prestosql.client.ClientStandardTypes.TINYINT;
+import static io.prestosql.client.ClientStandardTypes.VARCHAR;
 import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
@@ -67,8 +62,8 @@ final class FixJsonDataUtils
             return null;
         }
         requireNonNull(columns, "columns is null");
-        List<TypeSignature> signatures = columns.stream()
-                .map(column -> parseTypeSignature(column.getType()))
+        List<ClientTypeSignature> signatures = columns.stream()
+                .map(Column::getTypeSignature)
                 .collect(toList());
         ImmutableList.Builder<List<Object>> rows = ImmutableList.builder();
         for (List<Object> row : data) {
@@ -85,45 +80,45 @@ final class FixJsonDataUtils
     /**
      * Force values coming from Jackson to have the expected object type.
      */
-    private static Object fixValue(TypeSignature signature, Object value)
+    private static Object fixValue(ClientTypeSignature signature, Object value)
     {
         if (value == null) {
             return null;
         }
 
-        if (signature.getBase().equals(ARRAY)) {
+        if (signature.getRawType().equals(ARRAY)) {
             List<Object> fixedValue = new ArrayList<>();
             for (Object object : List.class.cast(value)) {
-                fixedValue.add(fixValue(signature.getTypeParametersAsTypeSignatures().get(0), object));
+                fixedValue.add(fixValue(signature.getArgumentsAsTypeSignatures().get(0), object));
             }
             return fixedValue;
         }
-        if (signature.getBase().equals(MAP)) {
-            TypeSignature keySignature = signature.getTypeParametersAsTypeSignatures().get(0);
-            TypeSignature valueSignature = signature.getTypeParametersAsTypeSignatures().get(1);
+        if (signature.getRawType().equals(MAP)) {
+            ClientTypeSignature keySignature = signature.getArgumentsAsTypeSignatures().get(0);
+            ClientTypeSignature valueSignature = signature.getArgumentsAsTypeSignatures().get(1);
             Map<Object, Object> fixedValue = new HashMap<>();
             for (Map.Entry<?, ?> entry : (Set<Map.Entry<?, ?>>) Map.class.cast(value).entrySet()) {
                 fixedValue.put(fixValue(keySignature, entry.getKey()), fixValue(valueSignature, entry.getValue()));
             }
             return fixedValue;
         }
-        if (signature.getBase().equals(ROW)) {
+        if (signature.getRawType().equals(ROW)) {
             Map<String, Object> fixedValue = new LinkedHashMap<>();
             List<Object> listValue = List.class.cast(value);
-            checkArgument(listValue.size() == signature.getParameters().size(), "Mismatched data values and row type");
+            checkArgument(listValue.size() == signature.getArguments().size(), "Mismatched data values and row type");
             for (int i = 0; i < listValue.size(); i++) {
-                TypeSignatureParameter parameter = signature.getParameters().get(i);
+                ClientTypeSignatureParameter parameter = signature.getArguments().get(i);
                 checkArgument(
                         parameter.getKind() == ParameterKind.NAMED_TYPE,
                         "Unexpected parameter [%s] for row type",
                         parameter);
-                NamedTypeSignature namedTypeSignature = parameter.getNamedTypeSignature();
+                NamedClientTypeSignature namedTypeSignature = parameter.getNamedTypeSignature();
                 String key = namedTypeSignature.getName().orElse("field" + i);
                 fixedValue.put(key, fixValue(namedTypeSignature.getTypeSignature(), listValue.get(i)));
             }
             return fixedValue;
         }
-        switch (signature.getBase()) {
+        switch (signature.getRawType()) {
             case BIGINT:
                 if (value instanceof String) {
                     return Long.parseLong((String) value);

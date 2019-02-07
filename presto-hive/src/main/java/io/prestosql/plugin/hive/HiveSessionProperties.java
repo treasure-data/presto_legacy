@@ -63,6 +63,7 @@ public final class HiveSessionProperties
     private static final String RESPECT_TABLE_FORMAT = "respect_table_format";
     private static final String PARQUET_USE_COLUMN_NAME = "parquet_use_column_names";
     private static final String PARQUET_FAIL_WITH_CORRUPTED_STATISTICS = "parquet_fail_with_corrupted_statistics";
+    private static final String PARQUET_MAX_READ_BLOCK_SIZE = "parquet_max_read_block_size";
     private static final String PARQUET_WRITER_BLOCK_SIZE = "parquet_writer_block_size";
     private static final String PARQUET_WRITER_PAGE_SIZE = "parquet_writer_page_size";
     private static final String MAX_SPLIT_SIZE = "max_split_size";
@@ -76,6 +77,8 @@ public final class HiveSessionProperties
     private static final String COLLECT_COLUMN_STATISTICS_ON_WRITE = "collect_column_statistics_on_write";
     private static final String OPTIMIZE_MISMATCHED_BUCKET_COUNT = "optimize_mismatched_bucket_count";
     private static final String S3_SELECT_PUSHDOWN_ENABLED = "s3_select_pushdown_enabled";
+    private static final String TEMPORARY_STAGING_DIRECTORY_ENABLED = "temporary_staging_directory_enabled";
+    private static final String TEMPORARY_STAGING_DIRECTORY_PATH = "temporary_staging_directory_path";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -233,6 +236,11 @@ public final class HiveSessionProperties
                         hiveClientConfig.isFailOnCorruptedParquetStatistics(),
                         false),
                 dataSizeSessionProperty(
+                        PARQUET_MAX_READ_BLOCK_SIZE,
+                        "Parquet: Maximum size of a block to read",
+                        hiveClientConfig.getParquetMaxReadBlockSize(),
+                        false),
+                dataSizeSessionProperty(
                         PARQUET_WRITER_BLOCK_SIZE,
                         "Parquet: Writer block size",
                         parquetFileWriterConfig.getBlockSize(),
@@ -296,6 +304,16 @@ public final class HiveSessionProperties
                         S3_SELECT_PUSHDOWN_ENABLED,
                         "S3 Select pushdown enabled",
                         hiveClientConfig.isS3SelectPushdownEnabled(),
+                        false),
+                booleanProperty(
+                        TEMPORARY_STAGING_DIRECTORY_ENABLED,
+                        "Should use temporary staging directory for write operations",
+                        hiveClientConfig.isTemporaryStagingDirectoryEnabled(),
+                        false),
+                stringProperty(
+                        TEMPORARY_STAGING_DIRECTORY_PATH,
+                        "Temporary staging directory location",
+                        hiveClientConfig.getTemporaryStagingDirectoryPath(),
                         false));
     }
 
@@ -426,6 +444,11 @@ public final class HiveSessionProperties
         return session.getProperty(PARQUET_FAIL_WITH_CORRUPTED_STATISTICS, Boolean.class);
     }
 
+    public static DataSize getParquetMaxReadBlockSize(ConnectorSession session)
+    {
+        return session.getProperty(PARQUET_MAX_READ_BLOCK_SIZE, DataSize.class);
+    }
+
     public static DataSize getParquetWriterBlockSize(ConnectorSession session)
     {
         return session.getProperty(PARQUET_WRITER_BLOCK_SIZE, DataSize.class);
@@ -493,6 +516,16 @@ public final class HiveSessionProperties
     public static boolean isOptimizedMismatchedBucketCount(ConnectorSession session)
     {
         return session.getProperty(OPTIMIZE_MISMATCHED_BUCKET_COUNT, Boolean.class);
+    }
+
+    public static boolean isTemporaryStagingDirectoryEnabled(ConnectorSession session)
+    {
+        return session.getProperty(TEMPORARY_STAGING_DIRECTORY_ENABLED, Boolean.class);
+    }
+
+    public static String getTemporaryStagingDirectoryPath(ConnectorSession session)
+    {
+        return session.getProperty(TEMPORARY_STAGING_DIRECTORY_PATH, String.class);
     }
 
     public static PropertyMetadata<DataSize> dataSizeSessionProperty(String name, String description, DataSize defaultValue, boolean hidden)

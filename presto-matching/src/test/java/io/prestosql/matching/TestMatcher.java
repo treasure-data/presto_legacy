@@ -23,7 +23,10 @@ import org.testng.annotations.Test;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.google.common.collect.MoreCollectors.onlyElement;
+import static com.google.common.collect.MoreCollectors.toOptional;
 import static io.prestosql.matching.Capture.newCapture;
 import static io.prestosql.matching.Pattern.any;
 import static io.prestosql.matching.Pattern.typeOf;
@@ -34,6 +37,7 @@ import static io.prestosql.matching.example.rel.Patterns.scan;
 import static io.prestosql.matching.example.rel.Patterns.source;
 import static io.prestosql.matching.example.rel.Patterns.tableName;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.expectThrows;
 
@@ -67,7 +71,7 @@ public class TestMatcher
     public void propertyMatchers()
     {
         Pattern<String> aString = typeOf(String.class);
-        Property<String, Integer> length = Property.property("length", String::length);
+        Property<String, ?, Integer> length = Property.property("length", String::length);
         String string = "a";
 
         assertMatch(aString.with(length.equalTo(1)), string);
@@ -111,7 +115,7 @@ public class TestMatcher
     @Test
     public void optionalProperties()
     {
-        Property<RelNode, RelNode> onlySource = Property.optionalProperty("onlySource", node ->
+        Property<RelNode, ?, RelNode> onlySource = Property.optionalProperty("onlySource", node ->
                 Optional.of(node.getSources())
                         .filter(sources -> sources.size() == 1)
                         .map((List<RelNode> sources) -> sources.get(0)));
@@ -138,7 +142,7 @@ public class TestMatcher
 
         ProjectNode tree = new ProjectNode(new FilterNode(new ScanNode("orders"), null));
 
-        Match<ProjectNode> match = assertMatch(pattern, tree);
+        Match match = assertMatch(pattern, tree);
         //notice the concrete type despite no casts:
         FilterNode capturedFilter = match.capture(filter);
         assertEquals(tree.getSource(), capturedFilter);
@@ -147,16 +151,15 @@ public class TestMatcher
     }
 
     @Test
-    public void noMatchMeansNoCaptures()
+    public void noMatch()
     {
         Capture<Void> impossible = newCapture();
         Pattern<Void> pattern = typeOf(Void.class).capturedAs(impossible);
 
-        Match<Void> match = DefaultMatcher.DEFAULT_MATCHER.match(pattern, 42);
+        Optional<Match> match = pattern.match(42)
+                .collect(toOptional());
 
-        assertTrue(match.isEmpty());
-        Throwable throwable = expectThrows(NoSuchElementException.class, () -> match.capture(impossible));
-        assertTrue(throwable.getMessage().contains("Captures are undefined for an empty Match"));
+        assertFalse(match.isPresent());
     }
 
     @Test
@@ -165,7 +168,8 @@ public class TestMatcher
         Pattern<?> pattern = any();
         Capture<?> unknownCapture = newCapture();
 
-        Match<?> match = DefaultMatcher.DEFAULT_MATCHER.match(pattern, 42);
+        Match match = pattern.match(42)
+                .collect(onlyElement());
 
         Throwable throwable = expectThrows(NoSuchElementException.class, () -> match.capture(unknownCapture));
         assertTrue(throwable.getMessage().contains("unknown Capture"));
@@ -178,21 +182,48 @@ public class TestMatcher
         assertNoMatch(typeOf(Integer.class), null);
     }
 
-    private <T> Match<T> assertMatch(Pattern<T> pattern, T expectedMatch)
+    @Test
+    public void contextIsPassedToPropertyFunction()
     {
-        return assertMatch(pattern, expectedMatch, expectedMatch);
+        Pattern pattern = any().with(
+                Property.property(
+                        "non null",
+                        (Object value, AtomicBoolean context) -> {
+                            context.set(true);
+                            return value != null;
+                        }).equalTo(true));
+
+        AtomicBoolean wasContextUsed = new AtomicBoolean();
+        pattern.match("object", wasContextUsed)
+                .collect(onlyElement());
+        assertEquals(wasContextUsed.get(), true);
     }
 
-    private <T, R> Match<R> assertMatch(Pattern<R> pattern, T matchedAgainst, R expectedMatch)
+    @Test
+    public void contextIsPassedToPredicate()
     {
-        Match<R> match = DefaultMatcher.DEFAULT_MATCHER.match(pattern, matchedAgainst);
-        assertEquals(expectedMatch, match.value());
-        return match;
+        Pattern pattern = any().matching(
+                (Object value, AtomicBoolean context) -> {
+                    context.set(true);
+                    return value != null;
+                });
+
+        AtomicBoolean wasContextUsed = new AtomicBoolean();
+        pattern.match("object", wasContextUsed)
+                .collect(onlyElement());
+        assertEquals(wasContextUsed.get(), true);
+    }
+
+    private <T> Match assertMatch(Pattern<T> pattern, T object)
+    {
+        return pattern.match(object)
+                .collect(onlyElement());
     }
 
     private <T> void assertNoMatch(Pattern<T> pattern, Object expectedNoMatch)
     {
-        Match<T> match = DefaultMatcher.DEFAULT_MATCHER.match(pattern, expectedNoMatch);
-        assertEquals(Match.empty(), match);
+        Optional<Match> match = pattern.match(expectedNoMatch)
+                .collect(toOptional());
+        assertFalse(match.isPresent());
     }
 }

@@ -13,17 +13,18 @@
  */
 package io.prestosql.plugin.geospatial;
 
+import com.google.common.collect.ImmutableSet;
 import io.prestosql.Session;
 import io.prestosql.plugin.hive.HdfsConfiguration;
-import io.prestosql.plugin.hive.HdfsConfigurationUpdater;
+import io.prestosql.plugin.hive.HdfsConfigurationInitializer;
 import io.prestosql.plugin.hive.HdfsEnvironment;
 import io.prestosql.plugin.hive.HiveClientConfig;
 import io.prestosql.plugin.hive.HiveHdfsConfiguration;
 import io.prestosql.plugin.hive.HivePlugin;
 import io.prestosql.plugin.hive.authentication.NoHdfsAuthentication;
 import io.prestosql.plugin.hive.metastore.Database;
-import io.prestosql.plugin.hive.metastore.PrincipalType;
 import io.prestosql.plugin.hive.metastore.file.FileHiveMetastore;
+import io.prestosql.spi.security.PrincipalType;
 import io.prestosql.tests.AbstractTestQueryFramework;
 import io.prestosql.tests.DistributedQueryRunner;
 import org.testng.annotations.Test;
@@ -77,7 +78,7 @@ public class TestSpatialJoins
         File baseDir = queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data").toFile();
 
         HiveClientConfig hiveClientConfig = new HiveClientConfig();
-        HdfsConfiguration hdfsConfiguration = new HiveHdfsConfiguration(new HdfsConfigurationUpdater(hiveClientConfig));
+        HdfsConfiguration hdfsConfiguration = new HiveHdfsConfiguration(new HdfsConfigurationInitializer(hiveClientConfig), ImmutableSet.of());
         HdfsEnvironment hdfsEnvironment = new HdfsEnvironment(hdfsConfiguration, hiveClientConfig, new NoHdfsAuthentication());
 
         FileHiveMetastore metastore = new FileHiveMetastore(hdfsEnvironment, baseDir.toURI().toString(), "test");

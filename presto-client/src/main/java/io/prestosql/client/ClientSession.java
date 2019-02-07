@@ -16,10 +16,10 @@ package io.prestosql.client;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.Duration;
-import io.prestosql.spi.type.TimeZoneKey;
 
 import java.net.URI;
 import java.nio.charset.CharsetEncoder;
+import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -42,11 +42,13 @@ public class ClientSession
     private final String catalog;
     private final String schema;
     private final String path;
-    private final TimeZoneKey timeZone;
+    private final ZoneId timeZone;
     private final Locale locale;
     private final Map<String, String> resourceEstimates;
     private final Map<String, String> properties;
     private final Map<String, String> preparedStatements;
+    private final Map<String, ClientSelectedRole> roles;
+    private final Map<String, String> extraCredentials;
     private final String transactionId;
     private final Duration clientRequestTimeout;
 
@@ -72,11 +74,13 @@ public class ClientSession
             String catalog,
             String schema,
             String path,
-            String timeZoneId,
+            ZoneId timeZone,
             Locale locale,
             Map<String, String> resourceEstimates,
             Map<String, String> properties,
             Map<String, String> preparedStatements,
+            Map<String, ClientSelectedRole> roles,
+            Map<String, String> extraCredentials,
             String transactionId,
             Duration clientRequestTimeout)
     {
@@ -90,11 +94,13 @@ public class ClientSession
         this.schema = schema;
         this.path = path;
         this.locale = locale;
-        this.timeZone = TimeZoneKey.getTimeZoneKey(timeZoneId);
+        this.timeZone = requireNonNull(timeZone, "timeZone is null");
         this.transactionId = transactionId;
         this.resourceEstimates = ImmutableMap.copyOf(requireNonNull(resourceEstimates, "resourceEstimates is null"));
         this.properties = ImmutableMap.copyOf(requireNonNull(properties, "properties is null"));
         this.preparedStatements = ImmutableMap.copyOf(requireNonNull(preparedStatements, "preparedStatements is null"));
+        this.roles = ImmutableMap.copyOf(requireNonNull(roles, "roles is null"));
+        this.extraCredentials = ImmutableMap.copyOf(requireNonNull(extraCredentials, "extraCredentials is null"));
         this.clientRequestTimeout = clientRequestTimeout;
 
         for (String clientTag : clientTags) {
@@ -115,6 +121,14 @@ public class ClientSession
             checkArgument(entry.getKey().indexOf('=') < 0, "Session property name must not contain '=': %s", entry.getKey());
             checkArgument(charsetEncoder.canEncode(entry.getKey()), "Session property name is not US_ASCII: %s", entry.getKey());
             checkArgument(charsetEncoder.canEncode(entry.getValue()), "Session property value is not US_ASCII: %s", entry.getValue());
+        }
+
+        // verify the extra credentials are valid
+        for (Entry<String, String> entry : extraCredentials.entrySet()) {
+            checkArgument(!entry.getKey().isEmpty(), "Credential name is empty");
+            checkArgument(entry.getKey().indexOf('=') < 0, "Credential name must not contain '=': %s", entry.getKey());
+            checkArgument(charsetEncoder.canEncode(entry.getKey()), "Credential name is not US_ASCII: %s", entry.getKey());
+            checkArgument(charsetEncoder.canEncode(entry.getValue()), "Credential value is not US_ASCII: %s", entry.getValue());
         }
     }
 
@@ -163,7 +177,7 @@ public class ClientSession
         return path;
     }
 
-    public TimeZoneKey getTimeZone()
+    public ZoneId getTimeZone()
     {
         return timeZone;
     }
@@ -186,6 +200,19 @@ public class ClientSession
     public Map<String, String> getPreparedStatements()
     {
         return preparedStatements;
+    }
+
+    /**
+     * Returns the map of catalog name -> selected role
+     */
+    public Map<String, ClientSelectedRole> getRoles()
+    {
+        return roles;
+    }
+
+    public Map<String, String> getExtraCredentials()
+    {
+        return extraCredentials;
     }
 
     public String getTransactionId()
@@ -234,11 +261,13 @@ public class ClientSession
         private String catalog;
         private String schema;
         private String path;
-        private TimeZoneKey timeZone;
+        private ZoneId timeZone;
         private Locale locale;
         private Map<String, String> resourceEstimates;
         private Map<String, String> properties;
         private Map<String, String> preparedStatements;
+        private Map<String, ClientSelectedRole> roles;
+        private Map<String, String> credentials;
         private String transactionId;
         private Duration clientRequestTimeout;
 
@@ -259,6 +288,8 @@ public class ClientSession
             resourceEstimates = clientSession.getResourceEstimates();
             properties = clientSession.getProperties();
             preparedStatements = clientSession.getPreparedStatements();
+            roles = clientSession.getRoles();
+            credentials = clientSession.getExtraCredentials();
             transactionId = clientSession.getTransactionId();
             clientRequestTimeout = clientSession.getClientRequestTimeout();
         }
@@ -284,6 +315,18 @@ public class ClientSession
         public Builder withProperties(Map<String, String> properties)
         {
             this.properties = requireNonNull(properties, "properties is null");
+            return this;
+        }
+
+        public Builder withRoles(Map<String, ClientSelectedRole> roles)
+        {
+            this.roles = roles;
+            return this;
+        }
+
+        public Builder withCredentials(Map<String, String> credentials)
+        {
+            this.credentials = requireNonNull(credentials, "extraCredentials is null");
             return this;
         }
 
@@ -317,11 +360,13 @@ public class ClientSession
                     catalog,
                     schema,
                     path,
-                    timeZone.getId(),
+                    timeZone,
                     locale,
                     resourceEstimates,
                     properties,
                     preparedStatements,
+                    roles,
+                    credentials,
                     transactionId,
                     clientRequestTimeout);
         }

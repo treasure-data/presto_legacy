@@ -81,8 +81,6 @@ public class FeaturesConfig
     private boolean enableIntermediateAggregations;
     private boolean pushTableWriteThroughUnion = true;
     private boolean exchangeCompressionEnabled;
-    private boolean legacyArrayAgg;
-    private boolean legacyLogFunction;
     private boolean groupByUsesEqualTo;
     private boolean legacyTimestamp = true;
     private boolean legacyMapSubscript;
@@ -110,6 +108,7 @@ public class FeaturesConfig
     private boolean enableStatsCalculator = true;
     private boolean ignoreStatsCalculatorFailures = true;
     private boolean defaultFilterFactorEnabled;
+    private boolean enableForcedExchangeBelowGroupId = true;
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
@@ -219,30 +218,6 @@ public class FeaturesConfig
     public boolean isLegacyCharToVarcharCoercion()
     {
         return legacyCharToVarcharCoercion;
-    }
-
-    @Config("deprecated.legacy-array-agg")
-    public FeaturesConfig setLegacyArrayAgg(boolean legacyArrayAgg)
-    {
-        this.legacyArrayAgg = legacyArrayAgg;
-        return this;
-    }
-
-    public boolean isLegacyArrayAgg()
-    {
-        return legacyArrayAgg;
-    }
-
-    @Config("deprecated.legacy-log-function")
-    public FeaturesConfig setLegacyLogFunction(boolean value)
-    {
-        this.legacyLogFunction = value;
-        return this;
-    }
-
-    public boolean isLegacyLogFunction()
-    {
-        return legacyLogFunction;
     }
 
     @Config("deprecated.group-by-uses-equal")
@@ -643,6 +618,18 @@ public class FeaturesConfig
     public boolean isDefaultFilterFactorEnabled()
     {
         return defaultFilterFactorEnabled;
+    }
+
+    public boolean isEnableForcedExchangeBelowGroupId()
+    {
+        return enableForcedExchangeBelowGroupId;
+    }
+
+    @Config("enable-forced-exchange-below-group-id")
+    public FeaturesConfig setEnableForcedExchangeBelowGroupId(boolean enableForcedExchangeBelowGroupId)
+    {
+        this.enableForcedExchangeBelowGroupId = enableForcedExchangeBelowGroupId;
+        return this;
     }
 
     public DataSize getAggregationOperatorUnspillMemoryLimit()

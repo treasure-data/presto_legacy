@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.prestosql</groupId>
         <artifactId>presto-root</artifactId>
-        <version>300</version>
+        <version>302</version>
     </parent>
 
     <artifactId>presto-accumulo</artifactId>
@@ -232,6 +232,7 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
+            <version>3.4</version>
         </dependency>
 
         <dependency>

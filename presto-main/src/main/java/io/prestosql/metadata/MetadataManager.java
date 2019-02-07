@@ -54,7 +54,9 @@ import io.prestosql.spi.connector.SystemTable;
 import io.prestosql.spi.function.OperatorType;
 import io.prestosql.spi.predicate.TupleDomain;
 import io.prestosql.spi.security.GrantInfo;
+import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
+import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ComputedStatistics;
 import io.prestosql.spi.statistics.TableStatistics;
 import io.prestosql.spi.statistics.TableStatisticsMetadata;
@@ -87,6 +89,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.prestosql.metadata.QualifiedObjectName.convertFromSchemaTableName;
 import static io.prestosql.metadata.TableLayout.fromConnectorLayout;
 import static io.prestosql.metadata.ViewDefinition.ViewColumn;
@@ -120,6 +123,7 @@ public class MetadataManager
     private final SchemaPropertyManager schemaPropertyManager;
     private final TablePropertyManager tablePropertyManager;
     private final ColumnPropertyManager columnPropertyManager;
+    private final AnalyzePropertyManager analyzePropertyManager;
     private final TransactionManager transactionManager;
 
     private final ConcurrentMap<String, Collection<ConnectorMetadata>> catalogsByQueryId = new ConcurrentHashMap<>();
@@ -131,6 +135,7 @@ public class MetadataManager
             SchemaPropertyManager schemaPropertyManager,
             TablePropertyManager tablePropertyManager,
             ColumnPropertyManager columnPropertyManager,
+            AnalyzePropertyManager analyzePropertyManager,
             TransactionManager transactionManager)
     {
         this(featuresConfig,
@@ -141,6 +146,7 @@ public class MetadataManager
                 schemaPropertyManager,
                 tablePropertyManager,
                 columnPropertyManager,
+                analyzePropertyManager,
                 transactionManager);
     }
 
@@ -153,6 +159,7 @@ public class MetadataManager
             SchemaPropertyManager schemaPropertyManager,
             TablePropertyManager tablePropertyManager,
             ColumnPropertyManager columnPropertyManager,
+            AnalyzePropertyManager analyzePropertyManager,
             TransactionManager transactionManager)
     {
         functions = new FunctionRegistry(typeManager, blockEncodingSerde, featuresConfig);
@@ -164,6 +171,7 @@ public class MetadataManager
         this.schemaPropertyManager = requireNonNull(schemaPropertyManager, "schemaPropertyManager is null");
         this.tablePropertyManager = requireNonNull(tablePropertyManager, "tablePropertyManager is null");
         this.columnPropertyManager = requireNonNull(columnPropertyManager, "columnPropertyManager is null");
+        this.analyzePropertyManager = requireNonNull(analyzePropertyManager, "analyzePropertyManager is null");
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
 
         verifyComparableOrderableContract();
@@ -200,6 +208,7 @@ public class MetadataManager
                 new SchemaPropertyManager(),
                 new TablePropertyManager(),
                 new ColumnPropertyManager(),
+                new AnalyzePropertyManager(),
                 transactionManager);
     }
 
@@ -318,6 +327,25 @@ public class MetadataManager
             ConnectorMetadata metadata = catalogMetadata.getMetadataFor(connectorId);
 
             ConnectorTableHandle tableHandle = metadata.getTableHandle(session.toConnectorSession(connectorId), table.asSchemaTableName());
+            if (tableHandle != null) {
+                return Optional.of(new TableHandle(connectorId, tableHandle));
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<TableHandle> getTableHandleForStatisticsCollection(Session session, QualifiedObjectName table, Map<String, Object> analyzeProperties)
+    {
+        requireNonNull(table, "table is null");
+
+        Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, table.getCatalogName());
+        if (catalog.isPresent()) {
+            CatalogMetadata catalogMetadata = catalog.get();
+            ConnectorId connectorId = catalogMetadata.getConnectorId(session, table);
+            ConnectorMetadata metadata = catalogMetadata.getMetadataFor(connectorId);
+
+            ConnectorTableHandle tableHandle = metadata.getTableHandleForStatisticsCollection(session.toConnectorSession(connectorId), table.asSchemaTableName(), analyzeProperties);
             if (tableHandle != null) {
                 return Optional.of(new TableHandle(connectorId, tableHandle));
             }
@@ -619,12 +647,41 @@ public class MetadataManager
     }
 
     @Override
+    public TableStatisticsMetadata getStatisticsCollectionMetadataForWrite(Session session, String catalogName, ConnectorTableMetadata tableMetadata)
+    {
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalogName);
+        ConnectorMetadata metadata = catalogMetadata.getMetadata();
+        ConnectorId connectorId = catalogMetadata.getConnectorId();
+        return metadata.getStatisticsCollectionMetadataForWrite(session.toConnectorSession(connectorId), tableMetadata);
+    }
+
+    @Override
     public TableStatisticsMetadata getStatisticsCollectionMetadata(Session session, String catalogName, ConnectorTableMetadata tableMetadata)
     {
         CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalogName);
         ConnectorMetadata metadata = catalogMetadata.getMetadata();
         ConnectorId connectorId = catalogMetadata.getConnectorId();
         return metadata.getStatisticsCollectionMetadata(session.toConnectorSession(connectorId), tableMetadata);
+    }
+
+    @Override
+    public AnalyzeTableHandle beginStatisticsCollection(Session session, TableHandle tableHandle)
+    {
+        ConnectorId connectorId = tableHandle.getConnectorId();
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, connectorId);
+        ConnectorMetadata metadata = catalogMetadata.getMetadata();
+
+        ConnectorTransactionHandle transactionHandle = catalogMetadata.getTransactionHandleFor(connectorId);
+        ConnectorTableHandle connectorTableHandle = metadata.beginStatisticsCollection(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle());
+        return new AnalyzeTableHandle(connectorId, transactionHandle, connectorTableHandle);
+    }
+
+    @Override
+    public void finishStatisticsCollection(Session session, AnalyzeTableHandle tableHandle, Collection<ComputedStatistics> computedStatistics)
+    {
+        ConnectorId connectorId = tableHandle.getConnectorId();
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, connectorId);
+        catalogMetadata.getMetadata().finishStatisticsCollection(session.toConnectorSession(), tableHandle.getConnectorHandle(), computedStatistics);
     }
 
     @Override
@@ -836,7 +893,7 @@ public class MetadataManager
             ConnectorViewDefinition view = views.get(viewName.asSchemaTableName());
             if (view != null) {
                 ViewDefinition definition = deserializeView(view.getViewData());
-                if (view.getOwner().isPresent()) {
+                if (view.getOwner().isPresent() && !definition.isRunAsInvoker()) {
                     definition = definition.withOwner(view.getOwner().get());
                 }
                 return Optional.of(definition);
@@ -878,7 +935,101 @@ public class MetadataManager
     }
 
     @Override
-    public void grantTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
+    public void createRole(Session session, String role, Optional<PrestoPrincipal> grantor, String catalog)
+    {
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalog);
+        ConnectorId connectorId = catalogMetadata.getConnectorId();
+        ConnectorMetadata metadata = catalogMetadata.getMetadata();
+
+        metadata.createRole(session.toConnectorSession(connectorId), role, grantor);
+    }
+
+    @Override
+    public void dropRole(Session session, String role, String catalog)
+    {
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalog);
+        ConnectorId connectorId = catalogMetadata.getConnectorId();
+        ConnectorMetadata metadata = catalogMetadata.getMetadata();
+
+        metadata.dropRole(session.toConnectorSession(connectorId), role);
+    }
+
+    @Override
+    public Set<String> listRoles(Session session, String catalog)
+    {
+        Optional<CatalogMetadata> catalogMetadata = getOptionalCatalogMetadata(session, catalog);
+        if (!catalogMetadata.isPresent()) {
+            return ImmutableSet.of();
+        }
+        ConnectorId connectorId = catalogMetadata.get().getConnectorId();
+        ConnectorSession connectorSession = session.toConnectorSession(connectorId);
+        ConnectorMetadata metadata = catalogMetadata.get().getMetadataFor(connectorId);
+        return metadata.listRoles(connectorSession).stream()
+                .map(role -> role.toLowerCase(ENGLISH))
+                .collect(toImmutableSet());
+    }
+
+    @Override
+    public Set<RoleGrant> listRoleGrants(Session session, String catalog, PrestoPrincipal principal)
+    {
+        Optional<CatalogMetadata> catalogMetadata = getOptionalCatalogMetadata(session, catalog);
+        if (!catalogMetadata.isPresent()) {
+            return ImmutableSet.of();
+        }
+        ConnectorId connectorId = catalogMetadata.get().getConnectorId();
+        ConnectorSession connectorSession = session.toConnectorSession(connectorId);
+        ConnectorMetadata metadata = catalogMetadata.get().getMetadataFor(connectorId);
+        return metadata.listRoleGrants(connectorSession, principal);
+    }
+
+    @Override
+    public void grantRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalog)
+    {
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalog);
+        ConnectorId connectorId = catalogMetadata.getConnectorId();
+        ConnectorMetadata metadata = catalogMetadata.getMetadata();
+
+        metadata.grantRoles(session.toConnectorSession(connectorId), roles, grantees, withAdminOption, grantor);
+    }
+
+    @Override
+    public void revokeRoles(Session session, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalog)
+    {
+        CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, catalog);
+        ConnectorId connectorId = catalogMetadata.getConnectorId();
+        ConnectorMetadata metadata = catalogMetadata.getMetadata();
+
+        metadata.revokeRoles(session.toConnectorSession(connectorId), roles, grantees, adminOptionFor, grantor);
+    }
+
+    @Override
+    public Set<RoleGrant> listApplicableRoles(Session session, PrestoPrincipal principal, String catalog)
+    {
+        Optional<CatalogMetadata> catalogMetadata = getOptionalCatalogMetadata(session, catalog);
+        if (!catalogMetadata.isPresent()) {
+            return ImmutableSet.of();
+        }
+        ConnectorId connectorId = catalogMetadata.get().getConnectorId();
+        ConnectorSession connectorSession = session.toConnectorSession(connectorId);
+        ConnectorMetadata metadata = catalogMetadata.get().getMetadataFor(connectorId);
+        return ImmutableSet.copyOf(metadata.listApplicableRoles(connectorSession, principal));
+    }
+
+    @Override
+    public Set<String> listEnabledRoles(Session session, String catalog)
+    {
+        Optional<CatalogMetadata> catalogMetadata = getOptionalCatalogMetadata(session, catalog);
+        if (!catalogMetadata.isPresent()) {
+            return ImmutableSet.of();
+        }
+        ConnectorId connectorId = catalogMetadata.get().getConnectorId();
+        ConnectorSession connectorSession = session.toConnectorSession(connectorId);
+        ConnectorMetadata metadata = catalogMetadata.get().getMetadataFor(connectorId);
+        return ImmutableSet.copyOf(metadata.listEnabledRoles(connectorSession));
+    }
+
+    @Override
+    public void grantTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, PrestoPrincipal grantee, boolean grantOption)
     {
         CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, tableName.getCatalogName());
         ConnectorId connectorId = catalogMetadata.getConnectorId();
@@ -888,7 +1039,7 @@ public class MetadataManager
     }
 
     @Override
-    public void revokeTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
+    public void revokeTablePrivileges(Session session, QualifiedObjectName tableName, Set<Privilege> privileges, PrestoPrincipal grantee, boolean grantOption)
     {
         CatalogMetadata catalogMetadata = getCatalogMetadataForWrite(session, tableName.getCatalogName());
         ConnectorId connectorId = catalogMetadata.getConnectorId();
@@ -967,6 +1118,11 @@ public class MetadataManager
         return columnPropertyManager;
     }
 
+    public AnalyzePropertyManager getAnalyzePropertyManager()
+    {
+        return analyzePropertyManager;
+    }
+
     private ViewDefinition deserializeView(String data)
     {
         try {
@@ -1007,7 +1163,8 @@ public class MetadataManager
         return getCatalogMetadataForWrite(session, connectorId).getMetadata();
     }
 
-    private static JsonCodec<ViewDefinition> createTestingViewCodec()
+    @VisibleForTesting
+    static JsonCodec<ViewDefinition> createTestingViewCodec()
     {
         ObjectMapperProvider provider = new ObjectMapperProvider();
         provider.setJsonDeserializers(ImmutableMap.of(Type.class, new TypeDeserializer(new TypeRegistry())));

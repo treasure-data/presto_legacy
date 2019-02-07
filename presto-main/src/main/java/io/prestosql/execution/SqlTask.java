@@ -23,14 +23,13 @@ import io.airlift.log.Logger;
 import io.airlift.stats.CounterStat;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
-import io.prestosql.OutputBuffers;
-import io.prestosql.OutputBuffers.OutputBufferId;
 import io.prestosql.Session;
-import io.prestosql.TaskSource;
 import io.prestosql.execution.StateMachine.StateChangeListener;
 import io.prestosql.execution.buffer.BufferResult;
 import io.prestosql.execution.buffer.LazyOutputBuffer;
 import io.prestosql.execution.buffer.OutputBuffer;
+import io.prestosql.execution.buffer.OutputBuffers;
+import io.prestosql.execution.buffer.OutputBuffers.OutputBufferId;
 import io.prestosql.memory.QueryContext;
 import io.prestosql.operator.PipelineContext;
 import io.prestosql.operator.PipelineStatus;
@@ -504,7 +503,7 @@ public class SqlTask
             }
             // get IoStats from the current task execution
             TaskContext taskContext = taskExecution.getTaskContext();
-            return new SqlTaskIoStats(taskContext.getInputDataSize(), taskContext.getInputPositions(), taskContext.getOutputDataSize(), taskContext.getOutputPositions());
+            return new SqlTaskIoStats(taskContext.getProcessedInputDataSize(), taskContext.getInputPositions(), taskContext.getOutputDataSize(), taskContext.getOutputPositions());
         }
     }
 

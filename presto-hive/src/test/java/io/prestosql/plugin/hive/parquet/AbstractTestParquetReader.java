@@ -20,6 +20,7 @@ import com.google.common.collect.DiscreteDomain;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Range;
 import com.google.common.primitives.Shorts;
+import io.airlift.units.DataSize;
 import io.prestosql.spi.type.ArrayType;
 import io.prestosql.spi.type.RowType;
 import io.prestosql.spi.type.SqlDate;
@@ -31,12 +32,10 @@ import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.JavaHiveDecimalObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.DecimalTypeInfo;
+import org.apache.parquet.schema.MessageType;
 import org.joda.time.DateTimeZone;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-import parquet.hadoop.ParquetOutputFormat;
-import parquet.hadoop.codec.CodecConfig;
-import parquet.schema.MessageType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -83,7 +82,9 @@ import static io.prestosql.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.prestosql.testing.DateTimeTestingUtils.sqlTimestampOf;
 import static io.prestosql.testing.TestingConnectorSession.SESSION;
 import static io.prestosql.tests.StructuralTestUtil.mapType;
+import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
+import static java.lang.String.join;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
@@ -101,13 +102,15 @@ import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveO
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaShortObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaStringObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaTimestampObjectInspector;
+import static org.apache.parquet.schema.MessageTypeParser.parseMessageType;
 import static org.testng.Assert.assertEquals;
-import static parquet.schema.MessageTypeParser.parseMessageType;
 
 public abstract class AbstractTestParquetReader
 {
-    private static final int MAX_PRECISION_INT32 = (int) maxPrecision(4);
-    private static final int MAX_PRECISION_INT64 = (int) maxPrecision(8);
+    private static final int MAX_PRECISION_INT32 = toIntExact(maxPrecision(4));
+    private static final int MAX_PRECISION_INT64 = toIntExact(maxPrecision(8));
+
+    private Logger parquetLogger;
 
     private final ParquetTester tester;
 
@@ -120,7 +123,10 @@ public abstract class AbstractTestParquetReader
     public void setUp()
     {
         assertEquals(DateTimeZone.getDefault(), HIVE_STORAGE_TIME_ZONE);
-        setParquetLogging();
+
+        // Parquet has excessive logging at INFO level
+        parquetLogger = Logger.getLogger("org.apache.parquet.hadoop");
+        parquetLogger.setLevel(Level.WARNING);
     }
 
     @Test
@@ -187,10 +193,10 @@ public abstract class AbstractTestParquetReader
     }
 
     @Test
-    public void testCustomSchemaArrayOfStucts()
+    public void testCustomSchemaArrayOfStructs()
             throws Exception
     {
-        MessageType customSchemaArrayOfStucts = parseMessageType("message ParquetSchema { " +
+        MessageType customSchemaArrayOfStructs = parseMessageType("message ParquetSchema { " +
                 "  optional group self (LIST) { " +
                 "    repeated group self_tuple { " +
                 "      optional int64 a; " +
@@ -209,11 +215,11 @@ public abstract class AbstractTestParquetReader
         Type structType = RowType.from(asList(field("a", BIGINT), field("b", BOOLEAN), field("c", VARCHAR)));
         tester.testSingleLevelArrayRoundTrip(
                 getStandardListObjectInspector(getStandardStructObjectInspector(structFieldNames, asList(javaLongObjectInspector, javaBooleanObjectInspector, javaStringObjectInspector))),
-                values, values, "self", new ArrayType(structType), Optional.of(customSchemaArrayOfStucts));
+                values, values, "self", new ArrayType(structType), Optional.of(customSchemaArrayOfStructs));
     }
 
     @Test
-    public void testSingleLevelSchemaArrayOfStucts()
+    public void testSingleLevelSchemaArrayOfStructs()
             throws Exception
     {
         Iterable<Long> aValues = limit(cycle(asList(1L, null, 3L, 5L, null, null, null, 7L, 11L, null, 13L, 17L)), 30_000);
@@ -1482,14 +1488,41 @@ public abstract class AbstractTestParquetReader
         };
     }
 
-    // parquet has excessive logging at INFO level, set them to WARNING
-    private void setParquetLogging()
+    @Test
+    public void testStructMaxReadBytes()
+            throws Exception
     {
-        Logger.getLogger(ParquetOutputFormat.class.getName()).setLevel(Level.WARNING);
-        Logger.getLogger(CodecConfig.class.getName()).setLevel(Level.WARNING);
-        // these logging classes are not public, use class name directly
-        Logger.getLogger("parquet.hadoop.InternalParquetRecordWriter").setLevel(Level.WARNING);
-        Logger.getLogger("parquet.hadoop.ColumnChunkPageWriteStore").setLevel(Level.WARNING);
+        DataSize maxReadBlockSize = new DataSize(1_000, DataSize.Unit.BYTE);
+        List<List> structValues = createTestStructs(
+                Collections.nCopies(500, join("", Collections.nCopies(33, "test"))),
+                Collections.nCopies(500, join("", Collections.nCopies(1, "test"))));
+        List<String> structFieldNames = asList("a", "b");
+        Type structType = RowType.from(asList(field("a", VARCHAR), field("b", VARCHAR)));
+
+        tester.testMaxReadBytes(
+                getStandardStructObjectInspector(structFieldNames, asList(javaStringObjectInspector, javaStringObjectInspector)),
+                structValues,
+                structValues,
+                structType,
+                maxReadBlockSize);
+    }
+
+    @Test
+    public void testArrayMaxReadBytes()
+            throws Exception
+    {
+        DataSize maxReadBlockSize = new DataSize(1_000, DataSize.Unit.BYTE);
+        Iterable<List<Integer>> values = createFixedTestArrays(limit(cycle(asList(1, null, 3, 5, null, null, null, 7, 11, null, 13, 17)), 30_000));
+        tester.testMaxReadBytes(getStandardListObjectInspector(javaIntObjectInspector), values, values, new ArrayType(INTEGER), maxReadBlockSize);
+    }
+
+    @Test
+    public void testMapMaxReadBytes()
+            throws Exception
+    {
+        DataSize maxReadBlockSize = new DataSize(1_000, DataSize.Unit.BYTE);
+        Iterable<Map<String, Long>> values = createFixedTestMaps(Collections.nCopies(5_000, join("", Collections.nCopies(33, "test"))), longsBetween(0, 5_000));
+        tester.testMaxReadBytes(getStandardMapObjectInspector(javaStringObjectInspector, javaLongObjectInspector), values, values, mapType(VARCHAR, BIGINT), maxReadBlockSize);
     }
 
     private static <T> Iterable<T> repeatEach(int n, Iterable<T> iterable)
@@ -1609,6 +1642,47 @@ public abstract class AbstractTestParquetReader
     private <T> Iterable<List<T>> createNullableTestArrays(Iterable<T> values)
     {
         return insertNullEvery(ThreadLocalRandom.current().nextInt(2, 5), createTestArrays(values));
+    }
+
+    private <T> List<List<T>> createFixedTestArrays(Iterable<T> values)
+    {
+        List<List<T>> arrays = new ArrayList<>();
+        Iterator<T> valuesIter = values.iterator();
+        List<T> array = new ArrayList<>();
+        int count = 1;
+        while (valuesIter.hasNext()) {
+            if (count % 10 == 0) {
+                arrays.add(array);
+                array = new ArrayList<>();
+            }
+            if (count % 20 == 0) {
+                arrays.add(Collections.emptyList());
+            }
+            array.add(valuesIter.next());
+            ++count;
+        }
+        return arrays;
+    }
+
+    private <K, V> Iterable<Map<K, V>> createFixedTestMaps(Iterable<K> keys, Iterable<V> values)
+    {
+        List<Map<K, V>> maps = new ArrayList<>();
+        Iterator<K> keysIterator = keys.iterator();
+        Iterator<V> valuesIterator = values.iterator();
+        Map<K, V> map = new HashMap<>();
+        int count = 1;
+        while (keysIterator.hasNext() && valuesIterator.hasNext()) {
+            if (count % 5 == 0) {
+                maps.add(map);
+                map = new HashMap<>();
+            }
+            if (count % 10 == 0) {
+                maps.add(Collections.emptyMap());
+            }
+            map.put(keysIterator.next(), valuesIterator.next());
+            ++count;
+        }
+        return maps;
     }
 
     private <K, V> Iterable<Map<K, V>> createTestMaps(Iterable<K> keys, Iterable<V> values)

@@ -24,8 +24,9 @@ import io.prestosql.cost.CostProvider;
 import io.prestosql.cost.StatsCalculator;
 import io.prestosql.cost.StatsProvider;
 import io.prestosql.execution.warnings.WarningCollector;
+import io.prestosql.matching.Capture;
 import io.prestosql.matching.Match;
-import io.prestosql.matching.Matcher;
+import io.prestosql.matching.Pattern;
 import io.prestosql.spi.PrestoException;
 import io.prestosql.sql.planner.PlanNodeIdAllocator;
 import io.prestosql.sql.planner.RuleStatsRecorder;
@@ -42,6 +43,7 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static io.prestosql.matching.Capture.newCapture;
 import static io.prestosql.spi.StandardErrorCode.OPTIMIZER_TIMEOUT;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -88,27 +90,26 @@ public class IterativeOptimizer
 
         Memo memo = new Memo(idAllocator, plan);
         Lookup lookup = Lookup.from(planNode -> Stream.of(memo.resolve(planNode)));
-        Matcher matcher = new PlanNodeMatcher(lookup);
 
         Duration timeout = SystemSessionProperties.getOptimizerTimeout(session);
         Context context = new Context(memo, lookup, idAllocator, symbolAllocator, System.nanoTime(), timeout.toMillis(), session, warningCollector);
-        exploreGroup(memo.getRootGroup(), context, matcher);
+        exploreGroup(memo.getRootGroup(), context);
 
         return memo.extract();
     }
 
-    private boolean exploreGroup(int group, Context context, Matcher matcher)
+    private boolean exploreGroup(int group, Context context)
     {
         // tracks whether this group or any children groups change as
         // this method executes
-        boolean progress = exploreNode(group, context, matcher);
+        boolean progress = exploreNode(group, context);
 
-        while (exploreChildren(group, context, matcher)) {
+        while (exploreChildren(group, context)) {
             progress = true;
 
             // if children changed, try current group again
             // in case we can match additional rules
-            if (!exploreNode(group, context, matcher)) {
+            if (!exploreNode(group, context)) {
                 // no additional matches, so bail out
                 break;
             }
@@ -117,7 +118,7 @@ public class IterativeOptimizer
         return progress;
     }
 
-    private boolean exploreNode(int group, Context context, Matcher matcher)
+    private boolean exploreNode(int group, Context context)
     {
         PlanNode node = context.memo.getNode(group);
 
@@ -136,7 +137,7 @@ public class IterativeOptimizer
                     continue;
                 }
 
-                Rule.Result result = transform(node, rule, matcher, context);
+                Rule.Result result = transform(node, rule, context);
 
                 if (result.getTransformedPlan().isPresent()) {
                     node = context.memo.replace(group, result.getTransformedPlan().get(), rule.getClass().getName());
@@ -150,32 +151,35 @@ public class IterativeOptimizer
         return progress;
     }
 
-    private <T> Rule.Result transform(PlanNode node, Rule<T> rule, Matcher matcher, Context context)
+    private <T> Rule.Result transform(PlanNode node, Rule<T> rule, Context context)
     {
-        Rule.Result result;
+        Capture<T> nodeCapture = newCapture();
+        Pattern<T> pattern = rule.getPattern().capturedAs(nodeCapture);
+        Iterator<Match> matches = pattern.match(node, context.lookup).iterator();
+        while (matches.hasNext()) {
+            Match match = matches.next();
+            long duration;
+            Rule.Result result;
+            try {
+                long start = System.nanoTime();
+                result = rule.apply(match.capture(nodeCapture), match.captures(), ruleContext(context));
+                duration = System.nanoTime() - start;
+            }
+            catch (RuntimeException e) {
+                stats.recordFailure(rule);
+                throw e;
+            }
+            stats.record(rule, duration, !result.isEmpty());
 
-        Match<T> match = matcher.match(rule.getPattern(), node);
-
-        if (match.isEmpty()) {
-            return Rule.Result.empty();
+            if (result.getTransformedPlan().isPresent()) {
+                return result;
+            }
         }
 
-        long duration;
-        try {
-            long start = System.nanoTime();
-            result = rule.apply(match.value(), match.captures(), ruleContext(context));
-            duration = System.nanoTime() - start;
-        }
-        catch (RuntimeException e) {
-            stats.recordFailure(rule);
-            throw e;
-        }
-        stats.record(rule, duration, !result.isEmpty());
-
-        return result;
+        return Rule.Result.empty();
     }
 
-    private boolean exploreChildren(int group, Context context, Matcher matcher)
+    private boolean exploreChildren(int group, Context context)
     {
         boolean progress = false;
 
@@ -183,7 +187,7 @@ public class IterativeOptimizer
         for (PlanNode child : expression.getSources()) {
             checkState(child instanceof GroupReference, "Expected child to be a group reference. Found: " + child.getClass().getName());
 
-            if (exploreGroup(((GroupReference) child).getGroupId(), context, matcher)) {
+            if (exploreGroup(((GroupReference) child).getGroupId(), context)) {
                 progress = true;
             }
         }

@@ -19,14 +19,17 @@ import io.prestosql.matching.pattern.FilterPattern;
 import io.prestosql.matching.pattern.TypeOfPattern;
 import io.prestosql.matching.pattern.WithPattern;
 
+import java.util.Optional;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Predicates.not;
-import static io.prestosql.matching.DefaultMatcher.DEFAULT_MATCHER;
+import static java.util.Objects.requireNonNull;
 
 public abstract class Pattern<T>
 {
-    private final Pattern<?> previous;
+    private final Optional<Pattern<?>> previous;
 
     public static Pattern<Object> any()
     {
@@ -38,25 +41,25 @@ public abstract class Pattern<T>
         return new TypeOfPattern<>(expectedClass);
     }
 
-    protected Pattern()
-    {
-        this(null);
-    }
-
     protected Pattern(Pattern<?> previous)
     {
-        this.previous = previous;
+        this(Optional.of(requireNonNull(previous, "previous is null")));
+    }
+
+    protected Pattern(Optional<Pattern<?>> previous)
+    {
+        this.previous = requireNonNull(previous, "previous is null");
     }
 
     //FIXME make sure there's a proper toString,
     // like with(propName)\n\tfilter(isEmpty)
     // or with(propName) map(isEmpty) equalTo(true)
-    public static <F, T extends Iterable<S>, S> PropertyPattern<F, T> empty(Property<F, T> property)
+    public static <F, C, T extends Iterable<S>, S> PropertyPattern<F, C, T> empty(Property<F, C, T> property)
     {
         return PropertyPattern.upcast(property.matching(Iterables::isEmpty));
     }
 
-    public static <F, T extends Iterable<S>, S> PropertyPattern<F, T> nonEmpty(Property<F, T> property)
+    public static <F, C, T extends Iterable<S>, S> PropertyPattern<F, C, T> nonEmpty(Property<F, C, T> property)
     {
         return PropertyPattern.upcast(property.matching(not(Iterables::isEmpty)));
     }
@@ -68,26 +71,54 @@ public abstract class Pattern<T>
 
     public Pattern<T> matching(Predicate<? super T> predicate)
     {
-        return new FilterPattern<>(predicate, this);
+        return matching((t, context) -> predicate.test(t));
     }
 
-    public Pattern<T> with(PropertyPattern<? super T, ?> pattern)
+    public Pattern<T> matching(BiPredicate<? super T, ?> predicate)
+    {
+        return new FilterPattern<>(predicate, Optional.of(this));
+    }
+
+    public Pattern<T> with(PropertyPattern<? super T, ?, ?> pattern)
     {
         return new WithPattern<>(pattern, this);
     }
 
-    public Pattern<?> previous()
+    public Optional<Pattern<?>> previous()
     {
         return previous;
     }
 
-    public abstract Match<T> accept(Matcher matcher, Object object, Captures captures);
+    public abstract <C> Stream<Match> accept(Object object, Captures captures, C context);
 
     public abstract void accept(PatternVisitor patternVisitor);
 
-    public boolean matches(Object object)
+    public <C> boolean matches(Object object, C context)
     {
-        return DEFAULT_MATCHER.match(this, object).isPresent();
+        return match(object, context)
+                .findFirst()
+                .isPresent();
+    }
+
+    public final Stream<Match> match(Object object)
+    {
+        return match(object, Captures.empty(), null);
+    }
+
+    public final <C> Stream<Match> match(Object object, C context)
+    {
+        return match(object, Captures.empty(), context);
+    }
+
+    public final <C> Stream<Match> match(Object object, Captures captures, C context)
+    {
+        if (previous.isPresent()) {
+            return previous.get().match(object, captures, context)
+                    .flatMap(match -> accept(object, match.captures(), context));
+        }
+        else {
+            return accept(object, captures, context);
+        }
     }
 
     @Override

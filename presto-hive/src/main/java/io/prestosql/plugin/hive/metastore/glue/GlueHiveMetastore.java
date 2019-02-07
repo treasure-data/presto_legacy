@@ -80,7 +80,9 @@ import io.prestosql.spi.connector.ColumnNotFoundException;
 import io.prestosql.spi.connector.SchemaNotFoundException;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.connector.TableNotFoundException;
-import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.ConnectorIdentity;
+import io.prestosql.spi.security.PrestoPrincipal;
+import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ColumnStatisticType;
 import io.prestosql.spi.type.Type;
 import org.apache.hadoop.fs.Path;
@@ -108,6 +110,7 @@ import static io.prestosql.plugin.hive.metastore.thrift.ThriftMetastoreUtil.getH
 import static io.prestosql.plugin.hive.metastore.thrift.ThriftMetastoreUtil.updateStatisticsParameters;
 import static io.prestosql.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.prestosql.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.prestosql.spi.security.PrincipalType.USER;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.UnaryOperator.identity;
 import static java.util.stream.Collectors.toList;
@@ -140,7 +143,7 @@ public class GlueHiveMetastore
     public GlueHiveMetastore(HdfsEnvironment hdfsEnvironment, GlueHiveMetastoreConfig glueConfig, AWSGlueAsync glueClient)
     {
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
-        this.hdfsContext = new HdfsContext(new Identity(DEFAULT_METASTORE_USER, Optional.empty()));
+        this.hdfsContext = new HdfsContext(new ConnectorIdentity(DEFAULT_METASTORE_USER, Optional.empty(), Optional.empty()));
         this.glueClient = requireNonNull(glueClient, "glueClient is null");
         this.defaultDir = glueConfig.getDefaultWarehouseDir();
     }
@@ -784,35 +787,59 @@ public class GlueHiveMetastore
     }
 
     @Override
-    public Set<String> getRoles(String user)
+    public void createRole(String role, String grantor)
     {
-        // all users belong to public role implicitly
-        return ImmutableSet.<String>builder()
-                .add(PUBLIC_ROLE_NAME)
-                .build();
+        throw new PrestoException(NOT_SUPPORTED, "createRole is not supported by Glue");
     }
 
     @Override
-    public Set<HivePrivilegeInfo> getDatabasePrivileges(String user, String databaseName)
+    public void dropRole(String role)
     {
-        throw new PrestoException(NOT_SUPPORTED, "getDatabasePrivileges is not supported by Glue");
+        throw new PrestoException(NOT_SUPPORTED, "dropRole is not supported by Glue");
     }
 
     @Override
-    public Set<HivePrivilegeInfo> getTablePrivileges(String user, String databaseName, String tableName)
+    public Set<String> listRoles()
     {
-        throw new PrestoException(NOT_SUPPORTED, "getTablePrivileges is not supported by Glue");
+        return ImmutableSet.of(PUBLIC_ROLE_NAME);
     }
 
     @Override
-    public void grantTablePrivileges(String databaseName, String tableName, String grantee, Set<HivePrivilegeInfo> privileges)
+    public void grantRoles(Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, PrestoPrincipal grantor)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "grantRoles is not supported by Glue");
+    }
+
+    @Override
+    public void revokeRoles(Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, PrestoPrincipal grantor)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "revokeRoles is not supported by Glue");
+    }
+
+    @Override
+    public Set<RoleGrant> listRoleGrants(PrestoPrincipal principal)
+    {
+        if (principal.getType() == USER) {
+            return ImmutableSet.of(new RoleGrant(principal, PUBLIC_ROLE_NAME, false));
+        }
+        return ImmutableSet.of();
+    }
+
+    @Override
+    public void grantTablePrivileges(String databaseName, String tableName, PrestoPrincipal grantee, Set<HivePrivilegeInfo> privileges)
     {
         throw new PrestoException(NOT_SUPPORTED, "grantTablePrivileges is not supported by Glue");
     }
 
     @Override
-    public void revokeTablePrivileges(String databaseName, String tableName, String grantee, Set<HivePrivilegeInfo> privileges)
+    public void revokeTablePrivileges(String databaseName, String tableName, PrestoPrincipal grantee, Set<HivePrivilegeInfo> privileges)
     {
         throw new PrestoException(NOT_SUPPORTED, "revokeTablePrivileges is not supported by Glue");
+    }
+
+    @Override
+    public Set<HivePrivilegeInfo> listTablePrivileges(String databaseName, String tableName, PrestoPrincipal principal)
+    {
+        throw new PrestoException(NOT_SUPPORTED, "listTablePrivileges is not supported by Glue");
     }
 }

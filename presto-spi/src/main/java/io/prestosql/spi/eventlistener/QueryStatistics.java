@@ -30,7 +30,12 @@ public class QueryStatistics
     private final long peakUserMemoryBytes;
     // peak of user + system memory
     private final long peakTotalNonRevocableMemoryBytes;
+    private final long peakTaskUserMemory;
     private final long peakTaskTotalMemory;
+    private final long physicalInputBytes;
+    private final long physicalInputRows;
+    private final long internalNetworkBytes;
+    private final long internalNetworkRows;
     private final long totalBytes;
     private final long totalRows;
     private final long outputBytes;
@@ -47,7 +52,16 @@ public class QueryStatistics
 
     private final List<StageCpuDistribution> cpuTimeDistribution;
 
+    /**
+     * Operator summaries serialized to JSON. Serialization format and structure
+     * can change without preserving backward compatibility.
+     */
     private final List<String> operatorSummaries;
+    /**
+     * Plan node stats and costs serialized to JSON. Serialization format and structure
+     * can change without preserving backward compatibility.
+     */
+    private final Optional<String> planNodeStatsAndCosts;
 
     public QueryStatistics(
             Duration cpuTime,
@@ -57,7 +71,12 @@ public class QueryStatistics
             Optional<Duration> distributedPlanningTime,
             long peakUserMemoryBytes,
             long peakTotalNonRevocableMemoryBytes,
+            long peakTaskUserMemory,
             long peakTaskTotalMemory,
+            long physicalInputBytes,
+            long physicalInputRows,
+            long internalNetworkBytes,
+            long internalNetworkRows,
             long totalBytes,
             long totalRows,
             long outputBytes,
@@ -69,7 +88,8 @@ public class QueryStatistics
             int completedSplits,
             boolean complete,
             List<StageCpuDistribution> cpuTimeDistribution,
-            List<String> operatorSummaries)
+            List<String> operatorSummaries,
+            Optional<String> planNodeStatsAndCosts)
     {
         this.cpuTime = requireNonNull(cpuTime, "cpuTime is null");
         this.wallTime = requireNonNull(wallTime, "wallTime is null");
@@ -78,7 +98,12 @@ public class QueryStatistics
         this.distributedPlanningTime = requireNonNull(distributedPlanningTime, "distributedPlanningTime is null");
         this.peakUserMemoryBytes = peakUserMemoryBytes;
         this.peakTotalNonRevocableMemoryBytes = peakTotalNonRevocableMemoryBytes;
+        this.peakTaskUserMemory = peakTaskUserMemory;
         this.peakTaskTotalMemory = peakTaskTotalMemory;
+        this.physicalInputBytes = physicalInputBytes;
+        this.physicalInputRows = physicalInputRows;
+        this.internalNetworkBytes = internalNetworkBytes;
+        this.internalNetworkRows = internalNetworkRows;
         this.totalBytes = totalBytes;
         this.totalRows = totalRows;
         this.outputBytes = outputBytes;
@@ -91,6 +116,7 @@ public class QueryStatistics
         this.complete = complete;
         this.cpuTimeDistribution = requireNonNull(cpuTimeDistribution, "cpuTimeDistribution is null");
         this.operatorSummaries = requireNonNull(operatorSummaries, "operatorSummaries is null");
+        this.planNodeStatsAndCosts = requireNonNull(planNodeStatsAndCosts, "planNodeStatsAndCosts is null");
     }
 
     public Duration getCpuTime()
@@ -128,9 +154,34 @@ public class QueryStatistics
         return peakTotalNonRevocableMemoryBytes;
     }
 
-    public long peakTaskTotalMemory()
+    public long getPeakTaskUserMemory()
+    {
+        return peakTaskUserMemory;
+    }
+
+    public long getPeakTaskTotalMemory()
     {
         return peakTaskTotalMemory;
+    }
+
+    public long getPhysicalInputBytes()
+    {
+        return physicalInputBytes;
+    }
+
+    public long getPhysicalInputRows()
+    {
+        return physicalInputRows;
+    }
+
+    public long getInternalNetworkBytes()
+    {
+        return internalNetworkBytes;
+    }
+
+    public long getInternalNetworkRows()
+    {
+        return internalNetworkRows;
     }
 
     public long getTotalBytes()
@@ -191,5 +242,10 @@ public class QueryStatistics
     public List<String> getOperatorSummaries()
     {
         return operatorSummaries;
+    }
+
+    public Optional<String> getPlanNodeStatsAndCosts()
+    {
+        return planNodeStatsAndCosts;
     }
 }

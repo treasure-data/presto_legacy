@@ -44,6 +44,8 @@ public class TestOperatorStats
             2,
             new Duration(3, NANOSECONDS),
             new Duration(4, NANOSECONDS),
+            new DataSize(51, BYTE),
+            new DataSize(52, BYTE),
             new DataSize(5, BYTE),
             new DataSize(6, BYTE),
             7,
@@ -69,6 +71,7 @@ public class TestOperatorStats
             new DataSize(22, BYTE),
             new DataSize(23, BYTE),
             new DataSize(24, BYTE),
+            new DataSize(25, BYTE),
             Optional.empty(),
             NON_MERGEABLE_INFO);
 
@@ -84,6 +87,8 @@ public class TestOperatorStats
             2,
             new Duration(3, NANOSECONDS),
             new Duration(4, NANOSECONDS),
+            new DataSize(51, BYTE),
+            new DataSize(52, BYTE),
             new DataSize(5, BYTE),
             new DataSize(6, BYTE),
             7,
@@ -109,6 +114,7 @@ public class TestOperatorStats
             new DataSize(22, BYTE),
             new DataSize(23, BYTE),
             new DataSize(24, BYTE),
+            new DataSize(25, BYTE),
             Optional.empty(),
             MERGEABLE_INFO);
 
@@ -133,6 +139,8 @@ public class TestOperatorStats
         assertEquals(actual.getAddInputCalls(), 2);
         assertEquals(actual.getAddInputWall(), new Duration(3, NANOSECONDS));
         assertEquals(actual.getAddInputCpu(), new Duration(4, NANOSECONDS));
+        assertEquals(actual.getPhysicalInputDataSize(), new DataSize(51, BYTE));
+        assertEquals(actual.getInternalNetworkInputDataSize(), new DataSize(52, BYTE));
         assertEquals(actual.getRawInputDataSize(), new DataSize(5, BYTE));
         assertEquals(actual.getInputDataSize(), new DataSize(6, BYTE));
         assertEquals(actual.getInputPositions(), 7);
@@ -158,6 +166,7 @@ public class TestOperatorStats
         assertEquals(actual.getPeakUserMemoryReservation(), new DataSize(22, BYTE));
         assertEquals(actual.getPeakSystemMemoryReservation(), new DataSize(23, BYTE));
         assertEquals(actual.getPeakTotalMemoryReservation(), new DataSize(24, BYTE));
+        assertEquals(actual.getSpilledDataSize(), new DataSize(25, BYTE));
         assertEquals(actual.getInfo().getClass(), SplitOperatorInfo.class);
         assertEquals(((SplitOperatorInfo) actual.getInfo()).getSplitInfo(), NON_MERGEABLE_INFO.getSplitInfo());
     }
@@ -175,6 +184,8 @@ public class TestOperatorStats
         assertEquals(actual.getAddInputCalls(), 3 * 2);
         assertEquals(actual.getAddInputWall(), new Duration(3 * 3, NANOSECONDS));
         assertEquals(actual.getAddInputCpu(), new Duration(3 * 4, NANOSECONDS));
+        assertEquals(actual.getPhysicalInputDataSize(), new DataSize(3 * 51, BYTE));
+        assertEquals(actual.getInternalNetworkInputDataSize(), new DataSize(3 * 52, BYTE));
         assertEquals(actual.getRawInputDataSize(), new DataSize(3 * 5, BYTE));
         assertEquals(actual.getInputDataSize(), new DataSize(3 * 6, BYTE));
         assertEquals(actual.getInputPositions(), 3 * 7);
@@ -199,6 +210,7 @@ public class TestOperatorStats
         assertEquals(actual.getPeakUserMemoryReservation(), new DataSize(22, BYTE));
         assertEquals(actual.getPeakSystemMemoryReservation(), new DataSize(23, BYTE));
         assertEquals(actual.getPeakTotalMemoryReservation(), new DataSize(24, BYTE));
+        assertEquals(actual.getSpilledDataSize(), new DataSize(3 * 25, BYTE));
         assertNull(actual.getInfo());
     }
 
@@ -215,6 +227,8 @@ public class TestOperatorStats
         assertEquals(actual.getAddInputCalls(), 3 * 2);
         assertEquals(actual.getAddInputWall(), new Duration(3 * 3, NANOSECONDS));
         assertEquals(actual.getAddInputCpu(), new Duration(3 * 4, NANOSECONDS));
+        assertEquals(actual.getPhysicalInputDataSize(), new DataSize(3 * 51, BYTE));
+        assertEquals(actual.getInternalNetworkInputDataSize(), new DataSize(3 * 52, BYTE));
         assertEquals(actual.getRawInputDataSize(), new DataSize(3 * 5, BYTE));
         assertEquals(actual.getInputDataSize(), new DataSize(3 * 6, BYTE));
         assertEquals(actual.getInputPositions(), 3 * 7);
@@ -239,6 +253,7 @@ public class TestOperatorStats
         assertEquals(actual.getPeakUserMemoryReservation(), new DataSize(22, BYTE));
         assertEquals(actual.getPeakSystemMemoryReservation(), new DataSize(23, BYTE));
         assertEquals(actual.getPeakTotalMemoryReservation(), new DataSize(24, BYTE));
+        assertEquals(actual.getSpilledDataSize(), new DataSize(3 * 25, BYTE));
         assertEquals(actual.getInfo().getClass(), PartitionedOutputInfo.class);
         assertEquals(((PartitionedOutputInfo) actual.getInfo()).getPagesAdded(), 3 * MERGEABLE_INFO.getPagesAdded());
     }

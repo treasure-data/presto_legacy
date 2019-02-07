@@ -56,17 +56,33 @@ statement
         DROP COLUMN column=qualifiedName                               #dropColumn
     | ALTER TABLE tableName=qualifiedName
         ADD COLUMN column=columnDefinition                             #addColumn
-    | CREATE (OR REPLACE)? VIEW qualifiedName AS query                 #createView
+    | ANALYZE qualifiedName (WITH properties)?                         #analyze
+    | CREATE (OR REPLACE)? VIEW qualifiedName
+        (SECURITY (DEFINER | INVOKER))? AS query                       #createView
     | DROP VIEW (IF EXISTS)? qualifiedName                             #dropView
     | CALL qualifiedName '(' (callArgument (',' callArgument)*)? ')'   #call
+    | CREATE ROLE name=identifier
+        (WITH ADMIN grantor)?                                          #createRole
+    | DROP ROLE name=identifier                                        #dropRole
+    | GRANT
+        roles
+        TO principal (',' principal)*
+        (WITH ADMIN OPTION)?
+        (GRANTED BY grantor)?                                          #grantRoles
+    | REVOKE
+        (ADMIN OPTION FOR)?
+        roles
+        FROM principal (',' principal)*
+        (GRANTED BY grantor)?                                          #revokeRoles
+    | SET ROLE (ALL | NONE | role=identifier)                          #setRole
     | GRANT
         (privilege (',' privilege)* | ALL PRIVILEGES)
-        ON TABLE? qualifiedName TO grantee=identifier
+        ON TABLE? qualifiedName TO grantee=principal
         (WITH GRANT OPTION)?                                           #grant
     | REVOKE
         (GRANT OPTION FOR)?
         (privilege (',' privilege)* | ALL PRIVILEGES)
-        ON TABLE? qualifiedName FROM grantee=identifier                #revoke
+        ON TABLE? qualifiedName FROM grantee=principal                #revoke
     | SHOW GRANTS
         (ON TABLE? qualifiedName)?                                     #showGrants
     | EXPLAIN ANALYZE? VERBOSE?
@@ -81,6 +97,8 @@ statement
     | SHOW COLUMNS (FROM | IN) qualifiedName                           #showColumns
     | SHOW STATS FOR qualifiedName                                     #showStats
     | SHOW STATS FOR '(' querySpecification ')'                        #showStatsForQuery
+    | SHOW CURRENT? ROLES ((FROM | IN) identifier)?                    #showRoles
+    | SHOW ROLE GRANTS ((FROM | IN) identifier)?                       #showRoleGrants
     | DESCRIBE qualifiedName                                           #showColumns
     | DESC qualifiedName                                               #showColumns
     | SHOW FUNCTIONS                                                   #showFunctions
@@ -436,6 +454,22 @@ qualifiedName
     : identifier ('.' identifier)*
     ;
 
+grantor
+    : principal             #specifiedPrincipal
+    | CURRENT_USER          #currentUserGrantor
+    | CURRENT_ROLE          #currentRoleGrantor
+    ;
+
+principal
+    : identifier            #unspecifiedPrincipal
+    | USER identifier       #userPrincipal
+    | ROLE identifier       #rolePrincipal
+    ;
+
+roles
+    : identifier (',' identifier)*
+    ;
+
 identifier
     : IDENTIFIER             #unquotedIdentifier
     | QUOTED_IDENTIFIER      #quotedIdentifier
@@ -452,26 +486,26 @@ number
 
 nonReserved
     // IMPORTANT: this rule must only contain tokens. Nested rules are not supported. See SqlParser.exitNonReserved
-    : ADD | ALL | ANALYZE | ANY | ARRAY | ASC | AT
+    : ADD | ADMIN | ALL | ANALYZE | ANY | ARRAY | ASC | AT
     | BERNOULLI
     | CALL | CASCADE | CATALOGS | COLUMN | COLUMNS | COMMENT | COMMIT | COMMITTED | CURRENT
-    | DATA | DATE | DAY | DESC | DISTRIBUTED
+    | DATA | DATE | DAY | DEFINER | DESC | DISTRIBUTED
     | EXCLUDING | EXPLAIN
     | FILTER | FIRST | FOLLOWING | FORMAT | FUNCTIONS
-    | GRANT | GRANTS | GRAPHVIZ
+    | GRANT | GRANTED | GRANTS | GRAPHVIZ
     | HOUR
-    | IF | INCLUDING | INPUT | INTERVAL | IO | ISOLATION
+    | IF | INCLUDING | INPUT | INTERVAL | INVOKER | IO | ISOLATION
     | JSON
     | LAST | LATERAL | LEVEL | LIMIT | LOGICAL
     | MAP | MINUTE | MONTH
-    | NFC | NFD | NFKC | NFKD | NO | NULLIF | NULLS
+    | NFC | NFD | NFKC | NFKD | NO | NONE | NULLIF | NULLS
     | ONLY | OPTION | ORDINALITY | OUTPUT | OVER
     | PARTITION | PARTITIONS | PATH | POSITION | PRECEDING | PRIVILEGES | PROPERTIES
-    | RANGE | READ | RENAME | REPEATABLE | REPLACE | RESET | RESTRICT | REVOKE | ROLLBACK | ROW | ROWS
-    | SCHEMA | SCHEMAS | SECOND | SERIALIZABLE | SESSION | SET | SETS
+    | RANGE | READ | RENAME | REPEATABLE | REPLACE | RESET | RESTRICT | REVOKE | ROLE | ROLES | ROLLBACK | ROW | ROWS
+    | SCHEMA | SCHEMAS | SECOND | SECURITY | SERIALIZABLE | SESSION | SET | SETS
     | SHOW | SOME | START | STATS | SUBSTRING | SYSTEM
     | TABLES | TABLESAMPLE | TEXT | TIME | TIMESTAMP | TO | TRANSACTION | TRY_CAST | TYPE
-    | UNBOUNDED | UNCOMMITTED | USE
+    | UNBOUNDED | UNCOMMITTED | USE | USER
     | VALIDATE | VERBOSE | VIEW
     | WORK | WRITE
     | YEAR
@@ -479,6 +513,7 @@ nonReserved
     ;
 
 ADD: 'ADD';
+ADMIN: 'ADMIN';
 ALL: 'ALL';
 ALTER: 'ALTER';
 ANALYZE: 'ANALYZE';
@@ -508,6 +543,7 @@ CUBE: 'CUBE';
 CURRENT: 'CURRENT';
 CURRENT_DATE: 'CURRENT_DATE';
 CURRENT_PATH: 'CURRENT_PATH';
+CURRENT_ROLE: 'CURRENT_ROLE';
 CURRENT_TIME: 'CURRENT_TIME';
 CURRENT_TIMESTAMP: 'CURRENT_TIMESTAMP';
 CURRENT_USER: 'CURRENT_USER';
@@ -515,6 +551,7 @@ DATA: 'DATA';
 DATE: 'DATE';
 DAY: 'DAY';
 DEALLOCATE: 'DEALLOCATE';
+DEFINER: 'DEFINER';
 DELETE: 'DELETE';
 DESC: 'DESC';
 DESCRIBE: 'DESCRIBE';
@@ -540,6 +577,7 @@ FROM: 'FROM';
 FULL: 'FULL';
 FUNCTIONS: 'FUNCTIONS';
 GRANT: 'GRANT';
+GRANTED: 'GRANTED';
 GRANTS: 'GRANTS';
 GRAPHVIZ: 'GRAPHVIZ';
 GROUP: 'GROUP';
@@ -555,6 +593,7 @@ INSERT: 'INSERT';
 INTERSECT: 'INTERSECT';
 INTERVAL: 'INTERVAL';
 INTO: 'INTO';
+INVOKER: 'INVOKER';
 IO: 'IO';
 IS: 'IS';
 ISOLATION: 'ISOLATION';
@@ -578,6 +617,7 @@ NFD : 'NFD';
 NFKC : 'NFKC';
 NFKD : 'NFKD';
 NO: 'NO';
+NONE: 'NONE';
 NORMALIZE: 'NORMALIZE';
 NOT: 'NOT';
 NULL: 'NULL';
@@ -610,6 +650,8 @@ RESET: 'RESET';
 RESTRICT: 'RESTRICT';
 REVOKE: 'REVOKE';
 RIGHT: 'RIGHT';
+ROLE: 'ROLE';
+ROLES: 'ROLES';
 ROLLBACK: 'ROLLBACK';
 ROLLUP: 'ROLLUP';
 ROW: 'ROW';
@@ -617,6 +659,7 @@ ROWS: 'ROWS';
 SCHEMA: 'SCHEMA';
 SCHEMAS: 'SCHEMAS';
 SECOND: 'SECOND';
+SECURITY: 'SECURITY';
 SELECT: 'SELECT';
 SERIALIZABLE: 'SERIALIZABLE';
 SESSION: 'SESSION';
@@ -646,6 +689,7 @@ UNCOMMITTED: 'UNCOMMITTED';
 UNION: 'UNION';
 UNNEST: 'UNNEST';
 USE: 'USE';
+USER: 'USER';
 USING: 'USING';
 VALIDATE: 'VALIDATE';
 VALUES: 'VALUES';

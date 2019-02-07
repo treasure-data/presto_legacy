@@ -21,14 +21,13 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.stats.CounterStat;
 import io.airlift.stats.TestingGcMonitor;
 import io.airlift.units.DataSize;
-import io.prestosql.OutputBuffers;
-import io.prestosql.OutputBuffers.OutputBufferId;
-import io.prestosql.TaskSource;
 import io.prestosql.execution.buffer.BufferResult;
 import io.prestosql.execution.buffer.BufferState;
+import io.prestosql.execution.buffer.OutputBuffers;
+import io.prestosql.execution.buffer.OutputBuffers.OutputBufferId;
 import io.prestosql.execution.executor.TaskExecutor;
-import io.prestosql.memory.DefaultQueryContext;
 import io.prestosql.memory.MemoryPool;
+import io.prestosql.memory.QueryContext;
 import io.prestosql.spi.QueryId;
 import io.prestosql.spi.memory.MemoryPoolId;
 import io.prestosql.spiller.SpillSpaceTracker;
@@ -46,8 +45,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static io.airlift.concurrent.Threads.threadsNamed;
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
-import static io.prestosql.OutputBuffers.BufferType.PARTITIONED;
-import static io.prestosql.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.SessionTestUtils.TEST_SESSION;
 import static io.prestosql.execution.SqlTask.createSqlTask;
 import static io.prestosql.execution.TaskTestUtils.EMPTY_SOURCES;
@@ -57,6 +54,8 @@ import static io.prestosql.execution.TaskTestUtils.TABLE_SCAN_NODE_ID;
 import static io.prestosql.execution.TaskTestUtils.createTestSplitMonitor;
 import static io.prestosql.execution.TaskTestUtils.createTestingPlanner;
 import static io.prestosql.execution.TaskTestUtils.updateTask;
+import static io.prestosql.execution.buffer.OutputBuffers.BufferType.PARTITIONED;
+import static io.prestosql.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
 import static io.prestosql.testing.TestingSession.testSessionBuilder;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -302,7 +301,7 @@ public class TestSqlTask
         TaskId taskId = new TaskId("query", 0, nextTaskId.incrementAndGet());
         URI location = URI.create("fake://task/" + taskId);
 
-        DefaultQueryContext queryContext = new DefaultQueryContext(new QueryId("query"),
+        QueryContext queryContext = new QueryContext(new QueryId("query"),
                 new DataSize(1, MEGABYTE),
                 new DataSize(2, MEGABYTE),
                 new MemoryPool(new MemoryPoolId("test"), new DataSize(1, GIGABYTE)),

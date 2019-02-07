@@ -15,21 +15,26 @@ package io.prestosql.matching.pattern;
 
 import io.prestosql.matching.Captures;
 import io.prestosql.matching.Match;
-import io.prestosql.matching.Matcher;
 import io.prestosql.matching.Pattern;
 import io.prestosql.matching.PatternVisitor;
 import io.prestosql.matching.Property;
 import io.prestosql.matching.PropertyPattern;
 
+import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
+
 public class WithPattern<T>
         extends Pattern<T>
 {
-    private final PropertyPattern<? super T, ?> propertyPattern;
+    private final PropertyPattern<? super T, ?, ?> propertyPattern;
 
-    public WithPattern(PropertyPattern<? super T, ?> propertyPattern, Pattern<T> previous)
+    public WithPattern(PropertyPattern<? super T, ?, ?> propertyPattern, Pattern<T> previous)
     {
         super(previous);
-        this.propertyPattern = propertyPattern;
+        this.propertyPattern = requireNonNull(propertyPattern, "propertyPattern is null");
     }
 
     public Pattern<?> getPattern()
@@ -37,15 +42,19 @@ public class WithPattern<T>
         return propertyPattern.getPattern();
     }
 
-    public Property<? super T, ?> getProperty()
+    public Property<? super T, ?, ?> getProperty()
     {
         return propertyPattern.getProperty();
     }
 
     @Override
-    public Match<T> accept(Matcher matcher, Object object, Captures captures)
+    public <C> Stream<Match> accept(Object object, Captures captures, C context)
     {
-        return matcher.matchWith(this, object, captures);
+        //TODO remove cast
+        BiFunction<? super T, C, Optional<?>> property = (BiFunction<? super T, C, Optional<?>>) propertyPattern.getProperty().getFunction();
+        Optional<?> propertyValue = property.apply((T) object, context);
+        return propertyValue.map(value -> propertyPattern.getPattern().match(value, captures, context))
+                .orElse(Stream.of());
     }
 
     @Override

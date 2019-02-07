@@ -14,12 +14,15 @@
 package io.prestosql.tests.hive;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import io.airlift.log.Logger;
 import io.prestodb.tempto.AfterTestWithContext;
 import io.prestodb.tempto.BeforeTestWithContext;
 import io.prestodb.tempto.ProductTest;
 import io.prestodb.tempto.query.QueryExecutor;
 import org.testng.annotations.Test;
+
+import java.util.Set;
 
 import static io.prestodb.tempto.assertions.QueryAssert.Row;
 import static io.prestodb.tempto.assertions.QueryAssert.Row.row;
@@ -30,11 +33,15 @@ import static io.prestosql.tests.TestGroups.AUTHORIZATION;
 import static io.prestosql.tests.TestGroups.PROFILE_SPECIFIC_TESTS;
 import static io.prestosql.tests.utils.QueryExecutors.connectToPresto;
 import static io.prestosql.tests.utils.QueryExecutors.onHive;
+import static io.prestosql.tests.utils.QueryExecutors.onPresto;
 import static java.lang.String.format;
+import static java.util.stream.Collectors.toSet;
 
 public class TestGrantRevoke
         extends ProductTest
 {
+    private static final Set<String> PREDEFINED_ROLES = ImmutableSet.of("admin", "public");
+
     private String tableName;
     private String viewName;
     private QueryExecutor aliceExecutor;
@@ -61,6 +68,8 @@ public class TestGrantRevoke
         aliceExecutor.executeQuery(format("DROP TABLE IF EXISTS %s", tableName));
         aliceExecutor.executeQuery(format("CREATE TABLE %s(month bigint, day bigint)", tableName));
 
+        onPresto().executeQuery("SET ROLE admin");
+        onHive().executeQuery("SET ROLE admin");
         assertAccessDeniedOnAllOperationsOnTable(bobExecutor, tableName);
     }
 
@@ -70,10 +79,31 @@ public class TestGrantRevoke
         try {
             aliceExecutor.executeQuery(format("DROP TABLE IF EXISTS %s", tableName));
             aliceExecutor.executeQuery(format("DROP VIEW IF EXISTS %s", viewName));
+            cleanupRoles();
         }
         catch (Exception e) {
             Logger.get(getClass()).warn(e, "failed to drop table/view");
         }
+    }
+
+    @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
+    private void cleanupRoles()
+    {
+        for (String role : listRoles()) {
+            if (!PREDEFINED_ROLES.contains(role)) {
+                onHive().executeQuery(format("DROP ROLE %s", role));
+            }
+        }
+    }
+
+    private Set<String> listRoles()
+    {
+        return ImmutableSet.copyOf(
+                onHive().executeQuery("SHOW ROLES")
+                        .rows()
+                        .stream()
+                        .map(row -> row.get(0).toString())
+                        .collect(toSet()));
     }
 
     @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
@@ -101,32 +131,29 @@ public class TestGrantRevoke
     @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
     public void testShowGrants()
     {
-        assertThat(aliceExecutor.executeQuery(format("SHOW GRANTS ON %s", tableName)))
-                .containsOnly(ImmutableList.of(
-                        row("alice", "hive", "default", tableName, "SELECT", Boolean.TRUE),
-                        row("alice", "hive", "default", tableName, "INSERT", Boolean.TRUE),
-                        row("alice", "hive", "default", tableName, "UPDATE", Boolean.TRUE),
-                        row("alice", "hive", "default", tableName, "DELETE", Boolean.TRUE)));
-
+        onPresto().executeQuery("CREATE ROLE role1");
+        onPresto().executeQuery(format("GRANT SELECT ON %s TO ROLE role1", tableName));
+        onPresto().executeQuery("GRANT role1 TO USER bob");
         aliceExecutor.executeQuery(format("GRANT SELECT ON %s TO bob WITH GRANT OPTION", tableName));
         aliceExecutor.executeQuery(format("GRANT INSERT ON %s TO bob", tableName));
 
         assertThat(bobExecutor.executeQuery(format("SHOW GRANTS ON %s", tableName)))
                 .containsOnly(ImmutableList.of(
-                        row("bob", "hive", "default", tableName, "SELECT", Boolean.TRUE),
-                        row("bob", "hive", "default", tableName, "INSERT", Boolean.FALSE)));
+                        row("alice", "USER", "bob", "USER", "hive", "default", "alice_owned_table", "SELECT", "YES", null),
+                        row("alice", "USER", "bob", "USER", "hive", "default", "alice_owned_table", "INSERT", "NO", null),
+                        row("hdfs", "USER", "role1", "ROLE", "hive", "default", "alice_owned_table", "SELECT", "NO", null)));
     }
 
     @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
     public void testAll()
     {
-        aliceExecutor.executeQuery(format("GRANT ALL PRIVILEGES ON %s TO bob", tableName));
+        aliceExecutor.executeQuery(format("GRANT ALL PRIVILEGES ON %s TO USER bob", tableName));
         assertThat(bobExecutor.executeQuery(format("INSERT INTO %s VALUES (4, 13)", tableName))).hasRowsCount(1);
         assertThat(bobExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasRowsCount(1);
         bobExecutor.executeQuery(format("DELETE FROM %s", tableName));
         assertThat(bobExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
 
-        aliceExecutor.executeQuery(format("REVOKE ALL PRIVILEGES ON %s FROM bob", tableName));
+        aliceExecutor.executeQuery(format("REVOKE ALL PRIVILEGES ON %s FROM USER bob", tableName));
         assertAccessDeniedOnAllOperationsOnTable(bobExecutor, tableName);
 
         assertThat(bobExecutor.executeQuery(format("SHOW GRANTS ON %s", tableName))).hasNoRows();
@@ -135,9 +162,50 @@ public class TestGrantRevoke
     @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
     public void testPublic()
     {
-        aliceExecutor.executeQuery(format("GRANT SELECT ON %s TO PUBLIC", tableName));
+        aliceExecutor.executeQuery(format("GRANT SELECT ON %s TO ROLE PUBLIC", tableName));
         assertThat(bobExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
-        aliceExecutor.executeQuery(format("REVOKE SELECT ON %s FROM PUBLIC", tableName));
+        aliceExecutor.executeQuery(format("REVOKE SELECT ON %s FROM ROLE PUBLIC", tableName));
+        assertThat(() -> bobExecutor.executeQuery(format("SELECT * FROM %s", tableName)))
+                .failsWithMessage(format("Access Denied: Cannot select from table default.%s", tableName));
+        assertThat(aliceExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
+    }
+
+    @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
+    public void testCustomRole()
+    {
+        onPresto().executeQuery("CREATE ROLE role1");
+        onPresto().executeQuery("GRANT role1 TO USER bob");
+        aliceExecutor.executeQuery(format("GRANT SELECT ON %s TO ROLE role1", tableName));
+        assertThat(bobExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
+        aliceExecutor.executeQuery(format("REVOKE SELECT ON %s FROM ROLE role1", tableName));
+        assertThat(() -> bobExecutor.executeQuery(format("SELECT * FROM %s", tableName)))
+                .failsWithMessage(format("Access Denied: Cannot select from table default.%s", tableName));
+        assertThat(aliceExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
+    }
+
+    @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
+    public void testTransitiveRole()
+    {
+        onPresto().executeQuery("CREATE ROLE role1");
+        onPresto().executeQuery("CREATE ROLE role2");
+        onPresto().executeQuery("GRANT role1 TO USER bob");
+        onPresto().executeQuery("GRANT role2 TO ROLE role1");
+        aliceExecutor.executeQuery(format("GRANT SELECT ON %s TO ROLE role2", tableName));
+        assertThat(bobExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
+        aliceExecutor.executeQuery(format("REVOKE SELECT ON %s FROM ROLE role2", tableName));
+        assertThat(() -> bobExecutor.executeQuery(format("SELECT * FROM %s", tableName)))
+                .failsWithMessage(format("Access Denied: Cannot select from table default.%s", tableName));
+        assertThat(aliceExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
+    }
+
+    @Test(groups = {AUTHORIZATION, PROFILE_SPECIFIC_TESTS})
+    public void testDropRoleWithPermissionsGranted()
+    {
+        onPresto().executeQuery("CREATE ROLE role1");
+        onPresto().executeQuery("GRANT role1 TO USER bob");
+        aliceExecutor.executeQuery(format("GRANT SELECT ON %s TO ROLE role1", tableName));
+        assertThat(bobExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();
+        onPresto().executeQuery("DROP ROLE role1");
         assertThat(() -> bobExecutor.executeQuery(format("SELECT * FROM %s", tableName)))
                 .failsWithMessage(format("Access Denied: Cannot select from table default.%s", tableName));
         assertThat(aliceExecutor.executeQuery(format("SELECT * FROM %s", tableName))).hasNoRows();

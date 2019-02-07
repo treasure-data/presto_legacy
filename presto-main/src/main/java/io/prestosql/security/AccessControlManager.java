@@ -26,6 +26,7 @@ import io.prestosql.spi.connector.ConnectorAccessControl;
 import io.prestosql.spi.connector.ConnectorTransactionHandle;
 import io.prestosql.spi.connector.SchemaTableName;
 import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.PrestoPrincipal;
 import io.prestosql.spi.security.Privilege;
 import io.prestosql.spi.security.SystemAccessControl;
 import io.prestosql.spi.security.SystemAccessControlFactory;
@@ -179,7 +180,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, schemaName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanCreateSchema(entry.getTransactionHandle(transactionId), identity, schemaName.getSchemaName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanCreateSchema(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(schemaName.getCatalogName()), schemaName.getSchemaName()));
         }
     }
 
@@ -195,7 +196,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, schemaName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanDropSchema(entry.getTransactionHandle(transactionId), identity, schemaName.getSchemaName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanDropSchema(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(schemaName.getCatalogName()), schemaName.getSchemaName()));
         }
     }
 
@@ -211,7 +212,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, schemaName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanRenameSchema(entry.getTransactionHandle(transactionId), identity, schemaName.getSchemaName(), newSchemaName));
+            authorizationCheck(() -> entry.getAccessControl().checkCanRenameSchema(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(schemaName.getCatalogName()), schemaName.getSchemaName(), newSchemaName));
         }
     }
 
@@ -227,7 +228,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanShowSchemas(entry.getTransactionHandle(transactionId), identity));
+            authorizationCheck(() -> entry.getAccessControl().checkCanShowSchemas(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName)));
         }
     }
 
@@ -246,7 +247,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
         if (entry != null) {
-            schemaNames = entry.getAccessControl().filterSchemas(entry.getTransactionHandle(transactionId), identity, schemaNames);
+            schemaNames = entry.getAccessControl().filterSchemas(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), schemaNames);
         }
         return schemaNames;
     }
@@ -263,7 +264,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanCreateTable(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanCreateTable(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -279,7 +280,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanDropTable(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanDropTable(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -296,7 +297,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanRenameTable(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName(), newTableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanRenameTable(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName(), newTableName.asSchemaTableName()));
         }
     }
 
@@ -312,7 +313,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, schema.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanShowTablesMetadata(entry.getTransactionHandle(transactionId), identity, schema.getSchemaName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanShowTablesMetadata(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(), schema.getSchemaName()));
         }
     }
 
@@ -331,7 +332,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
         if (entry != null) {
-            tableNames = entry.getAccessControl().filterTables(entry.getTransactionHandle(transactionId), identity, tableNames);
+            tableNames = entry.getAccessControl().filterTables(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), tableNames);
         }
         return tableNames;
     }
@@ -348,7 +349,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanAddColumn(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanAddColumn(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -364,7 +365,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanDropColumn(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanDropColumn(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -380,7 +381,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanRenameColumn(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanRenameColumn(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -396,7 +397,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanInsertIntoTable(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanInsertIntoTable(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -412,7 +413,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanDeleteFromTable(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanDeleteFromTable(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName()));
         }
     }
 
@@ -428,7 +429,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, viewName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanCreateView(entry.getTransactionHandle(transactionId), identity, viewName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanCreateView(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(viewName.getCatalogName()), viewName.asSchemaTableName()));
         }
     }
 
@@ -444,7 +445,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, viewName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanDropView(entry.getTransactionHandle(transactionId), identity, viewName.asSchemaTableName()));
+            authorizationCheck(() -> entry.getAccessControl().checkCanDropView(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(viewName.getCatalogName()), viewName.asSchemaTableName()));
         }
     }
 
@@ -460,12 +461,12 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanCreateViewWithSelectFromColumns(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName(), columnNames));
+            authorizationCheck(() -> entry.getAccessControl().checkCanCreateViewWithSelectFromColumns(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName(), columnNames));
         }
     }
 
     @Override
-    public void checkCanGrantTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, String grantee, boolean withGrantOption)
+    public void checkCanGrantTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal grantee, boolean withGrantOption)
     {
         requireNonNull(identity, "identity is null");
         requireNonNull(tableName, "tableName is null");
@@ -477,12 +478,12 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanGrantTablePrivilege(entry.getTransactionHandle(transactionId), identity, privilege, tableName.asSchemaTableName(), grantee, withGrantOption));
+            authorizationCheck(() -> entry.getAccessControl().checkCanGrantTablePrivilege(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), privilege, tableName.asSchemaTableName(), grantee, withGrantOption));
         }
     }
 
     @Override
-    public void checkCanRevokeTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, String revokee, boolean grantOptionFor)
+    public void checkCanRevokeTablePrivilege(TransactionId transactionId, Identity identity, Privilege privilege, QualifiedObjectName tableName, PrestoPrincipal revokee, boolean grantOptionFor)
     {
         requireNonNull(identity, "identity is null");
         requireNonNull(tableName, "tableName is null");
@@ -494,7 +495,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanRevokeTablePrivilege(entry.getTransactionHandle(transactionId), identity, privilege, tableName.asSchemaTableName(), revokee, grantOptionFor));
+            authorizationCheck(() -> entry.getAccessControl().checkCanRevokeTablePrivilege(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), privilege, tableName.asSchemaTableName(), revokee, grantOptionFor));
         }
     }
 
@@ -520,7 +521,7 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanSetCatalogSessionProperty(entry.getTransactionHandle(transactionId), identity, propertyName));
+            authorizationCheck(() -> entry.getAccessControl().checkCanSetCatalogSessionProperty(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), propertyName));
         }
     }
 
@@ -537,7 +538,129 @@ public class AccessControlManager
 
         CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, tableName.getCatalogName());
         if (entry != null) {
-            authorizationCheck(() -> entry.getAccessControl().checkCanSelectFromColumns(entry.getTransactionHandle(transactionId), identity, tableName.asSchemaTableName(), columnNames));
+            authorizationCheck(() -> entry.getAccessControl().checkCanSelectFromColumns(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(tableName.getCatalogName()), tableName.asSchemaTableName(), columnNames));
+        }
+    }
+
+    @Override
+    public void checkCanCreateRole(TransactionId transactionId, Identity identity, String role, Optional<PrestoPrincipal> grantor, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(role, "role is null");
+        requireNonNull(grantor, "grantor is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authorizationCheck(() -> entry.getAccessControl().checkCanCreateRole(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), role, grantor));
+        }
+    }
+
+    @Override
+    public void checkCanDropRole(TransactionId transactionId, Identity identity, String role, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(role, "role is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authorizationCheck(() -> entry.getAccessControl().checkCanDropRole(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), role));
+        }
+    }
+
+    @Override
+    public void checkCanGrantRoles(TransactionId transactionId, Identity identity, Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, Optional<PrestoPrincipal> grantor, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(roles, "roles is null");
+        requireNonNull(grantees, "grantees is null");
+        requireNonNull(grantor, "grantor is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authorizationCheck(() -> entry.getAccessControl().checkCanGrantRoles(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), roles, grantees, withAdminOption, grantor, catalogName));
+        }
+    }
+
+    @Override
+    public void checkCanRevokeRoles(TransactionId transactionId, Identity identity, Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, Optional<PrestoPrincipal> grantor, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(roles, "roles is null");
+        requireNonNull(grantees, "grantees is null");
+        requireNonNull(grantor, "grantor is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authorizationCheck(() -> entry.getAccessControl().checkCanRevokeRoles(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), roles, grantees, adminOptionFor, grantor, catalogName));
+        }
+    }
+
+    @Override
+    public void checkCanSetRole(TransactionId transactionId, Identity identity, String role, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(role, "role is null");
+        requireNonNull(catalogName, "catalog is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authorizationCheck(() -> entry.getAccessControl().checkCanSetRole(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), role, catalogName));
+        }
+    }
+
+    @Override
+    public void checkCanShowRoles(TransactionId transactionId, Identity identity, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authenticationCheck(() -> entry.getAccessControl().checkCanShowRoles(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), catalogName));
+        }
+    }
+
+    @Override
+    public void checkCanShowCurrentRoles(TransactionId transactionId, Identity identity, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authenticationCheck(() -> entry.getAccessControl().checkCanShowCurrentRoles(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), catalogName));
+        }
+    }
+
+    @Override
+    public void checkCanShowRoleGrants(TransactionId transactionId, Identity identity, String catalogName)
+    {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(catalogName, "catalogName is null");
+
+        authenticationCheck(() -> checkCanAccessCatalog(identity, catalogName));
+
+        CatalogAccessControlEntry entry = getConnectorAccessControl(transactionId, catalogName);
+        if (entry != null) {
+            authenticationCheck(() -> entry.getAccessControl().checkCanShowRoleGrants(entry.getTransactionHandle(transactionId), identity.toConnectorIdentity(catalogName), catalogName));
         }
     }
 

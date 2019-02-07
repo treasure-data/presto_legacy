@@ -20,6 +20,7 @@ import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.prestosql.Session.ResourceEstimateBuilder;
 import io.prestosql.spi.security.Identity;
+import io.prestosql.spi.security.SelectedRole;
 import io.prestosql.spi.session.ResourceEstimates;
 import io.prestosql.sql.parser.ParsingException;
 import io.prestosql.sql.parser.ParsingOptions;
@@ -53,10 +54,12 @@ import static io.prestosql.client.PrestoHeaders.PRESTO_CATALOG;
 import static io.prestosql.client.PrestoHeaders.PRESTO_CLIENT_CAPABILITIES;
 import static io.prestosql.client.PrestoHeaders.PRESTO_CLIENT_INFO;
 import static io.prestosql.client.PrestoHeaders.PRESTO_CLIENT_TAGS;
+import static io.prestosql.client.PrestoHeaders.PRESTO_EXTRA_CREDENTIAL;
 import static io.prestosql.client.PrestoHeaders.PRESTO_LANGUAGE;
 import static io.prestosql.client.PrestoHeaders.PRESTO_PATH;
 import static io.prestosql.client.PrestoHeaders.PRESTO_PREPARED_STATEMENT;
 import static io.prestosql.client.PrestoHeaders.PRESTO_RESOURCE_ESTIMATE;
+import static io.prestosql.client.PrestoHeaders.PRESTO_ROLE;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SCHEMA;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SESSION;
 import static io.prestosql.client.PrestoHeaders.PRESTO_SOURCE;
@@ -107,7 +110,11 @@ public final class HttpRequestSessionContext
 
         String user = trimEmptyToNull(servletRequest.getHeader(PRESTO_USER));
         assertRequest(user != null, "User must be set");
-        identity = new Identity(user, Optional.ofNullable(servletRequest.getUserPrincipal()));
+        identity = new Identity(
+                user,
+                Optional.ofNullable(servletRequest.getUserPrincipal()),
+                parseRoleHeaders(servletRequest),
+                parseExtraCredentials(servletRequest));
 
         source = servletRequest.getHeader(PRESTO_SOURCE);
         traceToken = Optional.ofNullable(trimEmptyToNull(servletRequest.getHeader(PRESTO_TRACE_TOKEN)));
@@ -285,13 +292,34 @@ public final class HttpRequestSessionContext
 
     private static Map<String, String> parseSessionHeaders(HttpServletRequest servletRequest)
     {
-        Map<String, String> sessionProperties = new HashMap<>();
-        for (String header : splitSessionHeader(servletRequest.getHeaders(PRESTO_SESSION))) {
+        return parseProperty(servletRequest, PRESTO_SESSION);
+    }
+
+    private static Map<String, SelectedRole> parseRoleHeaders(HttpServletRequest servletRequest)
+    {
+        ImmutableMap.Builder<String, SelectedRole> roles = ImmutableMap.builder();
+        for (String header : splitSessionHeader(servletRequest.getHeaders(PRESTO_ROLE))) {
             List<String> nameValue = Splitter.on('=').limit(2).trimResults().splitToList(header);
-            assertRequest(nameValue.size() == 2, "Invalid %s header", PRESTO_SESSION);
-            sessionProperties.put(nameValue.get(0), nameValue.get(1));
+            assertRequest(nameValue.size() == 2, "Invalid %s header", PRESTO_ROLE);
+            roles.put(nameValue.get(0), SelectedRole.valueOf(urlDecode(nameValue.get(1))));
         }
-        return sessionProperties;
+        return roles.build();
+    }
+
+    private static Map<String, String> parseExtraCredentials(HttpServletRequest servletRequest)
+    {
+        return parseProperty(servletRequest, PRESTO_EXTRA_CREDENTIAL);
+    }
+
+    private static Map<String, String> parseProperty(HttpServletRequest servletRequest, String headerName)
+    {
+        Map<String, String> properties = new HashMap<>();
+        for (String header : splitSessionHeader(servletRequest.getHeaders(headerName))) {
+            List<String> nameValue = Splitter.on('=').trimResults().splitToList(header);
+            assertRequest(nameValue.size() == 2, "Invalid %s header", headerName);
+            properties.put(nameValue.get(0), nameValue.get(1));
+        }
+        return properties;
     }
 
     private Set<String> parseClientTags(HttpServletRequest servletRequest)

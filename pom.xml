@@ -5,12 +5,12 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>88</version>
+        <version>90</version>
     </parent>
 
     <groupId>io.prestosql</groupId>
     <artifactId>presto-root</artifactId>
-    <version>300</version>
+    <version>302</version>
     <packaging>pom</packaging>
 
     <name>presto-root</name>
@@ -30,7 +30,7 @@
     <scm>
         <connection>scm:git:git://github.com/prestosql/presto.git</connection>
         <url>https://github.com/prestosql/presto</url>
-        <tag>300</tag>
+        <tag>302</tag>
     </scm>
 
     <properties>
@@ -57,6 +57,7 @@
         <dep.assertj-core.version>3.8.0</dep.assertj-core.version>
         <dep.logback.version>1.2.3</dep.logback.version>
         <dep.jmxutils.version>1.20</dep.jmxutils.version>
+        <dep.gcs.version>1.9.10</dep.gcs.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -131,6 +132,7 @@
         <module>presto-memory-context</module>
         <module>presto-proxy</module>
         <module>presto-kudu</module>
+        <module>presto-elasticsearch</module>
     </modules>
 
     <dependencyManagement>
@@ -353,6 +355,12 @@
 
             <dependency>
                 <groupId>io.prestosql</groupId>
+                <artifactId>presto-elasticsearch</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.prestosql</groupId>
                 <artifactId>presto-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -408,7 +416,7 @@
             <dependency>
                 <groupId>io.prestosql.hive</groupId>
                 <artifactId>hive-apache</artifactId>
-                <version>1.2.2-3</version>
+                <version>2.3.4-1</version>
             </dependency>
 
             <dependency>
@@ -638,7 +646,7 @@
             <dependency>
                 <groupId>io.airlift.tpch</groupId>
                 <artifactId>tpch</artifactId>
-                <version>0.9</version>
+                <version>0.10</version>
             </dependency>
 
             <dependency>
@@ -794,12 +802,8 @@
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.9.1</version>
+                <version>0.9.3</version>
                 <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.commons</groupId>
-                        <artifactId>commons-lang3</artifactId>
-                    </exclusion>
                     <exclusion>
                         <groupId>org.apache.httpcomponents</groupId>
                         <artifactId>httpcore</artifactId>
@@ -884,25 +888,43 @@
             </dependency>
 
             <dependency>
-                <groupId>io.airlift</groupId>
-                <artifactId>testing-postgresql-server</artifactId>
-                <version>9.6.3-3</version>
+                <groupId>com.google.cloud.bigdataoss</groupId>
+                <artifactId>util</artifactId>
+                <version>${dep.gcs.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>org.apache.kafka</groupId>
-                <artifactId>kafka_2.10</artifactId>
-                <version>0.8.2.2</version>
+                <groupId>com.google.cloud.bigdataoss</groupId>
+                <artifactId>gcsio</artifactId>
+                <version>${dep.gcs.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.google.cloud.bigdataoss</groupId>
+                <artifactId>util-hadoop</artifactId>
+                <version>hadoop2-${dep.gcs.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.google.cloud.bigdataoss</groupId>
+                <artifactId>gcs-connector</artifactId>
+                <version>hadoop2-${dep.gcs.version}</version>
                 <exclusions>
                     <exclusion>
-                        <groupId>log4j</groupId>
                         <artifactId>log4j</artifactId>
+                        <groupId>log4j</groupId>
                     </exclusion>
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-log4j12</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>testing-postgresql-server</artifactId>
+                <version>9.6.3-3</version>
             </dependency>
 
             <dependency>
@@ -1140,7 +1162,7 @@
                 <plugin>
                     <groupId>io.airlift.maven.plugins</groupId>
                     <artifactId>sphinx-maven-plugin</artifactId>
-                    <version>2.0</version>
+                    <version>2.1</version>
                 </plugin>
 
                 <plugin>

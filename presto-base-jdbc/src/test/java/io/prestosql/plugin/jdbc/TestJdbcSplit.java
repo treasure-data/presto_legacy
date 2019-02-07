@@ -18,12 +18,14 @@ import io.airlift.json.JsonCodec;
 import io.prestosql.spi.predicate.TupleDomain;
 import org.testng.annotations.Test;
 
+import java.util.Optional;
+
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static org.testng.Assert.assertEquals;
 
 public class TestJdbcSplit
 {
-    private final JdbcSplit split = new JdbcSplit("connectorId", "catalog", "schemaName", "tableName", TupleDomain.all());
+    private final JdbcSplit split = new JdbcSplit("connectorId", "catalog", "schemaName", "tableName", TupleDomain.all(), Optional.of("additional predicate"));
 
     @Test
     public void testAddresses()
@@ -32,7 +34,7 @@ public class TestJdbcSplit
         assertEquals(split.getAddresses(), ImmutableList.of());
         assertEquals(split.isRemotelyAccessible(), true);
 
-        JdbcSplit jdbcSplit = new JdbcSplit("connectorId", "catalog", "schemaName", "tableName", TupleDomain.all());
+        JdbcSplit jdbcSplit = new JdbcSplit("connectorId", "catalog", "schemaName", "tableName", TupleDomain.all(), Optional.empty());
         assertEquals(jdbcSplit.getAddresses(), ImmutableList.of());
     }
 
@@ -43,8 +45,11 @@ public class TestJdbcSplit
         String json = codec.toJson(split);
         JdbcSplit copy = codec.fromJson(json);
         assertEquals(copy.getConnectorId(), split.getConnectorId());
+        assertEquals(copy.getCatalogName(), split.getCatalogName());
         assertEquals(copy.getSchemaName(), split.getSchemaName());
         assertEquals(copy.getTableName(), split.getTableName());
+        assertEquals(copy.getTupleDomain(), split.getTupleDomain());
+        assertEquals(copy.getAdditionalPredicate(), split.getAdditionalPredicate());
 
         assertEquals(copy.getAddresses(), ImmutableList.of());
         assertEquals(copy.isRemotelyAccessible(), true);

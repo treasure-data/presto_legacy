@@ -27,6 +27,8 @@ import io.prestosql.plugin.hive.HiveClientConfig;
 import io.prestosql.plugin.hive.HiveType;
 import io.prestosql.plugin.hive.PartitionStatistics;
 import io.prestosql.spi.PrestoException;
+import io.prestosql.spi.security.PrestoPrincipal;
+import io.prestosql.spi.security.RoleGrant;
 import io.prestosql.spi.statistics.ColumnStatisticType;
 import io.prestosql.spi.type.Type;
 import org.weakref.jmx.Managed;
@@ -81,8 +83,9 @@ public class CachingHiveMetastore
     private final LoadingCache<HivePartitionName, Optional<Partition>> partitionCache;
     private final LoadingCache<PartitionFilter, Optional<List<String>>> partitionFilterCache;
     private final LoadingCache<HiveTableName, Optional<List<String>>> partitionNamesCache;
-    private final LoadingCache<String, Set<String>> userRolesCache;
-    private final LoadingCache<UserTableKey, Set<HivePrivilegeInfo>> userTablePrivileges;
+    private final LoadingCache<UserTableKey, Set<HivePrivilegeInfo>> tablePrivilegesCache;
+    private final LoadingCache<String, Set<String>> rolesCache;
+    private final LoadingCache<PrestoPrincipal, Set<RoleGrant>> roleGrantsCache;
 
     @Inject
     public CachingHiveMetastore(@ForCachingHiveMetastore ExtendedHiveMetastore delegate, @ForCachingHiveMetastore ExecutorService executor, HiveClientConfig hiveClientConfig)
@@ -183,11 +186,14 @@ public class CachingHiveMetastore
                     }
                 }, executor));
 
-        userRolesCache = newCacheBuilder(expiresAfterWriteMillis, refreshMills, maximumSize)
-                .build(asyncReloading(CacheLoader.from(this::loadRoles), executor));
+        tablePrivilegesCache = newCacheBuilder(expiresAfterWriteMillis, refreshMills, maximumSize)
+                .build(asyncReloading(CacheLoader.from(key -> loadTablePrivileges(key.getDatabase(), key.getTable(), key.getPrincipal())), executor));
 
-        userTablePrivileges = newCacheBuilder(expiresAfterWriteMillis, refreshMills, maximumSize)
-                .build(asyncReloading(CacheLoader.from(key -> loadTablePrivileges(key.getUser(), key.getDatabase(), key.getTable())), executor));
+        rolesCache = newCacheBuilder(expiresAfterWriteMillis, refreshMills, maximumSize)
+                .build(asyncReloading(CacheLoader.from(() -> loadRoles()), executor));
+
+        roleGrantsCache = newCacheBuilder(expiresAfterWriteMillis, refreshMills, maximumSize)
+                .build(asyncReloading(CacheLoader.from(this::loadRoleGrants), executor));
     }
 
     @Managed
@@ -201,10 +207,10 @@ public class CachingHiveMetastore
         tableCache.invalidateAll();
         partitionCache.invalidateAll();
         partitionFilterCache.invalidateAll();
-        userTablePrivileges.invalidateAll();
+        tablePrivilegesCache.invalidateAll();
         tableStatisticsCache.invalidateAll();
         partitionStatisticsCache.invalidateAll();
-        userRolesCache.invalidateAll();
+        rolesCache.invalidateAll();
     }
 
     private static <K, V> V get(LoadingCache<K, V> cache, K key)
@@ -493,9 +499,9 @@ public class CachingHiveMetastore
         tableCache.invalidate(hiveTableName(databaseName, tableName));
         tableNamesCache.invalidate(databaseName);
         viewNamesCache.invalidate(databaseName);
-        userTablePrivileges.asMap().keySet().stream()
+        tablePrivilegesCache.asMap().keySet().stream()
                 .filter(userTableKey -> userTableKey.matches(databaseName, tableName))
-                .forEach(userTablePrivileges::invalidate);
+                .forEach(tablePrivilegesCache::invalidate);
         tableStatisticsCache.invalidate(hiveTableName(databaseName, tableName));
         invalidatePartitionCache(databaseName, tableName);
     }
@@ -612,6 +618,73 @@ public class CachingHiveMetastore
         }
     }
 
+    @Override
+    public void createRole(String role, String grantor)
+    {
+        try {
+            delegate.createRole(role, grantor);
+        }
+        finally {
+            rolesCache.invalidateAll();
+        }
+    }
+
+    @Override
+    public void dropRole(String role)
+    {
+        try {
+            delegate.dropRole(role);
+        }
+        finally {
+            rolesCache.invalidateAll();
+            roleGrantsCache.invalidateAll();
+        }
+    }
+
+    @Override
+    public Set<String> listRoles()
+    {
+        return get(rolesCache, "");
+    }
+
+    private Set<String> loadRoles()
+    {
+        return delegate.listRoles();
+    }
+
+    @Override
+    public void grantRoles(Set<String> roles, Set<PrestoPrincipal> grantees, boolean withAdminOption, PrestoPrincipal grantor)
+    {
+        try {
+            delegate.grantRoles(roles, grantees, withAdminOption, grantor);
+        }
+        finally {
+            roleGrantsCache.invalidateAll();
+        }
+    }
+
+    @Override
+    public void revokeRoles(Set<String> roles, Set<PrestoPrincipal> grantees, boolean adminOptionFor, PrestoPrincipal grantor)
+    {
+        try {
+            delegate.revokeRoles(roles, grantees, adminOptionFor, grantor);
+        }
+        finally {
+            roleGrantsCache.invalidateAll();
+        }
+    }
+
+    @Override
+    public Set<RoleGrant> listRoleGrants(PrestoPrincipal principal)
+    {
+        return get(roleGrantsCache, principal);
+    }
+
+    private Set<RoleGrant> loadRoleGrants(PrestoPrincipal principal)
+    {
+        return delegate.listRoleGrants(principal);
+    }
+
     private void invalidatePartitionCache(String databaseName, String tableName)
     {
         HiveTableName hiveTableName = hiveTableName(databaseName, tableName);
@@ -628,53 +701,36 @@ public class CachingHiveMetastore
     }
 
     @Override
-    public Set<String> getRoles(String user)
-    {
-        return get(userRolesCache, user);
-    }
-
-    private Set<String> loadRoles(String user)
-    {
-        return delegate.getRoles(user);
-    }
-
-    @Override
-    public Set<HivePrivilegeInfo> getDatabasePrivileges(String user, String databaseName)
-    {
-        return delegate.getDatabasePrivileges(user, databaseName);
-    }
-
-    @Override
-    public Set<HivePrivilegeInfo> getTablePrivileges(String user, String databaseName, String tableName)
-    {
-        return get(userTablePrivileges, new UserTableKey(user, tableName, databaseName));
-    }
-
-    private Set<HivePrivilegeInfo> loadTablePrivileges(String user, String databaseName, String tableName)
-    {
-        return delegate.getTablePrivileges(user, databaseName, tableName);
-    }
-
-    @Override
-    public void grantTablePrivileges(String databaseName, String tableName, String grantee, Set<HivePrivilegeInfo> privileges)
+    public void grantTablePrivileges(String databaseName, String tableName, PrestoPrincipal grantee, Set<HivePrivilegeInfo> privileges)
     {
         try {
             delegate.grantTablePrivileges(databaseName, tableName, grantee, privileges);
         }
         finally {
-            userTablePrivileges.invalidate(new UserTableKey(grantee, tableName, databaseName));
+            tablePrivilegesCache.invalidate(new UserTableKey(grantee, databaseName, tableName));
         }
     }
 
     @Override
-    public void revokeTablePrivileges(String databaseName, String tableName, String grantee, Set<HivePrivilegeInfo> privileges)
+    public void revokeTablePrivileges(String databaseName, String tableName, PrestoPrincipal grantee, Set<HivePrivilegeInfo> privileges)
     {
         try {
             delegate.revokeTablePrivileges(databaseName, tableName, grantee, privileges);
         }
         finally {
-            userTablePrivileges.invalidate(new UserTableKey(grantee, tableName, databaseName));
+            tablePrivilegesCache.invalidate(new UserTableKey(grantee, databaseName, tableName));
         }
+    }
+
+    @Override
+    public Set<HivePrivilegeInfo> listTablePrivileges(String databaseName, String tableName, PrestoPrincipal principal)
+    {
+        return get(tablePrivilegesCache, new UserTableKey(principal, databaseName, tableName));
+    }
+
+    public Set<HivePrivilegeInfo> loadTablePrivileges(String databaseName, String tableName, PrestoPrincipal principal)
+    {
+        return delegate.listTablePrivileges(databaseName, tableName, principal);
     }
 
     private static CacheBuilder<Object, Object> newCacheBuilder(OptionalLong expiresAfterWriteMillis, OptionalLong refreshMillis, long maximumSize)

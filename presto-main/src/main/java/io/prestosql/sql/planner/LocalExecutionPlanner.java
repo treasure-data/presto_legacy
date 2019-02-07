@@ -83,7 +83,8 @@ import io.prestosql.operator.SourceOperatorFactory;
 import io.prestosql.operator.SpatialIndexBuilderOperator.SpatialIndexBuilderOperatorFactory;
 import io.prestosql.operator.SpatialIndexBuilderOperator.SpatialPredicate;
 import io.prestosql.operator.SpatialJoinOperator.SpatialJoinOperatorFactory;
-import io.prestosql.operator.StageExecutionStrategy;
+import io.prestosql.operator.StageExecutionDescriptor;
+import io.prestosql.operator.StatisticsWriterOperator.StatisticsWriterOperatorFactory;
 import io.prestosql.operator.StreamingAggregationOperator.StreamingAggregationOperatorFactory;
 import io.prestosql.operator.TableScanOperator.TableScanOperatorFactory;
 import io.prestosql.operator.TaskContext;
@@ -135,7 +136,6 @@ import io.prestosql.sql.gen.JoinFilterFunctionCompiler.JoinFilterFunctionFactory
 import io.prestosql.sql.gen.OrderingCompiler;
 import io.prestosql.sql.gen.PageFunctionCompiler;
 import io.prestosql.sql.parser.SqlParser;
-import io.prestosql.sql.planner.Partitioning.ArgumentBinding;
 import io.prestosql.sql.planner.optimizations.IndexJoinOptimizer;
 import io.prestosql.sql.planner.plan.AggregationNode;
 import io.prestosql.sql.planner.plan.AggregationNode.Aggregation;
@@ -167,6 +167,7 @@ import io.prestosql.sql.planner.plan.SemiJoinNode;
 import io.prestosql.sql.planner.plan.SortNode;
 import io.prestosql.sql.planner.plan.SpatialJoinNode;
 import io.prestosql.sql.planner.plan.StatisticAggregationsDescriptor;
+import io.prestosql.sql.planner.plan.StatisticsWriterNode;
 import io.prestosql.sql.planner.plan.TableFinishNode;
 import io.prestosql.sql.planner.plan.TableScanNode;
 import io.prestosql.sql.planner.plan.TableWriterNode;
@@ -366,7 +367,7 @@ public class LocalExecutionPlanner
             PlanNode plan,
             TypeProvider types,
             PartitioningScheme partitioningScheme,
-            StageExecutionStrategy stageExecutionStrategy,
+            StageExecutionDescriptor stageExecutionDescriptor,
             List<PlanNodeId> partitionedSourceOrder,
             OutputBuffer outputBuffer)
     {
@@ -377,7 +378,7 @@ public class LocalExecutionPlanner
                 partitioningScheme.getPartitioning().getHandle().equals(SCALED_WRITER_DISTRIBUTION) ||
                 partitioningScheme.getPartitioning().getHandle().equals(SINGLE_DISTRIBUTION) ||
                 partitioningScheme.getPartitioning().getHandle().equals(COORDINATOR_DISTRIBUTION)) {
-            return plan(taskContext, stageExecutionStrategy, plan, outputLayout, types, partitionedSourceOrder, new TaskOutputFactory(outputBuffer));
+            return plan(taskContext, stageExecutionDescriptor, plan, outputLayout, types, partitionedSourceOrder, new TaskOutputFactory(outputBuffer));
         }
 
         // We can convert the symbols directly into channels, because the root must be a sink and therefore the layout is fixed
@@ -391,8 +392,12 @@ public class LocalExecutionPlanner
         }
         else {
             partitionChannels = partitioningScheme.getPartitioning().getArguments().stream()
-                    .map(ArgumentBinding::getColumn)
-                    .map(outputLayout::indexOf)
+                    .map(argument -> {
+                        if (argument.isConstant()) {
+                            return -1;
+                        }
+                        return outputLayout.indexOf(argument.getColumn());
+                    })
                     .collect(toImmutableList());
             partitionConstants = partitioningScheme.getPartitioning().getArguments().stream()
                     .map(argument -> {
@@ -424,7 +429,7 @@ public class LocalExecutionPlanner
 
         return plan(
                 taskContext,
-                stageExecutionStrategy,
+                stageExecutionDescriptor,
                 plan,
                 outputLayout,
                 types,
@@ -441,7 +446,7 @@ public class LocalExecutionPlanner
 
     public LocalExecutionPlan plan(
             TaskContext taskContext,
-            StageExecutionStrategy stageExecutionStrategy,
+            StageExecutionDescriptor stageExecutionDescriptor,
             PlanNode plan,
             List<Symbol> outputLayout,
             TypeProvider types,
@@ -451,7 +456,7 @@ public class LocalExecutionPlanner
         Session session = taskContext.getSession();
         LocalExecutionPlanContext context = new LocalExecutionPlanContext(taskContext, types);
 
-        PhysicalOperation physicalOperation = plan.accept(new Visitor(session, stageExecutionStrategy), context);
+        PhysicalOperation physicalOperation = plan.accept(new Visitor(session, stageExecutionDescriptor), context);
 
         Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(outputLayout, physicalOperation.getLayout());
 
@@ -484,7 +489,7 @@ public class LocalExecutionPlanner
                 .map(LocalPlannerAware.class::cast)
                 .forEach(LocalPlannerAware::localPlannerComplete);
 
-        return new LocalExecutionPlan(context.getDriverFactories(), partitionedSourceOrder, stageExecutionStrategy);
+        return new LocalExecutionPlan(context.getDriverFactories(), partitionedSourceOrder, stageExecutionDescriptor);
     }
 
     private static void addLookupOuterDrivers(LocalExecutionPlanContext context)
@@ -654,13 +659,13 @@ public class LocalExecutionPlanner
     {
         private final List<DriverFactory> driverFactories;
         private final List<PlanNodeId> partitionedSourceOrder;
-        private final StageExecutionStrategy stageExecutionStrategy;
+        private final StageExecutionDescriptor stageExecutionDescriptor;
 
-        public LocalExecutionPlan(List<DriverFactory> driverFactories, List<PlanNodeId> partitionedSourceOrder, StageExecutionStrategy stageExecutionStrategy)
+        public LocalExecutionPlan(List<DriverFactory> driverFactories, List<PlanNodeId> partitionedSourceOrder, StageExecutionDescriptor stageExecutionDescriptor)
         {
             this.driverFactories = ImmutableList.copyOf(requireNonNull(driverFactories, "driverFactories is null"));
             this.partitionedSourceOrder = ImmutableList.copyOf(requireNonNull(partitionedSourceOrder, "partitionedSourceOrder is null"));
-            this.stageExecutionStrategy = requireNonNull(stageExecutionStrategy, "stageExecutionStrategy is null");
+            this.stageExecutionDescriptor = requireNonNull(stageExecutionDescriptor, "stageExecutionDescriptor is null");
         }
 
         public List<DriverFactory> getDriverFactories()
@@ -673,9 +678,9 @@ public class LocalExecutionPlanner
             return partitionedSourceOrder;
         }
 
-        public StageExecutionStrategy getStageExecutionStrategy()
+        public StageExecutionDescriptor getStageExecutionDescriptor()
         {
-            return stageExecutionStrategy;
+            return stageExecutionDescriptor;
         }
     }
 
@@ -683,12 +688,12 @@ public class LocalExecutionPlanner
             extends PlanVisitor<PhysicalOperation, LocalExecutionPlanContext>
     {
         private final Session session;
-        private final StageExecutionStrategy stageExecutionStrategy;
+        private final StageExecutionDescriptor stageExecutionDescriptor;
 
-        private Visitor(Session session, StageExecutionStrategy stageExecutionStrategy)
+        private Visitor(Session session, StageExecutionDescriptor stageExecutionDescriptor)
         {
             this.session = session;
-            this.stageExecutionStrategy = stageExecutionStrategy;
+            this.stageExecutionDescriptor = stageExecutionDescriptor;
         }
 
         @Override
@@ -1181,6 +1186,18 @@ public class LocalExecutionPlanner
                     channel++;
                 }
             }
+            //TODO: This is a simple hack, it will be replaced when we add ability to push down sampling into connectors.
+            // SYSTEM sampling is performed in the coordinator by dropping some random splits so the SamplingNode can be skipped here.
+            else if (sourceNode instanceof SampleNode) {
+                SampleNode sampleNode = (SampleNode) sourceNode;
+                checkArgument(sampleNode.getSampleType() == SampleNode.Type.SYSTEM, format("%w sampling is not supported", sampleNode.getSampleType()));
+                return visitScanFilterAndProject(context,
+                        planNodeId,
+                        sampleNode.getSource(),
+                        filterExpression,
+                        assignments,
+                        outputSymbols);
+            }
             else {
                 // plan source
                 source = sourceNode.accept(this, context);
@@ -1236,7 +1253,7 @@ public class LocalExecutionPlanner
                             getFilterAndProjectMinOutputPageSize(session),
                             getFilterAndProjectMinOutputPageRowCount(session));
 
-                    return new PhysicalOperation(operatorFactory, outputMappings, context, stageExecutionStrategy.isGroupedExecution(sourceNode.getId()) ? GROUPED_EXECUTION : UNGROUPED_EXECUTION);
+                    return new PhysicalOperation(operatorFactory, outputMappings, context, stageExecutionDescriptor.isScanGroupedExecution(sourceNode.getId()) ? GROUPED_EXECUTION : UNGROUPED_EXECUTION);
                 }
                 else {
                     Supplier<PageProcessor> pageProcessor = expressionCompiler.compilePageProcessor(translatedFilter, translatedProjections, Optional.of(context.getStageId() + "_" + planNodeId));
@@ -1281,7 +1298,7 @@ public class LocalExecutionPlanner
             }
 
             OperatorFactory operatorFactory = new TableScanOperatorFactory(context.getNextOperatorId(), node.getId(), pageSourceProvider, columns);
-            return new PhysicalOperation(operatorFactory, makeLayout(node), context, stageExecutionStrategy.isGroupedExecution(node.getId()) ? GROUPED_EXECUTION : UNGROUPED_EXECUTION);
+            return new PhysicalOperation(operatorFactory, makeLayout(node), context, stageExecutionDescriptor.isScanGroupedExecution(node.getId()) ? GROUPED_EXECUTION : UNGROUPED_EXECUTION);
         }
 
         @Override
@@ -2230,6 +2247,22 @@ public class LocalExecutionPlanner
                     getSymbolTypes(node.getOutputSymbols(), context.getTypes()));
 
             return new PhysicalOperation(operatorFactory, outputMapping.build(), context, source);
+        }
+
+        @Override
+        public PhysicalOperation visitStatisticsWriterNode(StatisticsWriterNode node, LocalExecutionPlanContext context)
+        {
+            PhysicalOperation source = node.getSource().accept(this, context);
+
+            StatisticAggregationsDescriptor<Integer> descriptor = node.getDescriptor().map(symbol -> source.getLayout().get(symbol));
+
+            OperatorFactory operatorFactory = new StatisticsWriterOperatorFactory(
+                    context.getNextOperatorId(),
+                    node.getId(),
+                    computedStatistics -> metadata.finishStatisticsCollection(session, ((StatisticsWriterNode.WriteStatisticsHandle) node.getTarget()).getHandle(), computedStatistics),
+                    node.isRowCountEnabled(),
+                    descriptor);
+            return new PhysicalOperation(operatorFactory, makeLayout(node), context, source);
         }
 
         @Override

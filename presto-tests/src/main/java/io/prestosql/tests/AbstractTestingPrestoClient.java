@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.units.Duration;
 import io.prestosql.Session;
+import io.prestosql.client.ClientSelectedRole;
 import io.prestosql.client.ClientSession;
 import io.prestosql.client.Column;
 import io.prestosql.client.QueryError;
@@ -35,6 +36,7 @@ import org.intellij.lang.annotations.Language;
 
 import java.io.Closeable;
 import java.net.URI;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -42,6 +44,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.Iterables.transform;
 import static io.prestosql.client.StatementClientFactory.newStatementClient;
 import static io.prestosql.spi.session.ResourceEstimates.CPU_TIME;
@@ -146,11 +149,17 @@ public abstract class AbstractTestingPrestoClient<T>
                 session.getCatalog().orElse(null),
                 session.getSchema().orElse(null),
                 session.getPath().toString(),
-                session.getTimeZoneKey().getId(),
+                ZoneId.of(session.getTimeZoneKey().getId()),
                 session.getLocale(),
                 resourceEstimates.build(),
                 properties.build(),
                 session.getPreparedStatements(),
+                session.getIdentity().getRoles().entrySet().stream()
+                        .collect(toImmutableMap(Entry::getKey, entry ->
+                                new ClientSelectedRole(
+                                        ClientSelectedRole.Type.valueOf(entry.getValue().getType().toString()),
+                                        entry.getValue().getRole()))),
+                session.getIdentity().getExtraCredentials(),
                 session.getTransactionId().map(Object::toString).orElse(null),
                 clientRequestTimeout);
     }

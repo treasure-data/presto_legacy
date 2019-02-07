@@ -133,7 +133,6 @@ public class DistributedQueryRunner
             }
 
             Map<String, String> extraCoordinatorProperties = new HashMap<>();
-            extraCoordinatorProperties.put("experimental.iterative-optimizer-enabled", "true");
             extraCoordinatorProperties.putAll(extraProperties);
             extraCoordinatorProperties.putAll(coordinatorProperties);
             coordinator = closer.register(createTestingPrestoServer(discoveryServer.getBaseUrl(), true, extraCoordinatorProperties, parserOptions, environment));
@@ -191,13 +190,15 @@ public class DistributedQueryRunner
         if (coordinator) {
             propertiesBuilder.put("node-scheduler.include-coordinator", "true");
             propertiesBuilder.put("join-distribution-type", "PARTITIONED");
+            propertiesBuilder.put("experimental.iterative-optimizer-enabled", "true");
         }
         HashMap<String, String> properties = new HashMap<>(propertiesBuilder.build());
         properties.putAll(extraProperties);
 
         TestingPrestoServer server = new TestingPrestoServer(coordinator, properties, environment, discoveryUri, parserOptions, ImmutableList.of());
 
-        log.info("Created TestingPrestoServer in %s", nanosSince(start).convertToMostSuccinctTimeUnit());
+        String nodeRole = coordinator ? "coordinator" : "worker";
+        log.info("Created %s TestingPrestoServer in %s: %s", nodeRole, nanosSince(start).convertToMostSuccinctTimeUnit(), server.getBaseUrl());
 
         return server;
     }

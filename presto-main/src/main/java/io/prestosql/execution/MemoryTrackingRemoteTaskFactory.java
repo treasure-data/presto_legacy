@@ -14,10 +14,10 @@
 package io.prestosql.execution;
 
 import com.google.common.collect.Multimap;
-import io.prestosql.OutputBuffers;
 import io.prestosql.Session;
 import io.prestosql.execution.NodeTaskMap.PartitionedSplitCountTracker;
 import io.prestosql.execution.StateMachine.StateChangeListener;
+import io.prestosql.execution.buffer.OutputBuffers;
 import io.prestosql.metadata.Split;
 import io.prestosql.spi.Node;
 import io.prestosql.sql.planner.PlanFragment;
@@ -86,7 +86,7 @@ public class MemoryTrackingRemoteTaskFactory
             long deltaTotalMemoryInBytes = currentTotalMemory - (previousUserMemory + previousSystemMemory);
             previousUserMemory = currentUserMemory;
             previousSystemMemory = currentSystemMemory;
-            stateMachine.updateMemoryUsage(deltaUserMemoryInBytes, deltaTotalMemoryInBytes, currentTotalMemory);
+            stateMachine.updateMemoryUsage(deltaUserMemoryInBytes, deltaTotalMemoryInBytes, currentUserMemory, currentTotalMemory);
         }
     }
 }
