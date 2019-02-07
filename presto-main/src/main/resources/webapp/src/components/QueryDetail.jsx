@@ -523,7 +523,7 @@ class StageDetail extends React.Component {
                                 </table>
                             </td>
                             <td className="expand-charts-container">
-                                <a onClick={this.toggleExpanded} className="expand-charts-button">
+                                <a onClick={this.toggleExpanded.bind(this)} className="expand-charts-button">
                                     <span className={"glyphicon " + this.getExpandedIcon()} style={GLYPHICON_HIGHLIGHT} data-toggle="tooltip" data-placement="top" title="More"/>
                                 </a>
                             </td>
@@ -1342,10 +1342,10 @@ export class QueryDetail extends React.Component {
                                     </tr>
                                     <tr>
                                         <td className="info-title">
-                                            Cumulative Memory
+                                            Cumulative User Memory
                                         </td>
                                         <td className="info-text">
-                                            {formatDataSizeBytes(query.queryStats.cumulativeUserMemory / 1000.0, "") + " seconds"}
+                                            {formatDataSizeBytes(query.queryStats.cumulativeUserMemory / 1000.0) + " seconds"}
                                         </td>
                                     </tr>
                                     <tr>
@@ -1388,6 +1388,16 @@ export class QueryDetail extends React.Component {
                                             {query.queryStats.physicalWrittenDataSize}
                                         </td>
                                     </tr>
+                                    {parseDataSize(query.queryStats.spilledDataSize) > 0 &&
+                                    <tr>
+                                        <td className="info-title">
+                                            Spilled Data
+                                        </td>
+                                        <td className="info-text">
+                                            {query.queryStats.spilledDataSize}
+                                        </td>
+                                    </tr>
+                                    }
                                     </tbody>
                                 </table>
                             </div>

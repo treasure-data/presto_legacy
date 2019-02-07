@@ -48,6 +48,11 @@ General Properties
     redistributing all the data across the network. This can also be specified
     on a per-query basis using the ``redistribute_writes`` session property.
 
+.. _tuning-memory:
+
+Memory Management Properties
+----------------------------
+
 ``query.max-memory-per-node``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -58,7 +63,8 @@ General Properties
     User memory is allocated during execution for things that are directly
     attributable to or controllable by a user query. For example, memory used
     by the hash tables built during execution, memory used during sorting, etc.
-    When a query hits this limit it will be killed by Presto.
+    When the user memory allocation of a query on any worker hits this limit
+    it will be killed.
 
 ``query.max-total-memory-per-node``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -69,9 +75,37 @@ General Properties
     This is the max amount of user and system memory a query can use on a worker.
     System memory is allocated during execution for things that are not directly
     attributable to or controllable by a user query. For example, memory allocated
-    by the readers, writers, and network buffers, etc. The value of
-    ``query.max-total-memory-per-node`` must be greater than
+    by the readers, writers, network buffers, etc. When the sum of the user and
+    system memory allocated by a query on any worker hits this limit it will be killed.
+    The value of ``query.max-total-memory-per-node`` must be greater than
     ``query.max-memory-per-node``.
+
+``query.max-memory``
+^^^^^^^^^^^^^^^^^^^^
+
+    * **Type:** ``data size``
+    * **Default value:** ``20GB``
+
+    This is the max amount of user memory a query can use across the entire cluster.
+    User memory is allocated during execution for things that are directly
+    attributable to or controllable by a user query. For example, memory used
+    by the hash tables built during execution, memory used during sorting, etc.
+    When the user memory allocation of a query across all workers hits this limit
+    it will be killed.
+
+``query.max-total-memory``
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    * **Type:** ``data size``
+    * **Default value:** ``query.max-total-memory * 2``
+
+    This is the max amount of user and system memory a query can use across the entire cluster.
+    System memory is allocated during execution for things that are not directly
+    attributable to or controllable by a user query. For example, memory allocated
+    by the readers, writers, network buffers, etc. When the sum of the user and
+    system memory allocated by a query across all workers hits this limit it will be
+    killed. The value of ``query.max-total-memory`` must be greater than
+    ``query.max-memory``.
 
 ``memory.heap-headroom-per-node``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -81,28 +115,6 @@ General Properties
 
     This is the amount of memory set aside as headroom/buffer in the JVM heap
     for allocations that are not tracked by Presto.
-
-``resources.reserved-system-memory``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-    * **Type:** ``data size``
-    * **Default value:** ``JVM max memory * 0.4``
-
-    The amount of JVM memory reserved for system memory usage. System memory is
-    allocated during execution for things that are not directly attributable to
-    or controllable by a user query. For example, memory allocated by the readers,
-    writers, and network buffers, etc. This also accounts for memory that is not
-    tracked by the memory tracking system.
-
-    The purpose of this property is to prevent the JVM from running out of
-    memory (OOM). The default value is suitable for smaller JVM heap sizes or
-    clusters with many concurrent queries. If running fewer queries with a
-    large heap, a smaller value may work. Basically, set this value large
-    enough that the JVM does not fail with ``OutOfMemoryError``.
-
-    Please note that this config property is only used when
-    ``deprecated.legacy-system-pool-enabled=true``, and it will be removed
-    in the future.
 
 .. _tuning-spilling:
 
@@ -302,7 +314,7 @@ Task Properties
 
     Number of threads used to handle timeouts when generating HTTP responses. This value
     should be increased if all the threads are frequently in use. This can be monitored
-    via the ``com.facebook.presto.server:name=AsyncHttpExecutionMBean:TimeoutExecutor``
+    via the ``io.prestosql.server:name=AsyncHttpExecutionMBean:TimeoutExecutor``
     JMX object. If ``ActiveCount`` is always the same as ``PoolSize``, increase the
     number of threads.
 
@@ -338,7 +350,7 @@ Task Properties
     but will cause increased heap space usage. Setting the value too high may cause a drop
     in performance due to a context switching. The number of active threads is available
     via the ``RunningSplits`` property of the
-    ``com.facebook.presto.execution.executor:name=TaskExecutor.RunningSplits`` JXM object.
+    ``io.prestosql.execution.executor:name=TaskExecutor.RunningSplits`` JXM object.
 
 ``task.min-drivers``
 ^^^^^^^^^^^^^^^^^^^^
