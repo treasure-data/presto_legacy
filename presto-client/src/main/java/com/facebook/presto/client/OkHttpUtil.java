@@ -22,6 +22,7 @@ import okhttp3.Credentials;
 import okhttp3.Interceptor;
 import okhttp3.JavaNetCookieJar;
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
 import okhttp3.Response;
 
 import javax.net.ssl.KeyManager;
@@ -131,6 +132,13 @@ public final class OkHttpUtil
         proxy.map(OkHttpUtil::toUnresolvedAddress)
                 .map(address -> new Proxy(type, address))
                 .ifPresent(clientBuilder::proxy);
+    }
+
+    public static void setupHttp1(OkHttpClient.Builder clientBuilder)
+    {
+        // TODO: https://github.com/prestosql/presto/issues/1169
+        // Need to make sure to use Http 1.1 due to the waiting connection issue of HTTP 2
+        clientBuilder.protocols(Arrays.asList(Protocol.HTTP_1_1));
     }
 
     private static InetSocketAddress toUnresolvedAddress(HostAndPort address)
