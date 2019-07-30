@@ -96,12 +96,12 @@ public class StatisticRange
     {
         requireNonNull(other, "other is null");
 
-        if (this.equals(other)) {
-            return 1.0;
+        if (this.isEmpty() || other.isEmpty() || this.distinctValues == 0 || other.distinctValues == 0) {
+            return 0.0; // zero is better than NaN as it will behave properly for calculating row count
         }
 
-        if (this.isEmpty() || other.isEmpty()) {
-            return 0.0; // zero is better than NaN as it will behave properly for calculating row count
+        if (this.equals(other)) {
+            return 1.0;
         }
 
         double lengthOfIntersect = min(this.high, other.high) - max(this.low, other.low);
@@ -157,7 +157,7 @@ public class StatisticRange
 
     public StatisticRange addAndMaxDistinctValues(StatisticRange other)
     {
-        double newDistinctValues = minExcludeNaN(distinctValues, other.distinctValues);
+        double newDistinctValues = max(distinctValues, other.distinctValues);
         return new StatisticRange(minExcludeNaN(low, other.low), maxExcludeNaN(high, other.high), newDistinctValues);
     }
 
@@ -171,25 +171,6 @@ public class StatisticRange
         double newDistinctValues = maxOverlappingValues + (1 - overlapPercentOfThis) * distinctValues + (1 - overlapPercentOfOther) * other.distinctValues;
 
         return new StatisticRange(minExcludeNaN(low, other.low), maxExcludeNaN(high, other.high), newDistinctValues);
-    }
-
-    public StatisticRange subtract(StatisticRange rightRange)
-    {
-        StatisticRange intersect = intersect(rightRange);
-        double newLow = low;
-        double newHigh = high;
-        if (intersect.low == low) {
-            newLow = intersect.high;
-        }
-        if (intersect.high == high) {
-            newHigh = intersect.low;
-        }
-        if (newLow > newHigh) {
-            newLow = NaN;
-            newHigh = NaN;
-        }
-        double newDistinctValues = max(distinctValues, rightRange.distinctValues) - intersect.distinctValues;
-        return new StatisticRange(newLow, newHigh, newDistinctValues);
     }
 
     private static double minExcludeNaN(double v1, double v2)

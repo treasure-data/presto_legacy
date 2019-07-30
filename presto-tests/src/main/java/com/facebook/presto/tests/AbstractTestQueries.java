@@ -644,6 +644,32 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testReduceAgg()
+    {
+        assertQuery(
+                "SELECT x, reduce_agg(y, 1, (a, b) -> a * b, (a, b) -> a * b) " +
+                        "FROM (VALUES (1, 5), (1, 6), (1, 7), (2, 8), (2, 9), (3, 10)) AS t(x, y) " +
+                        "GROUP BY x",
+                "VALUES (1, 5 * 6 * 7), (2, 8 * 9), (3, 10)");
+        assertQuery(
+                "SELECT x, reduce_agg(y, 0, (a, b) -> a + b, (a, b) -> a + b) " +
+                        "FROM (VALUES (1, 5), (1, 6), (1, 7), (2, 8), (2, 9), (3, 10)) AS t(x, y) " +
+                        "GROUP BY x",
+                "VALUES (1, 5 + 6 + 7), (2, 8 + 9), (3, 10)");
+
+        assertQuery(
+                "SELECT x, reduce_agg(y, 1, (a, b) -> a * b, (a, b) -> a * b) " +
+                        "FROM (VALUES (1, CAST(5 AS DOUBLE)), (1, 6), (1, 7), (2, 8), (2, 9), (3, 10)) AS t(x, y) " +
+                        "GROUP BY x",
+                "VALUES (1, CAST(5 AS DOUBLE) * 6 * 7), (2, 8 * 9), (3, 10)");
+        assertQuery(
+                "SELECT x, reduce_agg(y, 0, (a, b) -> a + b, (a, b) -> a + b) " +
+                        "FROM (VALUES (1, CAST(5 AS DOUBLE)), (1, 6), (1, 7), (2, 8), (2, 9), (3, 10)) AS t(x, y) " +
+                        "GROUP BY x",
+                "VALUES (1, CAST(5 AS DOUBLE) + 6 + 7), (2, 8 + 9), (3, 10)");
+    }
+
+    @Test
     public void testRows()
     {
         // Using JSON_FORMAT(CAST(_ AS JSON)) because H2 does not support ROW type
@@ -6869,7 +6895,7 @@ public abstract class AbstractTestQueries
         for (int i = 0; i < 3; i++) {
             MaterializedResult results = computeActual(format("SELECT shuffle(ARRAY %s) FROM orders LIMIT 10", expected));
             List<MaterializedRow> rows = results.getMaterializedRows();
-            assertTrue(rows.size() == 10);
+            assertEquals(rows.size(), 10);
 
             for (MaterializedRow row : rows) {
                 List<Integer> actual = (List<Integer>) row.getField(0);

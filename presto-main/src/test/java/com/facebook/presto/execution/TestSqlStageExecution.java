@@ -50,6 +50,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import static com.facebook.presto.OutputBuffers.BufferType.ARBITRARY;
 import static com.facebook.presto.OutputBuffers.createInitialEmptyOutputBuffers;
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
+import static com.facebook.presto.execution.SqlStageExecution.createSqlStageExecution;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
@@ -59,6 +60,7 @@ import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
 public class TestSqlStageExecution
@@ -99,7 +101,7 @@ public class TestSqlStageExecution
         NodeTaskMap nodeTaskMap = new NodeTaskMap(new FinalizerService());
 
         StageId stageId = new StageId(new QueryId("query"), 0);
-        SqlStageExecution stage = new SqlStageExecution(
+        SqlStageExecution stage = createSqlStageExecution(
                 stageId,
                 new MockLocationFactory().createStageLocation(stageId),
                 createExchangePlanFragment(),
@@ -114,7 +116,7 @@ public class TestSqlStageExecution
 
         // add listener that fetches stage info when the final status is available
         SettableFuture<StageInfo> finalStageInfo = SettableFuture.create();
-        stage.addFinalStatusListener(value -> finalStageInfo.set(stage.getStageInfo()));
+        stage.addFinalStageInfoListener(finalStageInfo::set);
 
         // in a background thread add a ton of tasks
         CountDownLatch latch = new CountDownLatch(1000);
@@ -149,7 +151,7 @@ public class TestSqlStageExecution
         StageInfo stageInfo = finalStageInfo.get(1, MINUTES);
         assertFalse(stageInfo.getTasks().isEmpty());
         assertTrue(stageInfo.isCompleteInfo());
-        assertTrue(stage.getStageInfo().isCompleteInfo());
+        assertSame(stage.getStageInfo(), stageInfo);
 
         // cancel the background thread adding tasks
         addTasksTask.cancel(true);

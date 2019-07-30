@@ -151,6 +151,7 @@ public final class PartitionedLookupSourceFactory
     {
         lock.writeLock().lock();
         try {
+            checkState(!destroyed.isDone(), "already destroyed");
             if (lookupSourceSupplier != null) {
                 return immediateFuture(new SpillAwareLookupSourceProvider());
             }
@@ -178,7 +179,6 @@ public final class PartitionedLookupSourceFactory
                 directExecutor());
     }
 
-    @Override
     public ListenableFuture<?> lendPartitionLookupSource(int partitionIndex, Supplier<LookupSource> partitionLookupSource)
     {
         requireNonNull(partitionLookupSource, "partitionLookupSource is null");
@@ -208,7 +208,6 @@ public final class PartitionedLookupSourceFactory
         return partitionsNoLongerNeeded;
     }
 
-    @Override
     public void setPartitionSpilledLookupSourceHandle(int partitionIndex, SpilledLookupSourceHandle spilledLookupSourceHandle)
     {
         requireNonNull(spilledLookupSourceHandle, "spilledLookupSourceHandle is null");

@@ -61,6 +61,8 @@ public class OperatorContext
     private final DriverContext driverContext;
     private final Executor executor;
 
+    private final CounterStat rawInputDataSize = new CounterStat();
+
     private final OperationTiming addInputTiming = new OperationTiming();
     private final CounterStat inputDataSize = new CounterStat();
     private final CounterStat inputPositions = new CounterStat();
@@ -151,16 +153,33 @@ public class OperatorContext
         }
     }
 
-    public void recordGeneratedInput(long sizeInBytes, long positions)
+    /**
+     * Record the amount of physical bytes that were read by an operator.
+     * This metric is valid only for source operators.
+     */
+    public void recordRawInput(long sizeInBytes)
     {
-        recordGeneratedInput(sizeInBytes, positions, 0);
+        rawInputDataSize.update(sizeInBytes);
     }
 
-    public void recordGeneratedInput(long sizeInBytes, long positions, long readNanos)
+    /**
+     * Record the amount of physical bytes that were read by an operator and
+     * the time it took to read the data. This metric is valid only for source operators.
+     */
+    public void recordRawInputWithTiming(long sizeInBytes, long readNanos)
+    {
+        rawInputDataSize.update(sizeInBytes);
+        addInputTiming.record(readNanos, 0);
+    }
+
+    /**
+     * Record the size in bytes of input blocks that were processed by an operator.
+     * This metric is valid only for source operators.
+     */
+    public void recordProcessedInput(long sizeInBytes, long positions)
     {
         inputDataSize.update(sizeInBytes);
         inputPositions.update(positions);
-        addInputTiming.record(readNanos, 0);
     }
 
     void recordGetOutput(OperationTimer operationTimer, Page page)
@@ -172,7 +191,7 @@ public class OperatorContext
         }
     }
 
-    public void recordGeneratedOutput(long sizeInBytes, long positions)
+    public void recordOutput(long sizeInBytes, long positions)
     {
         outputDataSize.update(sizeInBytes);
         outputPositions.update(positions);
@@ -431,6 +450,7 @@ public class OperatorContext
                 addInputTiming.getCalls(),
                 new Duration(addInputTiming.getWallNanos(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
                 new Duration(addInputTiming.getCpuNanos(), NANOSECONDS).convertToMostSuccinctTimeUnit(),
+                succinctBytes(rawInputDataSize.getTotalCount()),
                 succinctBytes(inputDataSize.getTotalCount()),
                 inputPositionsCount,
                 (double) inputPositionsCount * inputPositionsCount,

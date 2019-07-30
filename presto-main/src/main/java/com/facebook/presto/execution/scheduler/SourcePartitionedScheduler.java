@@ -16,7 +16,7 @@ package com.facebook.presto.execution.scheduler;
 import com.facebook.presto.execution.Lifespan;
 import com.facebook.presto.execution.RemoteTask;
 import com.facebook.presto.execution.SqlStageExecution;
-import com.facebook.presto.execution.scheduler.FixedSourcePartitionedScheduler.FixedSplitPlacementPolicy;
+import com.facebook.presto.execution.scheduler.FixedSourcePartitionedScheduler.BucketedSplitPlacementPolicy;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.connector.ConnectorPartitionHandle;
@@ -57,7 +57,7 @@ import static io.airlift.concurrent.MoreFutures.whenAnyComplete;
 import static java.util.Objects.requireNonNull;
 
 public class SourcePartitionedScheduler
-        implements StageScheduler
+        implements SourceScheduler
 {
     private enum State
     {
@@ -89,7 +89,7 @@ public class SourcePartitionedScheduler
     private final SplitPlacementPolicy splitPlacementPolicy;
     private final int splitBatchSize;
     private final PlanNodeId partitionedNode;
-    private final boolean autoDropCompletedLifespans;
+    private final boolean groupedExecution;
 
     private final Map<Lifespan, ScheduleGroup> scheduleGroups = new HashMap<>();
     private boolean noMoreScheduleGroups;
@@ -103,7 +103,7 @@ public class SourcePartitionedScheduler
             SplitSource splitSource,
             SplitPlacementPolicy splitPlacementPolicy,
             int splitBatchSize,
-            boolean autoDropCompletedLifespans)
+            boolean groupedExecution)
     {
         this.stage = requireNonNull(stage, "stage is null");
         this.partitionedNode = requireNonNull(partitionedNode, "partitionedNode is null");
@@ -112,8 +112,7 @@ public class SourcePartitionedScheduler
 
         checkArgument(splitBatchSize > 0, "splitBatchSize must be at least one");
         this.splitBatchSize = splitBatchSize;
-
-        this.autoDropCompletedLifespans = autoDropCompletedLifespans;
+        this.groupedExecution = groupedExecution;
     }
 
     public PlanNodeId getPlanNodeId()
@@ -135,13 +134,25 @@ public class SourcePartitionedScheduler
             SplitPlacementPolicy splitPlacementPolicy,
             int splitBatchSize)
     {
-        // TODO: SourcePartitionedScheduler should be in two parts.
-        // The first part fulfills the responsibility of SourceScheduler.
-        // The second part wraps it to provide a StageScheduler.
-        SourcePartitionedScheduler result = new SourcePartitionedScheduler(stage, partitionedNode, splitSource, splitPlacementPolicy, splitBatchSize, true);
-        result.startLifespan(Lifespan.taskWide(), NOT_PARTITIONED);
-        result.noMoreLifespans();
-        return result;
+        SourcePartitionedScheduler sourcePartitionedScheduler = new SourcePartitionedScheduler(stage, partitionedNode, splitSource, splitPlacementPolicy, splitBatchSize, false);
+        sourcePartitionedScheduler.startLifespan(Lifespan.taskWide(), NOT_PARTITIONED);
+        sourcePartitionedScheduler.noMoreLifespans();
+
+        return new StageScheduler() {
+            @Override
+            public ScheduleResult schedule()
+            {
+                ScheduleResult scheduleResult = sourcePartitionedScheduler.schedule();
+                sourcePartitionedScheduler.drainCompletedLifespans();
+                return scheduleResult;
+            }
+
+            @Override
+            public void close()
+            {
+                sourcePartitionedScheduler.close();
+            }
+        };
     }
 
     /**
@@ -160,50 +171,14 @@ public class SourcePartitionedScheduler
             PlanNodeId partitionedNode,
             SplitSource splitSource,
             SplitPlacementPolicy splitPlacementPolicy,
-            int splitBatchSize)
+            int splitBatchSize,
+            boolean groupedExecution)
     {
-        SourcePartitionedScheduler sourcePartitionedScheduler = new SourcePartitionedScheduler(stage, partitionedNode, splitSource, splitPlacementPolicy, splitBatchSize, false);
-        return new SourceScheduler()
-        {
-            @Override
-            public ScheduleResult schedule()
-            {
-                return sourcePartitionedScheduler.schedule();
-            }
-
-            @Override
-            public void close()
-            {
-                sourcePartitionedScheduler.close();
-            }
-
-            @Override
-            public PlanNodeId getPlanNodeId()
-            {
-                return sourcePartitionedScheduler.getPlanNodeId();
-            }
-
-            @Override
-            public void startLifespan(Lifespan lifespan, ConnectorPartitionHandle partitionHandle)
-            {
-                sourcePartitionedScheduler.startLifespan(lifespan, partitionHandle);
-            }
-
-            @Override
-            public void noMoreLifespans()
-            {
-                sourcePartitionedScheduler.noMoreLifespans();
-            }
-
-            @Override
-            public List<Lifespan> drainCompletedLifespans()
-            {
-                return sourcePartitionedScheduler.drainCompletedLifespans();
-            }
-        };
+        return new SourcePartitionedScheduler(stage, partitionedNode, splitSource, splitPlacementPolicy, splitBatchSize, groupedExecution);
     }
 
-    private synchronized void startLifespan(Lifespan lifespan, ConnectorPartitionHandle partitionHandle)
+    @Override
+    public synchronized void startLifespan(Lifespan lifespan, ConnectorPartitionHandle partitionHandle)
     {
         checkState(state == State.INITIALIZED || state == State.SPLITS_ADDED);
         scheduleGroups.put(lifespan, new ScheduleGroup(partitionHandle));
@@ -211,7 +186,8 @@ public class SourcePartitionedScheduler
         whenFinishedOrNewLifespanAdded = SettableFuture.create();
     }
 
-    private synchronized void noMoreLifespans()
+    @Override
+    public synchronized void noMoreLifespans()
     {
         checkState(state == State.INITIALIZED || state == State.SPLITS_ADDED);
         noMoreScheduleGroups = true;
@@ -282,6 +258,7 @@ public class SourcePartitionedScheduler
             Multimap<Node, Split> splitAssignment = ImmutableMultimap.of();
             if (!pendingSplits.isEmpty()) {
                 if (!scheduleGroup.placementFuture.isDone()) {
+                    anyBlockedOnPlacements = true;
                     continue;
                 }
 
@@ -313,7 +290,7 @@ public class SourcePartitionedScheduler
             if (pendingSplits.isEmpty() && scheduleGroup.state == ScheduleGroupState.NO_MORE_SPLITS) {
                 scheduleGroup.state = ScheduleGroupState.DONE;
                 if (!lifespan.isTaskWide()) {
-                    Node node = ((FixedSplitPlacementPolicy) splitPlacementPolicy).getNodeForBucket(lifespan.getId());
+                    Node node = ((BucketedSplitPlacementPolicy) splitPlacementPolicy).getNodeForBucket(lifespan.getId());
                     noMoreSplitsNotification = ImmutableMultimap.of(node, lifespan);
                 }
             }
@@ -331,10 +308,6 @@ public class SourcePartitionedScheduler
             if (scheduleGroup.nextSplitBatchFuture == null && scheduleGroup.pendingSplits.isEmpty() && scheduleGroup.state != ScheduleGroupState.DONE) {
                 anyNotBlocked = true;
             }
-        }
-
-        if (autoDropCompletedLifespans) {
-            drainCompletedLifespans();
         }
 
         // * `splitSource.isFinished` invocation may fail after `splitSource.close` has been invoked.
@@ -372,8 +345,19 @@ public class SourcePartitionedScheduler
             return new ScheduleResult(false, overallNewTasks.build(), overallSplitAssignmentCount);
         }
 
-        // Only try to finalize task creation when scheduling would block
-        overallNewTasks.addAll(finalizeTaskCreationIfNecessary());
+        if (anyBlockedOnPlacements || groupedExecution) {
+            // In a broadcast join, output buffers of the tasks in build source stage have to
+            // hold onto all data produced before probe side task scheduling finishes,
+            // even if the data is acknowledged by all known consumers. This is because
+            // new consumers may be added until the probe side task scheduling finishes.
+            //
+            // As a result, the following line is necessary to prevent deadlock
+            // due to neither build nor probe can make any progress.
+            // The build side blocks due to a full output buffer.
+            // In the meantime the probe side split cannot be consumed since
+            // builder side hash table construction has not finished.
+            overallNewTasks.addAll(finalizeTaskCreationIfNecessary());
+        }
 
         ScheduleResult.BlockedReason blockedReason;
         if (anyBlockedOnNextSplitBatch) {
@@ -417,7 +401,8 @@ public class SourcePartitionedScheduler
         splitSource.close();
     }
 
-    private synchronized List<Lifespan> drainCompletedLifespans()
+    @Override
+    public synchronized List<Lifespan> drainCompletedLifespans()
     {
         if (scheduleGroups.isEmpty()) {
             // Invoking splitSource.isFinished would fail if it was already closed, which is possible if scheduleGroups is empty.

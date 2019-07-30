@@ -19,7 +19,6 @@ import com.facebook.presto.operator.TableWriterOperator;
 import com.facebook.presto.spi.eventlistener.StageGcStatistics;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
@@ -35,11 +34,9 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctBytes;
-import static io.airlift.units.Duration.succinctNanos;
 import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 public class QueryStats
 {
@@ -51,6 +48,7 @@ public class QueryStats
 
     private final Duration elapsedTime;
     private final Duration queuedTime;
+    private final Duration executionTime;
     private final Duration resourceWaitingTime;
     private final Duration analysisTime;
     private final Duration distributedPlanningTime;
@@ -96,51 +94,6 @@ public class QueryStats
 
     private final List<OperatorStats> operatorSummaries;
 
-    @VisibleForTesting
-    public QueryStats()
-    {
-        this.createTime = null;
-        this.executionStartTime = null;
-        this.lastHeartbeat = null;
-        this.endTime = null;
-        this.elapsedTime = null;
-        this.queuedTime = null;
-        this.resourceWaitingTime = null;
-        this.analysisTime = null;
-        this.distributedPlanningTime = null;
-        this.totalPlanningTime = null;
-        this.finishingTime = null;
-        this.totalTasks = 0;
-        this.runningTasks = 0;
-        this.blockedDrivers = 0;
-        this.completedTasks = 0;
-        this.totalDrivers = 0;
-        this.queuedDrivers = 0;
-        this.runningDrivers = 0;
-        this.completedDrivers = 0;
-        this.cumulativeUserMemory = 0.0;
-        this.userMemoryReservation = null;
-        this.totalMemoryReservation = null;
-        this.peakUserMemoryReservation = null;
-        this.peakTotalMemoryReservation = null;
-        this.peakTaskTotalMemory = null;
-        this.scheduled = false;
-        this.totalScheduledTime = null;
-        this.totalCpuTime = null;
-        this.totalBlockedTime = null;
-        this.fullyBlocked = false;
-        this.blockedReasons = ImmutableSet.of();
-        this.rawInputDataSize = null;
-        this.rawInputPositions = 0;
-        this.processedInputDataSize = null;
-        this.processedInputPositions = 0;
-        this.outputDataSize = null;
-        this.outputPositions = 0;
-        this.physicalWrittenDataSize = null;
-        this.stageGcStatistics = null;
-        this.operatorSummaries = null;
-    }
-
     @JsonCreator
     public QueryStats(
             @JsonProperty("createTime") DateTime createTime,
@@ -151,6 +104,7 @@ public class QueryStats
             @JsonProperty("elapsedTime") Duration elapsedTime,
             @JsonProperty("queuedTime") Duration queuedTime,
             @JsonProperty("resourceWaitingTime") Duration resourceWaitingTime,
+            @JsonProperty("executionTime") Duration executionTime,
             @JsonProperty("analysisTime") Duration analysisTime,
             @JsonProperty("distributedPlanningTime") Duration distributedPlanningTime,
             @JsonProperty("totalPlanningTime") Duration totalPlanningTime,
@@ -200,13 +154,14 @@ public class QueryStats
         this.lastHeartbeat = requireNonNull(lastHeartbeat, "lastHeartbeat is null");
         this.endTime = endTime;
 
-        this.elapsedTime = elapsedTime;
-        this.queuedTime = queuedTime;
-        this.resourceWaitingTime = resourceWaitingTime;
-        this.analysisTime = analysisTime;
-        this.distributedPlanningTime = distributedPlanningTime;
-        this.totalPlanningTime = totalPlanningTime;
-        this.finishingTime = finishingTime;
+        this.elapsedTime = requireNonNull(elapsedTime, "elapsedTime is null");
+        this.queuedTime = requireNonNull(queuedTime, "queuedTime is null");
+        this.resourceWaitingTime = requireNonNull(resourceWaitingTime, "resourceWaitingTime is null");
+        this.executionTime = requireNonNull(executionTime, "executionTime is null");
+        this.analysisTime = requireNonNull(analysisTime, "analysisTime is null");
+        this.distributedPlanningTime = requireNonNull(distributedPlanningTime, "distributedPlanningTime is null");
+        this.totalPlanningTime = requireNonNull(totalPlanningTime, "totalPlanningTime is null");
+        this.finishingTime = requireNonNull(finishingTime, "finishingTime is null");
 
         checkArgument(totalTasks >= 0, "totalTasks is negative");
         this.totalTasks = totalTasks;
@@ -269,8 +224,9 @@ public class QueryStats
                 new Duration(0, MILLISECONDS),
                 new Duration(0, MILLISECONDS),
                 new Duration(0, MILLISECONDS),
-                null,
-                null,
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
+                new Duration(0, MILLISECONDS),
                 new Duration(0, MILLISECONDS),
                 new Duration(0, MILLISECONDS),
                 0,
@@ -344,22 +300,13 @@ public class QueryStats
     @JsonProperty
     public Duration getQueuedTime()
     {
-        if (queuedTime == null) {
-            // counter-intuitively, this means that the query is still queued
-            return elapsedTime;
-        }
         return queuedTime;
     }
 
     @JsonProperty
     public Duration getExecutionTime()
     {
-        if (queuedTime == null) {
-            // counter-intuitively, this means that the query is still queued
-            return new Duration(0, NANOSECONDS);
-        }
-        long executionNanos = (long) elapsedTime.getValue(NANOSECONDS) - (long) queuedTime.getValue(NANOSECONDS);
-        return succinctNanos(Math.max(0, executionNanos));
+        return executionTime;
     }
 
     @JsonProperty

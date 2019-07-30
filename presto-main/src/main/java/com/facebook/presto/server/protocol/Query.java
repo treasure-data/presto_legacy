@@ -455,9 +455,13 @@ class Query
             data = ImmutableSet.of(ImmutableList.of(true));
         }
 
-        // only return a next if the query is not done or there is more data to send (due to buffering)
+        // only return a next if
+        // (1) the query is not done AND the query state is not FAILED
+        //   OR
+        // (2)there is more data to send (due to buffering)
         URI nextResultsUri = null;
-        if (!queryInfo.isFinalQueryInfo() || !exchangeClient.isClosed()) {
+        if (!queryInfo.isFinalQueryInfo() && !queryInfo.getState().equals(QueryState.FAILED)
+                || !exchangeClient.isClosed()) {
             nextResultsUri = createNextResultsUri(scheme, uriInfo);
         }
 

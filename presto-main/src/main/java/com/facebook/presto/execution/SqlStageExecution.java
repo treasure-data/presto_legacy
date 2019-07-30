@@ -28,7 +28,6 @@ import com.facebook.presto.sql.planner.plan.PlanFragmentId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +45,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -104,7 +104,7 @@ public final class SqlStageExecution
 
     private final ListenerManager<Set<Lifespan>> completedLifespansChangeListeners = new ListenerManager<>();
 
-    public SqlStageExecution(
+    public static SqlStageExecution createSqlStageExecution(
             StageId stageId,
             URI location,
             PlanFragment fragment,
@@ -116,21 +116,28 @@ public final class SqlStageExecution
             FailureDetector failureDetector,
             SplitSchedulerStats schedulerStats)
     {
-        this(new StageStateMachine(
-                        requireNonNull(stageId, "stageId is null"),
-                        requireNonNull(location, "location is null"),
-                        requireNonNull(session, "session is null"),
-                        requireNonNull(fragment, "fragment is null"),
-                        requireNonNull(executor, "executor is null"),
-                        requireNonNull(schedulerStats, "schedulerStats is null")),
+        requireNonNull(stageId, "stageId is null");
+        requireNonNull(location, "location is null");
+        requireNonNull(fragment, "fragment is null");
+        requireNonNull(remoteTaskFactory, "remoteTaskFactory is null");
+        requireNonNull(session, "session is null");
+        requireNonNull(nodeTaskMap, "nodeTaskMap is null");
+        requireNonNull(executor, "executor is null");
+        requireNonNull(failureDetector, "failureDetector is null");
+        requireNonNull(schedulerStats, "schedulerStats is null");
+
+        SqlStageExecution sqlStageExecution = new SqlStageExecution(
+                new StageStateMachine(stageId, location, session, fragment, executor, schedulerStats),
                 remoteTaskFactory,
                 nodeTaskMap,
                 summarizeTaskInfo,
                 executor,
                 failureDetector);
+        sqlStageExecution.initialize();
+        return sqlStageExecution;
     }
 
-    public SqlStageExecution(StageStateMachine stateMachine, RemoteTaskFactory remoteTaskFactory, NodeTaskMap nodeTaskMap, boolean summarizeTaskInfo, Executor executor, FailureDetector failureDetector)
+    private SqlStageExecution(StageStateMachine stateMachine, RemoteTaskFactory remoteTaskFactory, NodeTaskMap nodeTaskMap, boolean summarizeTaskInfo, Executor executor, FailureDetector failureDetector)
     {
         this.stateMachine = stateMachine;
         this.remoteTaskFactory = requireNonNull(remoteTaskFactory, "remoteTaskFactory is null");
@@ -146,7 +153,11 @@ public final class SqlStageExecution
             }
         }
         this.exchangeSources = fragmentToExchangeSource.build();
+    }
 
+    // this is a separate method to ensure that the `this` reference is not leaked during construction
+    private void initialize()
+    {
         stateMachine.addStateChangeListener(newState -> checkAllTaskFinal());
     }
 
@@ -160,14 +171,24 @@ public final class SqlStageExecution
         return stateMachine.getState();
     }
 
+    /**
+     * Listener is always notified asynchronously using a dedicated notification thread pool so, care should
+     * be taken to avoid leaking {@code this} when adding a listener in a constructor.
+     */
     public void addStateChangeListener(StateChangeListener<StageState> stateChangeListener)
     {
         stateMachine.addStateChangeListener(stateChangeListener);
     }
 
-    public void addFinalStatusListener(StateChangeListener<BasicStageStats> stateChangeListener)
+    /**
+     * Add a listener for the final stage info.  This notification is guaranteed to be fired only once.
+     * Listener is always notified asynchronously using a dedicated notification thread pool so, care should
+     * be taken to avoid leaking {@code this} when adding a listener in a constructor. Additionally, it is
+     * possible notifications are observed out of order due to the asynchronous execution.
+     */
+    public void addFinalStageInfoListener(StateChangeListener<StageInfo> stateChangeListener)
     {
-        stateMachine.addFinalStatusListener(ignored -> stateChangeListener.stateChanged(getBasicStageStats()));
+        stateMachine.addFinalStageInfoListener(stateChangeListener);
     }
 
     public void addCompletedDriverGroupsChangedListener(Consumer<Set<Lifespan>> newlyCompletedDriverGroupConsumer)
@@ -253,19 +274,19 @@ public final class SqlStageExecution
 
     public BasicStageStats getBasicStageStats()
     {
-        return stateMachine.getBasicStageStats(
-                () -> getAllTasks().stream()
-                        .map(RemoteTask::getTaskInfo)
-                        .collect(toImmutableList()));
+        return stateMachine.getBasicStageStats(this::getAllTaskInfo);
     }
 
     public StageInfo getStageInfo()
     {
-        return stateMachine.getStageInfo(
-                () -> getAllTasks().stream()
-                        .map(RemoteTask::getTaskInfo)
-                        .collect(toImmutableList()),
-                ImmutableList::of);
+        return stateMachine.getStageInfo(this::getAllTaskInfo);
+    }
+
+    private Iterable<TaskInfo> getAllTaskInfo()
+    {
+        return getAllTasks().stream()
+                .map(RemoteTask::getTaskInfo)
+                .collect(toImmutableList());
     }
 
     public synchronized void addExchangeLocations(PlanFragmentId fragmentId, Set<RemoteTask> sourceTasks, boolean noMoreExchangeLocations)
@@ -338,12 +359,15 @@ public final class SqlStageExecution
                 .collect(toImmutableList());
     }
 
-    public synchronized RemoteTask scheduleTask(Node node, int partition, OptionalInt totalPartitions)
+    public synchronized Optional<RemoteTask> scheduleTask(Node node, int partition, OptionalInt totalPartitions)
     {
         requireNonNull(node, "node is null");
 
+        if (stateMachine.getState().isDone()) {
+            return Optional.empty();
+        }
         checkState(!splitsScheduled.get(), "scheduleTask can not be called once splits have been scheduled");
-        return scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of(), totalPartitions);
+        return Optional.of(scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of(), totalPartitions));
     }
 
     public synchronized Set<RemoteTask> scheduleSplits(Node node, Multimap<PlanNodeId, Split> splits, Multimap<PlanNodeId, Lifespan> noMoreSplitsNotification)
@@ -351,6 +375,9 @@ public final class SqlStageExecution
         requireNonNull(node, "node is null");
         requireNonNull(splits, "splits is null");
 
+        if (stateMachine.getState().isDone()) {
+            return ImmutableSet.of();
+        }
         splitsScheduled.set(true);
 
         checkArgument(stateMachine.getFragment().getPartitionedSources().containsAll(splits.keySet()), "Invalid splits");
@@ -495,7 +522,10 @@ public final class SqlStageExecution
     private synchronized void checkAllTaskFinal()
     {
         if (stateMachine.getState().isDone() && tasksWithFinalInfo.containsAll(allTasks)) {
-            stateMachine.setAllTasksFinal();
+            List<TaskInfo> finalTaskInfos = getAllTasks().stream()
+                    .map(RemoteTask::getTaskInfo)
+                    .collect(toImmutableList());
+            stateMachine.setAllTasksFinal(finalTaskInfos);
         }
     }
 

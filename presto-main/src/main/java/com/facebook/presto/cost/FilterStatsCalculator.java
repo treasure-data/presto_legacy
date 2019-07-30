@@ -52,8 +52,8 @@ import java.util.OptionalDouble;
 import static com.facebook.presto.cost.ComparisonStatsCalculator.estimateExpressionToExpressionComparison;
 import static com.facebook.presto.cost.ComparisonStatsCalculator.estimateExpressionToLiteralComparison;
 import static com.facebook.presto.cost.PlanNodeStatsEstimateMath.addStatsAndSumDistinctValues;
-import static com.facebook.presto.cost.PlanNodeStatsEstimateMath.differenceInNonRangeStats;
-import static com.facebook.presto.cost.PlanNodeStatsEstimateMath.differenceInStats;
+import static com.facebook.presto.cost.PlanNodeStatsEstimateMath.capStats;
+import static com.facebook.presto.cost.PlanNodeStatsEstimateMath.subtractSubsetStats;
 import static com.facebook.presto.cost.StatsUtil.toStatsRepresentation;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.sql.ExpressionUtils.and;
@@ -160,7 +160,7 @@ public class FilterStatsCalculator
             if (node.getValue() instanceof IsNullPredicate) {
                 return process(new IsNotNullPredicate(((IsNullPredicate) node.getValue()).getValue()));
             }
-            return differenceInStats(input, process(node.getValue()));
+            return subtractSubsetStats(input, process(node.getValue()));
         }
 
         @Override
@@ -203,7 +203,7 @@ public class FilterStatsCalculator
             if (smallestKnownEstimate.isOutputRowCountUnknown()) {
                 return PlanNodeStatsEstimate.unknown();
             }
-            return normalizer.normalize(smallestKnownEstimate.mapOutputRowCount(rowCount -> rowCount * UNKNOWN_FILTER_COEFFICIENT), types);
+            return smallestKnownEstimate.mapOutputRowCount(rowCount -> rowCount * UNKNOWN_FILTER_COEFFICIENT);
         }
 
         private PlanNodeStatsEstimate estimateLogicalOr(Expression left, Expression right)
@@ -218,12 +218,16 @@ public class FilterStatsCalculator
                 return PlanNodeStatsEstimate.unknown();
             }
 
-            PlanNodeStatsEstimate logicalAndEstimate = new FilterExpressionStatsCalculatingVisitor(leftEstimate, session, types).process(right);
-            if (logicalAndEstimate.isOutputRowCountUnknown()) {
+            PlanNodeStatsEstimate andEstimate = new FilterExpressionStatsCalculatingVisitor(leftEstimate, session, types).process(right);
+            if (andEstimate.isOutputRowCountUnknown()) {
                 return PlanNodeStatsEstimate.unknown();
             }
-            PlanNodeStatsEstimate sumEstimate = addStatsAndSumDistinctValues(leftEstimate, rightEstimate);
-            return differenceInNonRangeStats(sumEstimate, logicalAndEstimate);
+
+            return capStats(
+                    subtractSubsetStats(
+                            addStatsAndSumDistinctValues(leftEstimate, rightEstimate),
+                            andEstimate),
+                    input);
         }
 
         @Override

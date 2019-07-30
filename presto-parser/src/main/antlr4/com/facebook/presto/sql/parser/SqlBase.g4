@@ -79,7 +79,7 @@ statement
         (LIKE pattern=string (ESCAPE escape=string)?)?                 #showSchemas
     | SHOW CATALOGS (LIKE pattern=string)?                             #showCatalogs
     | SHOW COLUMNS (FROM | IN) qualifiedName                           #showColumns
-    | SHOW STATS (FOR | ON) qualifiedName                              #showStats
+    | SHOW STATS FOR qualifiedName                                     #showStats
     | SHOW STATS FOR '(' querySpecification ')'                        #showStatsForQuery
     | DESCRIBE qualifiedName                                           #showColumns
     | DESC qualifiedName                                               #showColumns
@@ -466,7 +466,7 @@ nonReserved
     | MAP | MINUTE | MONTH
     | NFC | NFD | NFKC | NFKD | NO | NULLIF | NULLS
     | ONLY | OPTION | ORDINALITY | OUTPUT | OVER
-    | PARTITION | PARTITIONS | PATH | POSITION | PRECEDING | PRIVILEGES | PROPERTIES | PUBLIC
+    | PARTITION | PARTITIONS | PATH | POSITION | PRECEDING | PRIVILEGES | PROPERTIES
     | RANGE | READ | RENAME | REPEATABLE | REPLACE | RESET | RESTRICT | REVOKE | ROLLBACK | ROW | ROWS
     | SCHEMA | SCHEMAS | SECOND | SERIALIZABLE | SESSION | SET | SETS
     | SHOW | SOME | START | STATS | SUBSTRING | SYSTEM
@@ -600,7 +600,6 @@ PRECEDING: 'PRECEDING';
 PREPARE: 'PREPARE';
 PRIVILEGES: 'PRIVILEGES';
 PROPERTIES: 'PROPERTIES';
-PUBLIC: 'PUBLIC';
 RANGE: 'RANGE';
 READ: 'READ';
 RECURSIVE: 'RECURSIVE';

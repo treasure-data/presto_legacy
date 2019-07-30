@@ -82,6 +82,7 @@ import java.util.function.Consumer;
 
 import static com.facebook.presto.OutputBuffers.BROADCAST_PARTITION_ID;
 import static com.facebook.presto.OutputBuffers.createInitialEmptyOutputBuffers;
+import static com.facebook.presto.execution.scheduler.SqlQueryScheduler.createSqlQueryScheduler;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfInstanceOf;
@@ -208,6 +209,7 @@ public class SqlQueryExecution
             stateMachine.setUpdateType(analysis.getUpdateType());
 
             // when the query finishes cache the final query info, and clear the reference to the output stage
+            AtomicReference<SqlQueryScheduler> queryScheduler = this.queryScheduler;
             stateMachine.addStateChangeListener(state -> {
                 if (!state.isDone()) {
                     return;
@@ -408,7 +410,7 @@ public class SqlQueryExecution
     private PlanRoot doAnalyzeQuery()
     {
         // time analysis phase
-        long analysisStart = System.nanoTime();
+        stateMachine.beginAnalysis();
 
         // plan query
         PlanNodeIdAllocator idAllocator = new PlanNodeIdAllocator();
@@ -425,10 +427,10 @@ public class SqlQueryExecution
         stateMachine.setOutput(output);
 
         // fragment the plan
-        SubPlan fragmentedPlan = planFragmenter.createSubPlans(stateMachine.getSession(), metadata, nodePartitioningManager, plan, false);
+        SubPlan fragmentedPlan = planFragmenter.createSubPlans(stateMachine.getSession(), plan, false);
 
         // record analysis time
-        stateMachine.recordAnalysisTime(analysisStart);
+        stateMachine.endAnalysis();
 
         boolean explainAnalyze = analysis.getStatement() instanceof Explain && ((Explain) analysis.getStatement()).isAnalyze();
         return new PlanRoot(fragmentedPlan, !explainAnalyze, extractConnectors(analysis));
@@ -453,12 +455,12 @@ public class SqlQueryExecution
     private void planDistribution(PlanRoot plan)
     {
         // time distribution planning
-        long distributedPlanningStart = System.nanoTime();
+        stateMachine.beginDistributedPlanning();
 
         // plan the execution on the active nodes
         DistributedExecutionPlanner distributedPlanner = new DistributedExecutionPlanner(splitManager);
         StageExecutionPlan outputStageExecutionPlan = distributedPlanner.plan(plan.getRoot(), stateMachine.getSession());
-        stateMachine.recordDistributedPlanningTime(distributedPlanningStart);
+        stateMachine.endDistributedPlanning();
 
         // ensure split sources are closed
         stateMachine.addStateChangeListener(state -> {
@@ -481,7 +483,7 @@ public class SqlQueryExecution
                 .withNoMoreBufferIds();
 
         // build the stage execution objects (this doesn't schedule execution)
-        SqlQueryScheduler scheduler = new SqlQueryScheduler(
+        SqlQueryScheduler scheduler = createSqlQueryScheduler(
                 stateMachine,
                 locationFactory,
                 outputStageExecutionPlan,

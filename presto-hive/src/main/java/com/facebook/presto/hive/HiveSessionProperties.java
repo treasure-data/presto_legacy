@@ -62,6 +62,7 @@ public final class HiveSessionProperties
     private static final String HIVE_STORAGE_FORMAT = "hive_storage_format";
     private static final String RESPECT_TABLE_FORMAT = "respect_table_format";
     private static final String PARQUET_USE_COLUMN_NAME = "parquet_use_column_names";
+    private static final String PARQUET_FAIL_WITH_CORRUPTED_STATISTICS = "parquet_fail_with_corrupted_statistics";
     private static final String PARQUET_WRITER_BLOCK_SIZE = "parquet_writer_block_size";
     private static final String PARQUET_WRITER_PAGE_SIZE = "parquet_writer_page_size";
     private static final String MAX_SPLIT_SIZE = "max_split_size";
@@ -74,6 +75,7 @@ public final class HiveSessionProperties
     private static final String IGNORE_CORRUPTED_STATISTICS = "ignore_corrupted_statistics";
     private static final String COLLECT_COLUMN_STATISTICS_ON_WRITE = "collect_column_statistics_on_write";
     private static final String OPTIMIZE_MISMATCHED_BUCKET_COUNT = "optimize_mismatched_bucket_count";
+    private static final String S3_SELECT_PUSHDOWN_ENABLED = "s3_select_pushdown_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -225,6 +227,11 @@ public final class HiveSessionProperties
                         "Experimental: Parquet: Access Parquet columns using names from the file",
                         hiveClientConfig.isUseParquetColumnNames(),
                         false),
+                booleanProperty(
+                        PARQUET_FAIL_WITH_CORRUPTED_STATISTICS,
+                        "Parquet: Fail when scanning Parquet files with corrupted statistics",
+                        hiveClientConfig.isFailOnCorruptedParquetStatistics(),
+                        false),
                 dataSizeSessionProperty(
                         PARQUET_WRITER_BLOCK_SIZE,
                         "Parquet: Writer block size",
@@ -284,6 +291,11 @@ public final class HiveSessionProperties
                         OPTIMIZE_MISMATCHED_BUCKET_COUNT,
                         "Experimenal: Enable optimization to avoid shuffle when bucket count is compatible but not the same",
                         hiveClientConfig.isOptimizeMismatchedBucketCount(),
+                                false),
+                booleanProperty(
+                        S3_SELECT_PUSHDOWN_ENABLED,
+                        "S3 Select pushdown enabled",
+                        hiveClientConfig.isS3SelectPushdownEnabled(),
                         false));
     }
 
@@ -409,6 +421,11 @@ public final class HiveSessionProperties
         return session.getProperty(PARQUET_USE_COLUMN_NAME, Boolean.class);
     }
 
+    public static boolean isFailOnCorruptedParquetStatistics(ConnectorSession session)
+    {
+        return session.getProperty(PARQUET_FAIL_WITH_CORRUPTED_STATISTICS, Boolean.class);
+    }
+
     public static DataSize getParquetWriterBlockSize(ConnectorSession session)
     {
         return session.getProperty(PARQUET_WRITER_BLOCK_SIZE, DataSize.class);
@@ -442,6 +459,11 @@ public final class HiveSessionProperties
     public static boolean isSortedWritingEnabled(ConnectorSession session)
     {
         return session.getProperty(SORTED_WRITING_ENABLED, Boolean.class);
+    }
+
+    public static boolean isS3SelectPushdownEnabled(ConnectorSession session)
+    {
+        return session.getProperty(S3_SELECT_PUSHDOWN_ENABLED, Boolean.class);
     }
 
     public static boolean isStatisticsEnabled(ConnectorSession session)

@@ -34,6 +34,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -48,6 +49,7 @@ import static io.airlift.slice.SizeOf.SIZE_OF_SHORT;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
+import static java.util.Arrays.fill;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotSame;
@@ -224,6 +226,14 @@ public abstract class AbstractTestBlock
         long expectedSecondHalfSize = copyBlockViaBlockSerde(secondHalf).getSizeInBytes();
         assertEquals(secondHalf.getSizeInBytes(), expectedSecondHalfSize);
         assertEquals(block.getRegionSizeInBytes(firstHalf.getPositionCount(), secondHalf.getPositionCount()), expectedSecondHalfSize);
+
+        boolean[] positions = new boolean[block.getPositionCount()];
+        fill(positions, 0, firstHalf.getPositionCount(), true);
+        assertEquals(block.getPositionsSizeInBytes(positions), expectedFirstHalfSize);
+        fill(positions, true);
+        assertEquals(block.getPositionsSizeInBytes(positions), expectedBlockSize);
+        fill(positions, 0, firstHalf.getPositionCount(), false);
+        assertEquals(block.getPositionsSizeInBytes(positions), expectedSecondHalfSize);
     }
 
     // expectedValueType is required since otherwise the expected value type is unknown when expectedValue is null.
@@ -449,9 +459,9 @@ public abstract class AbstractTestBlock
         return dynamicSliceOutput.slice();
     }
 
-    protected static Object[] alternatingNullValues(Object[] objects)
+    protected static <T> T[] alternatingNullValues(T[] objects)
     {
-        Object[] objectsWithNulls = (Object[]) Array.newInstance(objects.getClass().getComponentType(), objects.length * 2 + 1);
+        T[] objectsWithNulls = Arrays.copyOf(objects, objects.length * 2 + 1);
         for (int i = 0; i < objects.length; i++) {
             objectsWithNulls[i * 2] = null;
             objectsWithNulls[i * 2 + 1] = objects[i];

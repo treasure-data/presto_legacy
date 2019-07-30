@@ -35,6 +35,7 @@ import com.facebook.presto.cost.CostCalculatorUsingExchanges;
 import com.facebook.presto.cost.CostCalculatorWithEstimatedExchanges;
 import com.facebook.presto.cost.CostComparator;
 import com.facebook.presto.cost.StatsCalculator;
+import com.facebook.presto.cost.TaskCountEstimator;
 import com.facebook.presto.eventlistener.EventListenerManager;
 import com.facebook.presto.execution.CommitTask;
 import com.facebook.presto.execution.CreateTableTask;
@@ -218,6 +219,7 @@ public class LocalQueryRunner
     private final StatsCalculator statsCalculator;
     private final CostCalculator costCalculator;
     private final CostCalculator estimatedExchangesCostCalculator;
+    private final TaskCountEstimator taskCountEstimator;
     private final TestingAccessControlManager accessControl;
     private final SplitManager splitManager;
     private final BlockEncodingManager blockEncodingManager;
@@ -273,7 +275,6 @@ public class LocalQueryRunner
         finalizerService.start();
 
         this.sqlParser = new SqlParser();
-        this.planFragmenter = new PlanFragmenter(new QueryManagerConfig());
         this.nodeManager = new InMemoryNodeManager();
         this.typeRegistry = new TypeRegistry();
         this.pageSorter = new PagesIndexPageSorter(new PagesIndex.TestingFactory(false));
@@ -304,11 +305,13 @@ public class LocalQueryRunner
                 new TablePropertyManager(),
                 new ColumnPropertyManager(),
                 transactionManager);
+        this.planFragmenter = new PlanFragmenter(this.metadata, this.nodePartitioningManager, new QueryManagerConfig());
         this.joinCompiler = new JoinCompiler(metadata, featuresConfig);
         this.pageIndexerFactory = new GroupByHashPageIndexerFactory(joinCompiler);
         this.statsCalculator = createNewStatsCalculator(metadata);
-        this.costCalculator = new CostCalculatorUsingExchanges(() -> nodeCountForStats);
-        this.estimatedExchangesCostCalculator = new CostCalculatorWithEstimatedExchanges(costCalculator, () -> nodeCountForStats);
+        this.taskCountEstimator = new TaskCountEstimator(() -> nodeCountForStats);
+        this.costCalculator = new CostCalculatorUsingExchanges(taskCountEstimator);
+        this.estimatedExchangesCostCalculator = new CostCalculatorWithEstimatedExchanges(costCalculator, taskCountEstimator);
         this.accessControl = new TestingAccessControlManager(transactionManager);
         this.pageSourceManager = new PageSourceManager();
 
@@ -677,7 +680,7 @@ public class LocalQueryRunner
             System.out.println(PlanPrinter.textLogicalPlan(plan.getRoot(), plan.getTypes(), metadata.getFunctionRegistry(), plan.getStatsAndCosts(), session, 0, false));
         }
 
-        SubPlan subplan = planFragmenter.createSubPlans(session, metadata, nodePartitioningManager, plan, true);
+        SubPlan subplan = planFragmenter.createSubPlans(session, plan, true);
         if (!subplan.getChildren().isEmpty()) {
             throw new AssertionError("Expected subplan to have no children");
         }
@@ -810,7 +813,8 @@ public class LocalQueryRunner
                 statsCalculator,
                 costCalculator,
                 estimatedExchangesCostCalculator,
-                new CostComparator(featuresConfig)).get();
+                new CostComparator(featuresConfig),
+                taskCountEstimator).get();
     }
 
     public Plan createPlan(Session session, @Language("SQL") String sql, List<PlanOptimizer> optimizers, WarningCollector warningCollector)
@@ -830,7 +834,6 @@ public class LocalQueryRunner
                 optimizers,
                 planFragmenter,
                 metadata,
-                nodePartitioningManager,
                 accessControl,
                 sqlParser,
                 statsCalculator,

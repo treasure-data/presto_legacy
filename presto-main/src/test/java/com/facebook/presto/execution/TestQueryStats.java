@@ -48,6 +48,7 @@ public class TestQueryStats
                     15L,
                     new Duration(16, NANOSECONDS),
                     new Duration(17, NANOSECONDS),
+                    succinctBytes(18L),
                     succinctBytes(19L),
                     110L,
                     111.0,
@@ -79,6 +80,7 @@ public class TestQueryStats
                     25L,
                     new Duration(26, NANOSECONDS),
                     new Duration(27, NANOSECONDS),
+                    succinctBytes(28L),
                     succinctBytes(29L),
                     210L,
                     211.0,
@@ -110,6 +112,7 @@ public class TestQueryStats
                     35L,
                     new Duration(36, NANOSECONDS),
                     new Duration(37, NANOSECONDS),
+                    succinctBytes(38L),
                     succinctBytes(39L),
                     310L,
                     311.0,
@@ -140,6 +143,7 @@ public class TestQueryStats
             new Duration(6, NANOSECONDS),
             new Duration(5, NANOSECONDS),
             new Duration(31, NANOSECONDS),
+            new Duration(41, NANOSECONDS),
             new Duration(7, NANOSECONDS),
             new Duration(8, NANOSECONDS),
 
@@ -212,7 +216,7 @@ public class TestQueryStats
 
         assertEquals(actual.getElapsedTime(), new Duration(6, NANOSECONDS));
         assertEquals(actual.getQueuedTime(), new Duration(5, NANOSECONDS));
-        assertEquals(actual.getExecutionTime(), new Duration(1, NANOSECONDS));
+        assertEquals(actual.getExecutionTime(), new Duration(41, NANOSECONDS));
         assertEquals(actual.getAnalysisTime(), new Duration(7, NANOSECONDS));
         assertEquals(actual.getDistributedPlanningTime(), new Duration(8, NANOSECONDS));
 

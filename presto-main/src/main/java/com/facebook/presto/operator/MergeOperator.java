@@ -163,7 +163,11 @@ public class MergeOperator
         ExchangeClient exchangeClient = closer.register(exchangeClientSupplier.get(operatorContext.localSystemMemoryContext()));
         exchangeClient.addLocation(location);
         exchangeClient.noMoreLocations();
-        pageProducers.add(exchangeClient.pages().map(pagesSerde::deserialize));
+        pageProducers.add(exchangeClient.pages()
+                .map(serializedPage -> {
+                    operatorContext.recordRawInput(serializedPage.getSizeInBytes());
+                    return pagesSerde.deserialize(serializedPage);
+                }));
 
         return Optional::empty;
     }
@@ -235,7 +239,7 @@ public class MergeOperator
         }
 
         Page page = mergedPages.getResult();
-        operatorContext.recordGeneratedInput(page.getSizeInBytes(), page.getPositionCount());
+        operatorContext.recordProcessedInput(page.getSizeInBytes(), page.getPositionCount());
         return page;
     }
 

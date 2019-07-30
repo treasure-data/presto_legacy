@@ -39,6 +39,7 @@ import org.joda.time.Seconds;
 import org.joda.time.chrono.ISOChronology;
 import org.testng.annotations.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -68,6 +69,7 @@ import static com.facebook.presto.type.IntervalDayTimeType.INTERVAL_DAY_TIME;
 import static com.facebook.presto.util.DateTimeZoneIndex.getDateTimeZone;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
+import static java.time.temporal.ChronoField.MILLI_OF_SECOND;
 import static java.util.Locale.US;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.DAYS;
@@ -113,6 +115,9 @@ public abstract class TestDateTimeFunctionsBase
     protected static final DateTime WEIRD_TIMESTAMP = new DateTime(2001, 8, 22, 3, 4, 5, 321, WEIRD_DATE_TIME_ZONE);
     protected static final String WEIRD_TIMESTAMP_LITERAL = "TIMESTAMP '2001-08-22 03:04:05.321 +07:09'";
     protected static final String WEIRD_TIMESTAMP_ISO8601_STRING = "2001-08-22T03:04:05.321+07:09";
+
+    protected static final String INTERVAL_LITERAL = "INTERVAL '90061.234' SECOND";
+    protected static final Duration DAY_TO_SECOND_INTERVAL = Duration.ofMillis(90061234);
 
     @SuppressWarnings("MemberName")
     private final DateTime TIMESTAMP;
@@ -265,6 +270,7 @@ public abstract class TestDateTimeFunctionsBase
     @Test
     public void testPartFunctions()
     {
+        assertFunction("millisecond(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getMillisOfSecond());
         assertFunction("second(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getSecondOfMinute());
         assertFunction("minute(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getMinuteOfHour());
         assertFunction("hour(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getHourOfDay());
@@ -279,10 +285,13 @@ public abstract class TestDateTimeFunctionsBase
         assertFunction("month(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getMonthOfYear());
         assertFunction("quarter(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getMonthOfYear() / 4 + 1);
         assertFunction("year(" + TIMESTAMP_LITERAL + ")", BIGINT, (long) TIMESTAMP.getYear());
+        assertFunction("timezone_minute(" + TIMESTAMP_LITERAL + ")", BIGINT, 0L);
         assertFunction("timezone_hour(" + TIMESTAMP_LITERAL + ")", BIGINT, -11L);
+
         assertFunction("timezone_hour(localtimestamp)", BIGINT, 14L);
         assertFunction("timezone_hour(current_timestamp)", BIGINT, 14L);
 
+        assertFunction("millisecond(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, (long) WEIRD_TIMESTAMP.getMillisOfSecond());
         assertFunction("second(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, (long) WEIRD_TIMESTAMP.getSecondOfMinute());
         assertFunction("minute(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, (long) WEIRD_TIMESTAMP.getMinuteOfHour());
         assertFunction("hour(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, (long) WEIRD_TIMESTAMP.getHourOfDay());
@@ -299,6 +308,21 @@ public abstract class TestDateTimeFunctionsBase
         assertFunction("year(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, (long) WEIRD_TIMESTAMP.getYear());
         assertFunction("timezone_minute(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, 9L);
         assertFunction("timezone_hour(" + WEIRD_TIMESTAMP_LITERAL + ")", BIGINT, 7L);
+
+        assertFunction("millisecond(" + TIME_LITERAL + ")", BIGINT, TIME.getLong(MILLI_OF_SECOND));
+        assertFunction("second(" + TIME_LITERAL + ")", BIGINT, (long) TIME.getSecond());
+        assertFunction("minute(" + TIME_LITERAL + ")", BIGINT, (long) TIME.getMinute());
+        assertFunction("hour(" + TIME_LITERAL + ")", BIGINT, (long) TIME.getHour());
+
+        assertFunction("millisecond(" + WEIRD_TIME_LITERAL + ")", BIGINT, WEIRD_TIME.getLong(MILLI_OF_SECOND));
+        assertFunction("second(" + WEIRD_TIME_LITERAL + ")", BIGINT, (long) WEIRD_TIME.getSecond());
+        assertFunction("minute(" + WEIRD_TIME_LITERAL + ")", BIGINT, (long) WEIRD_TIME.getMinute());
+        assertFunction("hour(" + WEIRD_TIME_LITERAL + ")", BIGINT, (long) WEIRD_TIME.getHour());
+
+        assertFunction("millisecond(" + INTERVAL_LITERAL + ")", BIGINT, (long) DAY_TO_SECOND_INTERVAL.getNano() / 1_000_000);
+        assertFunction("second(" + INTERVAL_LITERAL + ")", BIGINT, DAY_TO_SECOND_INTERVAL.getSeconds() % 60);
+        assertFunction("minute(" + INTERVAL_LITERAL + ")", BIGINT, DAY_TO_SECOND_INTERVAL.getSeconds() / 60 % 60);
+        assertFunction("hour(" + INTERVAL_LITERAL + ")", BIGINT, DAY_TO_SECOND_INTERVAL.getSeconds() / 3600 % 24);
     }
 
     @Test
@@ -733,37 +757,37 @@ public abstract class TestDateTimeFunctionsBase
         assertFunction("date_format(" + dateTimeLiteral + ", '%4')", VARCHAR, "4");
         assertFunction("date_format(" + dateTimeLiteral + ", '%x %v')", VARCHAR, "2001 02");
 
-        String wierdDateTimeLiteral = "TIMESTAMP '2001-01-09 13:04:05.321 +07:09'";
+        String weirdDateTimeLiteral = "TIMESTAMP '2001-01-09 13:04:05.321 +07:09'";
 
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%a')", VARCHAR, "Tue");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%b')", VARCHAR, "Jan");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%c')", VARCHAR, "1");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%d')", VARCHAR, "09");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%e')", VARCHAR, "9");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%f')", VARCHAR, "321000");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%H')", VARCHAR, "13");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%h')", VARCHAR, "01");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%I')", VARCHAR, "01");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%i')", VARCHAR, "04");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%j')", VARCHAR, "009");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%k')", VARCHAR, "13");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%l')", VARCHAR, "1");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%M')", VARCHAR, "January");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%m')", VARCHAR, "01");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%p')", VARCHAR, "PM");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%r')", VARCHAR, "01:04:05 PM");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%S')", VARCHAR, "05");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%s')", VARCHAR, "05");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%T')", VARCHAR, "13:04:05");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%v')", VARCHAR, "02");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%W')", VARCHAR, "Tuesday");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%Y')", VARCHAR, "2001");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%y')", VARCHAR, "01");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%%')", VARCHAR, "%");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", 'foo')", VARCHAR, "foo");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%g')", VARCHAR, "g");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%4')", VARCHAR, "4");
-        assertFunction("date_format(" + wierdDateTimeLiteral + ", '%x %v')", VARCHAR, "2001 02");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%a')", VARCHAR, "Tue");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%b')", VARCHAR, "Jan");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%c')", VARCHAR, "1");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%d')", VARCHAR, "09");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%e')", VARCHAR, "9");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%f')", VARCHAR, "321000");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%H')", VARCHAR, "13");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%h')", VARCHAR, "01");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%I')", VARCHAR, "01");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%i')", VARCHAR, "04");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%j')", VARCHAR, "009");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%k')", VARCHAR, "13");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%l')", VARCHAR, "1");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%M')", VARCHAR, "January");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%m')", VARCHAR, "01");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%p')", VARCHAR, "PM");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%r')", VARCHAR, "01:04:05 PM");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%S')", VARCHAR, "05");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%s')", VARCHAR, "05");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%T')", VARCHAR, "13:04:05");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%v')", VARCHAR, "02");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%W')", VARCHAR, "Tuesday");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%Y')", VARCHAR, "2001");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%y')", VARCHAR, "01");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%%')", VARCHAR, "%");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", 'foo')", VARCHAR, "foo");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%g')", VARCHAR, "g");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%4')", VARCHAR, "4");
+        assertFunction("date_format(" + weirdDateTimeLiteral + ", '%x %v')", VARCHAR, "2001 02");
 
         assertFunction("date_format(TIMESTAMP '2001-01-09 13:04:05.32', '%f')", VARCHAR, "320000");
         assertFunction("date_format(TIMESTAMP '2001-01-09 00:04:05.32', '%k')", VARCHAR, "0");

@@ -155,7 +155,7 @@ public class TestMemoryTracking
             fail("allocation should hit the per-node total memory limit");
         }
         catch (ExceededMemoryLimitException e) {
-            assertEquals(e.getMessage(), format("Query exceeded per-node total memory limit of %s", queryMaxTotalMemory));
+            assertEquals(e.getMessage(), format("Query exceeded per-node total memory limit of %1$s when increasing allocation of %1$s by 1B", queryMaxTotalMemory));
         }
     }
 
@@ -326,6 +326,16 @@ public class TestMemoryTracking
                 100_000_000,
                 0,
                 0);
+    }
+
+    @Test
+    public void testTrySetZeroBytesFullPool()
+    {
+        LocalMemoryContext localMemoryContext = operatorContext.localUserMemoryContext();
+        // fill up the pool
+        memoryPool.reserve(new QueryId("test_query"), "test", memoryPool.getFreeBytes());
+        // try to reserve 0 bytes in the full pool
+        assertTrue(localMemoryContext.trySetBytes(localMemoryContext.getBytes()));
     }
 
     @Test

@@ -80,6 +80,7 @@ public class TestHiveClientConfig
                 .setWriteValidationThreads(16)
                 .setTextMaxLineLength(new DataSize(100, Unit.MEGABYTE))
                 .setUseParquetColumnNames(false)
+                .setFailOnCorruptedParquetStatistics(true)
                 .setUseOrcColumnNames(false)
                 .setAssumeCanonicalPartitionKeys(false)
                 .setOrcBloomFiltersEnabled(false)
@@ -111,7 +112,10 @@ public class TestHiveClientConfig
                 .setRecordingPath(null)
                 .setRecordingDuration(new Duration(0, TimeUnit.MINUTES))
                 .setReplay(false)
-                .setCollectColumnStatisticsOnWrite(false));
+                .setCollectColumnStatisticsOnWrite(false)
+                .setCollectColumnStatisticsOnWrite(false)
+                .setS3SelectPushdownEnabled(false)
+                .setS3SelectPushdownMaxConnections(500));
     }
 
     @Test
@@ -160,6 +164,7 @@ public class TestHiveClientConfig
                 .put("hive.assume-canonical-partition-keys", "true")
                 .put("hive.text.max-line-length", "13MB")
                 .put("hive.parquet.use-column-names", "true")
+                .put("hive.parquet.fail-on-corrupted-statistics", "false")
                 .put("hive.orc.use-column-names", "true")
                 .put("hive.orc.bloom-filters.enabled", "true")
                 .put("hive.orc.default-bloom-filter-fpp", "0.96")
@@ -192,6 +197,8 @@ public class TestHiveClientConfig
                 .put("hive.metastore-recoding-duration", "42s")
                 .put("hive.replay-metastore-recording", "true")
                 .put("hive.collect-column-statistics-on-write", "true")
+                .put("hive.s3select-pushdown.enabled", "true")
+                .put("hive.s3select-pushdown.max-connections", "1234")
                 .build();
 
         HiveClientConfig expected = new HiveClientConfig()
@@ -236,6 +243,7 @@ public class TestHiveClientConfig
                 .setS3FileSystemType(S3FileSystemType.EMRFS)
                 .setTextMaxLineLength(new DataSize(13, Unit.MEGABYTE))
                 .setUseParquetColumnNames(true)
+                .setFailOnCorruptedParquetStatistics(false)
                 .setUseOrcColumnNames(true)
                 .setAssumeCanonicalPartitionKeys(true)
                 .setOrcBloomFiltersEnabled(true)
@@ -268,7 +276,10 @@ public class TestHiveClientConfig
                 .setRecordingPath("/foo/bar")
                 .setRecordingDuration(new Duration(42, TimeUnit.SECONDS))
                 .setReplay(true)
-                .setCollectColumnStatisticsOnWrite(true);
+                .setCollectColumnStatisticsOnWrite(true)
+                .setCollectColumnStatisticsOnWrite(true)
+                .setS3SelectPushdownEnabled(true)
+                .setS3SelectPushdownMaxConnections(1234);
 
         ConfigAssertions.assertFullMapping(properties, expected);
     }

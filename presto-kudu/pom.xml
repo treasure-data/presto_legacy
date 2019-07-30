@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.facebook.presto</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.214</version>
+        <version>0.216</version>
     </parent>
 
     <artifactId>presto-kudu</artifactId>
@@ -13,7 +13,7 @@
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-        <kudu.version>1.7.0</kudu.version>
+        <kudu.version>1.8.0</kudu.version>
     </properties>
 
     <dependencies>
@@ -51,6 +51,12 @@
         <dependency>
             <groupId>joda-time</groupId>
             <artifactId>joda-time</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>joda-to-java-time-bridge</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>
@@ -173,4 +179,25 @@
             </build>
         </profile>
     </profiles>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!-- optional dependency of kudu-client needed only for javadoc build -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <configuration>
+                        <additionalDependencies>
+                            <additionalDependency>
+                                <groupId>org.apache.yetus</groupId>
+                                <artifactId>audience-annotations</artifactId>
+                                <version>0.8.0</version>
+                            </additionalDependency>
+                        </additionalDependencies>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
 </project>

@@ -57,7 +57,8 @@ public class GenericHiveRecordCursorProvider
             List<HiveColumnHandle> columns,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             DateTimeZone hiveStorageTimeZone,
-            TypeManager typeManager)
+            TypeManager typeManager,
+            boolean s3SelectPushdownEnabled)
     {
         // make sure the FileSystem is created with the proper Configuration object
         try {

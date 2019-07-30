@@ -116,9 +116,7 @@ public class LegacyQueryContext
     private synchronized ListenableFuture<?> updateUserMemory(String allocationTag, long delta)
     {
         if (delta >= 0) {
-            if (queryMemoryContext.getUserMemory() + delta > maxMemory) {
-                throw exceededLocalUserMemoryLimit(succinctBytes(maxMemory));
-            }
+            enforceUserMemoryLimit(queryMemoryContext.getUserMemory(), delta, maxMemory);
             return memoryPool.reserve(queryId, allocationTag, delta);
         }
         memoryPool.free(queryId, allocationTag, -delta);
@@ -164,7 +162,11 @@ public class LegacyQueryContext
     {
         if (delta <= 0) {
             ListenableFuture<?> future = updateUserMemory(allocationTag, delta);
-            verify(future.isDone(), "future should be done");
+            // When delta == 0 and the pool is full the future can still not be done,
+            // but, for negative deltas it must always be done.
+            if (delta < 0) {
+                verify(future.isDone(), "future should be done");
+            }
             return true;
         }
         if (queryMemoryContext.getUserMemory() + delta > maxMemory) {
@@ -286,5 +288,12 @@ public class LegacyQueryContext
     private boolean tryReserveMemoryNotSupported(String allocationTag, long bytes)
     {
         throw new UnsupportedOperationException("tryReserveMemory is not supported");
+    }
+
+    private static void enforceUserMemoryLimit(long allocated, long delta, long maxMemory)
+    {
+        if (allocated + delta > maxMemory) {
+            throw exceededLocalUserMemoryLimit(succinctBytes(maxMemory), succinctBytes(allocated), succinctBytes(delta));
+        }
     }
 }

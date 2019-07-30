@@ -67,6 +67,7 @@ public class FeaturesConfig
     private DataSize joinMaxBroadcastTableSize;
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionForAggregationEnabled;
+    private boolean dynamicScheduleForGroupedExecution;
     private int concurrentLifespansPerTask;
     private boolean spatialJoinsEnabled = true;
     private boolean fastInequalityJoins = true;
@@ -108,6 +109,7 @@ public class FeaturesConfig
     private boolean iterativeOptimizerEnabled = true;
     private boolean enableStatsCalculator = true;
     private boolean ignoreStatsCalculatorFailures = true;
+    private boolean defaultFilterFactorEnabled;
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
@@ -313,6 +315,19 @@ public class FeaturesConfig
     public FeaturesConfig setGroupedExecutionForAggregationEnabled(boolean groupedExecutionForAggregationEnabled)
     {
         this.groupedExecutionForAggregationEnabled = groupedExecutionForAggregationEnabled;
+        return this;
+    }
+
+    public boolean isDynamicScheduleForGroupedExecutionEnabled()
+    {
+        return dynamicScheduleForGroupedExecution;
+    }
+
+    @Config("dynamic-schedule-for-grouped-execution")
+    @ConfigDescription("Experimental: Use dynamic schedule for grouped execution when possible")
+    public FeaturesConfig setDynamicScheduleForGroupedExecutionEnabled(boolean dynamicScheduleForGroupedExecution)
+    {
+        this.dynamicScheduleForGroupedExecution = dynamicScheduleForGroupedExecution;
         return this;
     }
 
@@ -618,6 +633,18 @@ public class FeaturesConfig
         return this;
     }
 
+    @Config("optimizer.default-filter-factor-enabled")
+    public FeaturesConfig setDefaultFilterFactorEnabled(boolean defaultFilterFactorEnabled)
+    {
+        this.defaultFilterFactorEnabled = defaultFilterFactorEnabled;
+        return this;
+    }
+
+    public boolean isDefaultFilterFactorEnabled()
+    {
+        return defaultFilterFactorEnabled;
+    }
+
     public DataSize getAggregationOperatorUnspillMemoryLimit()
     {
         return aggregationOperatorUnspillMemoryLimit;
@@ -639,7 +666,7 @@ public class FeaturesConfig
     public FeaturesConfig setSpillerSpillPaths(String spillPaths)
     {
         List<String> spillPathsSplit = ImmutableList.copyOf(Splitter.on(",").trimResults().omitEmptyStrings().split(spillPaths));
-        this.spillerSpillPaths = spillPathsSplit.stream().map(path -> Paths.get(path)).collect(toImmutableList());
+        this.spillerSpillPaths = spillPathsSplit.stream().map(Paths::get).collect(toImmutableList());
         return this;
     }
 

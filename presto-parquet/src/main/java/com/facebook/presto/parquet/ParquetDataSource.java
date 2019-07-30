@@ -19,7 +19,11 @@ import java.io.IOException;
 public interface ParquetDataSource
         extends Closeable
 {
+    ParquetDataSourceId getId();
+
     long getReadBytes();
+
+    long getReadTimeNanos();
 
     long getSize();
 

@@ -25,6 +25,7 @@ import io.airlift.units.DataSize;
 import java.util.List;
 import java.util.function.Supplier;
 
+import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
@@ -32,6 +33,7 @@ public class FilterAndProjectOperator
         implements Operator
 {
     private final OperatorContext operatorContext;
+    private final LocalMemoryContext pageProcessorMemoryContext;
     private final LocalMemoryContext outputMemoryContext;
 
     private final PageProcessor processor;
@@ -45,6 +47,7 @@ public class FilterAndProjectOperator
     {
         this.processor = requireNonNull(processor, "processor is null");
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
+        this.pageProcessorMemoryContext = newSimpleAggregatedMemoryContext().newLocalMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
         this.outputMemoryContext = operatorContext.newLocalSystemMemoryContext(FilterAndProjectOperator.class.getSimpleName());
         this.mergingOutput = requireNonNull(mergingOutput, "mergingOutput is null");
     }
@@ -85,8 +88,12 @@ public class FilterAndProjectOperator
         requireNonNull(page, "page is null");
         checkState(mergingOutput.needsInput(), "Page buffer is full");
 
-        mergingOutput.addInput(processor.process(operatorContext.getSession().toConnectorSession(), operatorContext.getDriverContext().getYieldSignal(), page));
-        outputMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes());
+        mergingOutput.addInput(processor.process(
+                operatorContext.getSession().toConnectorSession(),
+                operatorContext.getDriverContext().getYieldSignal(),
+                pageProcessorMemoryContext,
+                page));
+        outputMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes() + pageProcessorMemoryContext.getBytes());
     }
 
     @Override

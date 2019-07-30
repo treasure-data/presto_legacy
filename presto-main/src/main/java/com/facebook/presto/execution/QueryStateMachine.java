@@ -84,19 +84,13 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.units.DataSize.succinctBytes;
-import static io.airlift.units.Duration.succinctNanos;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 @ThreadSafe
 public class QueryStateMachine
 {
     public static final Logger QUERY_STATE_LOG = Logger.get(QueryStateMachine.class);
-
-    private final DateTime createTime = DateTime.now();
-    private final long createNanos;
-    private final AtomicLong endNanos = new AtomicLong();
 
     private final QueryId queryId;
     private final String query;
@@ -104,7 +98,6 @@ public class QueryStateMachine
     private final URI self;
     private final Optional<ResourceGroupId> resourceGroup;
     private final TransactionManager transactionManager;
-    private final Ticker ticker;
     private final Metadata metadata;
     private final QueryOutputManager outputManager;
 
@@ -119,22 +112,7 @@ public class QueryStateMachine
 
     private final AtomicLong peakTaskTotalMemory = new AtomicLong();
 
-    private final AtomicReference<DateTime> lastHeartbeat = new AtomicReference<>(DateTime.now());
-    private final AtomicReference<DateTime> executionStartTime = new AtomicReference<>();
-    private final AtomicReference<DateTime> endTime = new AtomicReference<>();
-
-    private final AtomicReference<Duration> queuedTime = new AtomicReference<>();
-    private final AtomicReference<Duration> analysisTime = new AtomicReference<>();
-    private final AtomicReference<Duration> distributedPlanningTime = new AtomicReference<>();
-
-    private final AtomicReference<Long> finishingStartNanos = new AtomicReference<>();
-    private final AtomicReference<Duration> finishingTime = new AtomicReference<>();
-
-    private final AtomicReference<Long> totalPlanningStartNanos = new AtomicReference<>();
-    private final AtomicReference<Duration> totalPlanningTime = new AtomicReference<>();
-
-    private final AtomicReference<Long> resourceWaitingStartNanos = new AtomicReference<>();
-    private final AtomicReference<Duration> resourceWaitingTime = new AtomicReference<>();
+    private final QueryStateTimer queryStateTimer;
 
     private final StateMachine<QueryState> queryState;
 
@@ -178,9 +156,8 @@ public class QueryStateMachine
         this.self = requireNonNull(self, "self is null");
         this.resourceGroup = requireNonNull(resourceGroup, "resourceGroup is null");
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
-        this.ticker = ticker;
+        this.queryStateTimer = new QueryStateTimer(ticker);
         this.metadata = requireNonNull(metadata, "metadata is null");
-        this.createNanos = tickerNanos();
 
         this.queryState = new StateMachine<>("query " + query, executor, QUEUED, TERMINAL_QUERY_STATES);
         this.finalQueryInfo = new StateMachine<>("finalQueryInfo-" + queryId, executor, Optional.empty());
@@ -299,14 +276,6 @@ public class QueryStateMachine
         // never be visible.
         QueryState state = queryState.get();
 
-        Duration elapsedTime;
-        if (endNanos.get() != 0) {
-            elapsedTime = new Duration(endNanos.get() - createNanos, NANOSECONDS);
-        }
-        else {
-            elapsedTime = nanosSince(createNanos);
-        }
-
         ErrorCode errorCode = null;
         if (state == FAILED) {
             ExecutionFailureInfo failureCause = this.failureCause.get();
@@ -315,22 +284,13 @@ public class QueryStateMachine
             }
         }
 
-        Duration queuedTime = this.queuedTime.get();
-
-        Duration executionTime = new Duration(0, NANOSECONDS);
-        // if queue time is not set, the query is still queued
-        if (queuedTime != null) {
-            long executionNanos = (long) elapsedTime.getValue(NANOSECONDS) - (long) queuedTime.getValue(NANOSECONDS);
-            executionTime = succinctNanos(Math.max(0, executionNanos));
-        }
-
         BasicStageStats stageStats = rootStage.orElse(EMPTY_STAGE_STATS);
         BasicQueryStats queryStats = new BasicQueryStats(
-                createTime,
-                executionStartTime.get(),
-                queuedTime,
-                elapsedTime.convertToMostSuccinctTimeUnit(),
-                executionTime,
+                queryStateTimer.getCreateTime(),
+                getEndTime().orElse(null),
+                queryStateTimer.getQueuedTime(),
+                queryStateTimer.getElapsedTime(),
+                queryStateTimer.getExecutionTime(),
 
                 stageStats.getTotalDrivers(),
                 stageStats.getQueuedDrivers(),
@@ -387,7 +347,8 @@ public class QueryStateMachine
         boolean completeInfo = getAllStages(rootStage).stream().allMatch(StageInfo::isCompleteInfo);
         boolean isScheduled = isScheduled(rootStage);
 
-        return new QueryInfo(queryId,
+        return new QueryInfo(
+                queryId,
                 session.toSessionRepresentation(),
                 state,
                 memoryPool.get().getId(),
@@ -418,14 +379,6 @@ public class QueryStateMachine
 
     private QueryStats getQueryStats(Optional<StageInfo> rootStage)
     {
-        Duration elapsedTime;
-        if (endNanos.get() != 0) {
-            elapsedTime = new Duration(endNanos.get() - createNanos, NANOSECONDS);
-        }
-        else {
-            elapsedTime = nanosSince(createNanos);
-        }
-
         int totalTasks = 0;
         int runningTasks = 0;
         int completedTasks = 0;
@@ -511,18 +464,19 @@ public class QueryStateMachine
         boolean isScheduled = isScheduled(rootStage);
 
         return new QueryStats(
-                createTime,
-                executionStartTime.get(),
-                lastHeartbeat.get(),
-                endTime.get(),
+                queryStateTimer.getCreateTime(),
+                getExecutionStartTime().orElse(null),
+                getLastHeartbeat(),
+                getEndTime().orElse(null),
 
-                elapsedTime.convertToMostSuccinctTimeUnit(),
-                queuedTime.get(),
-                resourceWaitingTime.get(),
-                analysisTime.get(),
-                distributedPlanningTime.get(),
-                totalPlanningTime.get(),
-                finishingTime.get(),
+                queryStateTimer.getElapsedTime(),
+                queryStateTimer.getQueuedTime(),
+                queryStateTimer.getResourceWaitingTime(),
+                queryStateTimer.getExecutionTime(),
+                queryStateTimer.getAnalysisTime(),
+                queryStateTimer.getDistributedPlanningTime(),
+                queryStateTimer.getPlanningTime(),
+                queryStateTimer.getFinishingTime(),
 
                 totalTasks,
                 runningTasks,
@@ -698,53 +652,31 @@ public class QueryStateMachine
 
     public boolean transitionToWaitingForResources()
     {
-        queuedTime.compareAndSet(null, nanosSince(createNanos).convertToMostSuccinctTimeUnit());
-        resourceWaitingStartNanos.compareAndSet(null, tickerNanos());
-        return queryState.compareAndSet(QUEUED, WAITING_FOR_RESOURCES);
+        queryStateTimer.beginWaitingForResources();
+        return queryState.setIf(WAITING_FOR_RESOURCES, currentState -> currentState.ordinal() < WAITING_FOR_RESOURCES.ordinal());
     }
 
     public boolean transitionToPlanning()
     {
-        queuedTime.compareAndSet(null, nanosSince(createNanos).convertToMostSuccinctTimeUnit());
-        resourceWaitingStartNanos.compareAndSet(null, tickerNanos());
-        resourceWaitingTime.compareAndSet(null, nanosSince(resourceWaitingStartNanos.get()).convertToMostSuccinctTimeUnit());
-        totalPlanningStartNanos.compareAndSet(null, tickerNanos());
-        return queryState.setIf(PLANNING, currentState -> currentState == QUEUED || currentState == WAITING_FOR_RESOURCES);
+        queryStateTimer.beginPlanning();
+        return queryState.setIf(PLANNING, currentState -> currentState.ordinal() < PLANNING.ordinal());
     }
 
     public boolean transitionToStarting()
     {
-        queuedTime.compareAndSet(null, nanosSince(createNanos).convertToMostSuccinctTimeUnit());
-        resourceWaitingStartNanos.compareAndSet(null, tickerNanos());
-        resourceWaitingTime.compareAndSet(null, nanosSince(resourceWaitingStartNanos.get()).convertToMostSuccinctTimeUnit());
-        totalPlanningStartNanos.compareAndSet(null, tickerNanos());
-        totalPlanningTime.compareAndSet(null, nanosSince(totalPlanningStartNanos.get()));
-
-        return queryState.setIf(STARTING, currentState -> currentState == QUEUED || currentState == PLANNING);
+        queryStateTimer.beginStarting();
+        return queryState.setIf(STARTING, currentState -> currentState.ordinal() < STARTING.ordinal());
     }
 
     public boolean transitionToRunning()
     {
-        queuedTime.compareAndSet(null, nanosSince(createNanos).convertToMostSuccinctTimeUnit());
-        resourceWaitingStartNanos.compareAndSet(null, tickerNanos());
-        resourceWaitingTime.compareAndSet(null, nanosSince(resourceWaitingStartNanos.get()).convertToMostSuccinctTimeUnit());
-        totalPlanningStartNanos.compareAndSet(null, tickerNanos());
-        totalPlanningTime.compareAndSet(null, nanosSince(totalPlanningStartNanos.get()));
-        executionStartTime.compareAndSet(null, DateTime.now());
-
-        return queryState.setIf(RUNNING, currentState -> currentState != RUNNING && currentState != FINISHING && !currentState.isDone());
+        queryStateTimer.beginRunning();
+        return queryState.setIf(RUNNING, currentState -> currentState.ordinal() < RUNNING.ordinal());
     }
 
     public boolean transitionToFinishing()
     {
-        queuedTime.compareAndSet(null, nanosSince(createNanos).convertToMostSuccinctTimeUnit());
-        resourceWaitingStartNanos.compareAndSet(null, tickerNanos());
-        resourceWaitingTime.compareAndSet(null, nanosSince(resourceWaitingStartNanos.get()).convertToMostSuccinctTimeUnit());
-        totalPlanningStartNanos.compareAndSet(null, tickerNanos());
-        totalPlanningTime.compareAndSet(null, nanosSince(totalPlanningStartNanos.get()));
-        DateTime now = DateTime.now();
-        executionStartTime.compareAndSet(null, now);
-        finishingStartNanos.compareAndSet(null, tickerNanos());
+        queryStateTimer.beginFinishing();
 
         if (!queryState.setIf(FINISHING, currentState -> currentState != FINISHING && !currentState.isDone())) {
             return false;
@@ -777,7 +709,7 @@ public class QueryStateMachine
     private void transitionToFinished()
     {
         cleanupQueryQuietly();
-        recordDoneStats();
+        queryStateTimer.endQuery();
 
         queryState.setIf(FINISHED, currentState -> !currentState.isDone());
     }
@@ -785,7 +717,7 @@ public class QueryStateMachine
     public boolean transitionToFailed(Throwable throwable)
     {
         cleanupQueryQuietly();
-        recordDoneStats();
+        queryStateTimer.endQuery();
 
         // NOTE: The failure cause must be set before triggering the state change, so
         // listeners can observe the exception. This is safe because the failure cause
@@ -815,7 +747,7 @@ public class QueryStateMachine
     public boolean transitionToCanceled()
     {
         cleanupQueryQuietly();
-        recordDoneStats();
+        queryStateTimer.endQuery();
 
         // NOTE: The failure cause must be set before triggering the state change, so
         // listeners can observe the exception. This is safe because the failure cause
@@ -847,26 +779,21 @@ public class QueryStateMachine
         }
     }
 
-    private void recordDoneStats()
-    {
-        Duration durationSinceCreation = nanosSince(createNanos).convertToMostSuccinctTimeUnit();
-        queuedTime.compareAndSet(null, durationSinceCreation);
-        resourceWaitingTime.compareAndSet(null, succinctNanos(0));
-        totalPlanningStartNanos.compareAndSet(null, tickerNanos());
-        totalPlanningTime.compareAndSet(null, nanosSince(totalPlanningStartNanos.get()));
-        DateTime now = DateTime.now();
-        executionStartTime.compareAndSet(null, now);
-        finishingStartNanos.compareAndSet(null, tickerNanos());
-        finishingTime.compareAndSet(null, nanosSince(finishingStartNanos.get()));
-        endTime.compareAndSet(null, now);
-        endNanos.compareAndSet(0, tickerNanos());
-    }
-
+    /**
+     * Listener is always notified asynchronously using a dedicated notification thread pool so, care should
+     * be taken to avoid leaking {@code this} when adding a listener in a constructor. Additionally, it is
+     * possible notifications are observed out of order due to the asynchronous execution.
+     */
     public void addStateChangeListener(StateChangeListener<QueryState> stateChangeListener)
     {
         queryState.addStateChangeListener(stateChangeListener);
     }
 
+    /**
+     * Add a listener for the final query info.  This notification is guaranteed to be fired only once.
+     * Listener is always notified asynchronously using a dedicated notification thread pool so, care should
+     * be taken to avoid leaking {@code this} when adding a listener in a constructor.
+     */
     public void addQueryInfoStateChangeListener(StateChangeListener<QueryInfo> stateChangeListener)
     {
         AtomicBoolean done = new AtomicBoolean();
@@ -876,7 +803,6 @@ public class QueryStateMachine
             }
         };
         finalQueryInfo.addStateChangeListener(fireOnceStateChangeListener);
-        fireOnceStateChangeListener.stateChanged(finalQueryInfo.get());
     }
 
     public ListenableFuture<QueryState> getStateChange(QueryState currentState)
@@ -886,37 +812,47 @@ public class QueryStateMachine
 
     public void recordHeartbeat()
     {
-        this.lastHeartbeat.set(DateTime.now());
+        queryStateTimer.recordHeartbeat();
     }
 
-    public void recordAnalysisTime(long analysisStart)
+    public void beginAnalysis()
     {
-        analysisTime.compareAndSet(null, nanosSince(analysisStart).convertToMostSuccinctTimeUnit());
+        queryStateTimer.beginAnalyzing();
     }
 
-    public void recordDistributedPlanningTime(long distributedPlanningStart)
+    public void endAnalysis()
     {
-        distributedPlanningTime.compareAndSet(null, nanosSince(distributedPlanningStart).convertToMostSuccinctTimeUnit());
+        queryStateTimer.endAnalysis();
+    }
+
+    public void beginDistributedPlanning()
+    {
+        queryStateTimer.beginDistributedPlanning();
+    }
+
+    public void endDistributedPlanning()
+    {
+        queryStateTimer.endDistributedPlanning();
     }
 
     public DateTime getCreateTime()
     {
-        return createTime;
+        return queryStateTimer.getCreateTime();
     }
 
     public Optional<DateTime> getExecutionStartTime()
     {
-        return Optional.ofNullable(executionStartTime.get());
+        return queryStateTimer.getExecutionStartTime();
     }
 
     public DateTime getLastHeartbeat()
     {
-        return lastHeartbeat.get();
+        return queryStateTimer.getLastHeartbeat();
     }
 
     public Optional<DateTime> getEndTime()
     {
-        return Optional.ofNullable(endTime.get());
+        return queryStateTimer.getEndTime();
     }
 
     private static boolean isScheduled(Optional<StageInfo> rootStage)
@@ -1011,6 +947,7 @@ public class QueryStateMachine
                 queryStats.getElapsedTime(),
                 queryStats.getQueuedTime(),
                 queryStats.getResourceWaitingTime(),
+                queryStats.getExecutionTime(),
                 queryStats.getAnalysisTime(),
                 queryStats.getDistributedPlanningTime(),
                 queryStats.getTotalPlanningTime(),
@@ -1044,16 +981,6 @@ public class QueryStateMachine
                 queryStats.getPhysicalWrittenDataSize(),
                 queryStats.getStageGcStatistics(),
                 ImmutableList.of()); // Remove the operator summaries as OperatorInfo (especially ExchangeClientStatus) can hold onto a large amount of memory
-    }
-
-    private long tickerNanos()
-    {
-        return ticker.read();
-    }
-
-    private Duration nanosSince(long start)
-    {
-        return succinctNanos(tickerNanos() - start);
     }
 
     public static class QueryOutputManager

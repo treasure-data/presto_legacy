@@ -18,6 +18,7 @@ import com.facebook.presto.cost.CostCalculator;
 import com.facebook.presto.cost.CostCalculatorUsingExchanges;
 import com.facebook.presto.cost.CostCalculatorWithEstimatedExchanges;
 import com.facebook.presto.cost.CostComparator;
+import com.facebook.presto.cost.TaskCountEstimator;
 import com.facebook.presto.execution.QueryManagerConfig;
 import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
@@ -334,7 +335,8 @@ public abstract class AbstractTestQueryFramework
         Metadata metadata = queryRunner.getMetadata();
         FeaturesConfig featuresConfig = new FeaturesConfig().setOptimizeHashGeneration(true);
         boolean forceSingleNode = queryRunner.getNodeCount() == 1;
-        CostCalculator costCalculator = new CostCalculatorUsingExchanges(queryRunner::getNodeCount);
+        TaskCountEstimator taskCountEstimator = new TaskCountEstimator(queryRunner::getNodeCount);
+        CostCalculator costCalculator = new CostCalculatorUsingExchanges(taskCountEstimator);
         List<PlanOptimizer> optimizers = new PlanOptimizers(
                 metadata,
                 sqlParser,
@@ -345,13 +347,13 @@ public abstract class AbstractTestQueryFramework
                 queryRunner.getPageSourceManager(),
                 queryRunner.getStatsCalculator(),
                 costCalculator,
-                new CostCalculatorWithEstimatedExchanges(costCalculator, queryRunner::getNodeCount),
-                new CostComparator(featuresConfig)).get();
+                new CostCalculatorWithEstimatedExchanges(costCalculator, taskCountEstimator),
+                new CostComparator(featuresConfig),
+                taskCountEstimator).get();
         return new QueryExplainer(
                 optimizers,
-                new PlanFragmenter(new QueryManagerConfig()),
+                new PlanFragmenter(metadata, queryRunner.getNodePartitioningManager(), new QueryManagerConfig()),
                 metadata,
-                queryRunner.getNodePartitioningManager(),
                 queryRunner.getAccessControl(),
                 sqlParser,
                 queryRunner.getStatsCalculator(),

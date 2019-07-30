@@ -59,6 +59,7 @@ public final class SystemSessionProperties
     public static final String DISTRIBUTED_INDEX_JOIN = "distributed_index_join";
     public static final String HASH_PARTITION_COUNT = "hash_partition_count";
     public static final String GROUPED_EXECUTION_FOR_AGGREGATION = "grouped_execution_for_aggregation";
+    public static final String DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION = "dynamic_schedule_for_grouped_execution";
     public static final String PREFER_STREAMING_OPERATORS = "prefer_streaming_operators";
     public static final String TASK_WRITER_COUNT = "task_writer_count";
     public static final String TASK_CONCURRENCY = "task_concurrency";
@@ -106,7 +107,7 @@ public final class SystemSessionProperties
     public static final String FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT = "filter_and_project_min_output_page_row_count";
     public static final String DISTRIBUTED_SORT = "distributed_sort";
     public static final String USE_MARK_DISTINCT = "use_mark_distinct";
-    public static final String PREFER_PARTITIAL_AGGREGATION = "prefer_partial_aggregation";
+    public static final String PREFER_PARTIAL_AGGREGATION = "prefer_partial_aggregation";
     public static final String OPTIMIZE_TOP_N_ROW_NUMBER = "optimize_top_n_row_number";
     public static final String MAX_GROUPING_SETS = "max_grouping_sets";
     public static final String LEGACY_UNNEST = "legacy_unnest";
@@ -114,6 +115,7 @@ public final class SystemSessionProperties
     public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
     public static final String IGNORE_STATS_CALCULATOR_FAILURES = "ignore_stats_calculator_failures";
     public static final String MAX_DRIVERS_PER_TASK = "max_drivers_per_task";
+    public static final String DEFAULT_FILTER_FACTOR_ENABLED = "default_filter_factor_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -181,6 +183,11 @@ public final class SystemSessionProperties
                         "Use grouped execution for aggregation when possible",
                         featuresConfig.isGroupedExecutionForAggregationEnabled(),
                         false),
+                booleanProperty(
+                        DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION,
+                        "Experimental: Use dynamic schedule for grouped execution when possible",
+                        false,
+                        featuresConfig.isDynamicScheduleForGroupedExecutionEnabled()),
                 booleanProperty(
                         PREFER_STREAMING_OPERATORS,
                         "Prefer source table layouts that produce streaming operators",
@@ -489,7 +496,7 @@ public final class SystemSessionProperties
                         featuresConfig.isUseMarkDistinct(),
                         false),
                 booleanProperty(
-                        PREFER_PARTITIAL_AGGREGATION,
+                        PREFER_PARTIAL_AGGREGATION,
                         "Prefer splitting aggregations into partial and final stages",
                         featuresConfig.isPreferPartialAggregation(),
                         false),
@@ -531,6 +538,11 @@ public final class SystemSessionProperties
                         IGNORE_STATS_CALCULATOR_FAILURES,
                         "Ignore statistics calculator failures",
                         featuresConfig.isIgnoreStatsCalculatorFailures(),
+                        false),
+                booleanProperty(
+                        DEFAULT_FILTER_FACTOR_ENABLED,
+                        "use a default filter factor for unknown filters in a filter node",
+                        featuresConfig.isDefaultFilterFactorEnabled(),
                         false));
     }
 
@@ -581,6 +593,11 @@ public final class SystemSessionProperties
     public static boolean isGroupedExecutionForAggregationEnabled(Session session)
     {
         return session.getSystemProperty(GROUPED_EXECUTION_FOR_AGGREGATION, Boolean.class);
+    }
+
+    public static boolean isDynamicSchduleForGroupedExecution(Session session)
+    {
+        return session.getSystemProperty(DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION, Boolean.class);
     }
 
     public static boolean preferStreamingOperators(Session session)
@@ -824,7 +841,7 @@ public final class SystemSessionProperties
 
     public static boolean preferPartialAggregation(Session session)
     {
-        return session.getSystemProperty(PREFER_PARTITIAL_AGGREGATION, Boolean.class);
+        return session.getSystemProperty(PREFER_PARTIAL_AGGREGATION, Boolean.class);
     }
 
     public static boolean isOptimizeTopNRowNumber(Session session)
@@ -902,5 +919,10 @@ public final class SystemSessionProperties
     public static boolean isIgnoreStatsCalculatorFailures(Session session)
     {
         return session.getSystemProperty(IGNORE_STATS_CALCULATOR_FAILURES, Boolean.class);
+    }
+
+    public static boolean isDefaultFilterFactorEnabled(Session session)
+    {
+        return session.getSystemProperty(DEFAULT_FILTER_FACTOR_ENABLED, Boolean.class);
     }
 }
